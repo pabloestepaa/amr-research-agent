@@ -1,0 +1,46 @@
+from amr_agent.rag import NO_EVIDENCE, RagService, extract_citations
+from amr_agent.retrieval import rrf_fuse
+from tests.fakes import FakeLLM, FakeRetriever, make_hit
+
+
+def test_rrf_rewards_documents_ranked_well_in_both_lists():
+    a, b, c = make_hit("a"), make_hit("b"), make_hit("c")
+    fused = rrf_fuse([[a, b, c], [b, c, a]], top_n=3)
+    # b: 1/62 + 1/61 > a: 1/61 + 1/63
+    assert [h.pmid for h in fused] == ["b", "a", "c"]
+
+
+def test_rrf_respects_top_n_and_handles_disjoint_lists():
+    fused = rrf_fuse([[make_hit("a")], [make_hit("b")]], top_n=1)
+    assert len(fused) == 1
+
+
+def test_extract_citations_dedupes_in_order():
+    text = "X [PMID:2] and Y [PMID: 1]. Again [PMID:2]."
+    assert extract_citations(text) == ["2", "1"]
+
+
+async def test_answer_keeps_valid_citations_and_flags_hallucinated_ones():
+    llm = FakeLLM("mcr-1 confers colistin resistance [PMID:1001]. Also [PMID:9999].")
+    rag = RagService(FakeRetriever([make_hit("1001"), make_hit("1002")]), llm)
+
+    result = await rag.ask("colistin?")
+
+    assert [c.pmid for c in result.citations] == ["1001"]
+    assert result.invalid_citations == ["9999"]
+    assert len(result.sources) == 2
+    assert result.citations[0].url == "https://pubmed.ncbi.nlm.nih.gov/1001/"
+    assert "[PMID:1002]" in llm.calls[0][1]  # las fuentes llegan al prompt
+
+
+async def test_no_hits_skips_the_llm():
+    llm = FakeLLM("should not be called")
+    result = await RagService(FakeRetriever([]), llm).ask("anything?")
+    assert result.answer == NO_EVIDENCE
+    assert llm.calls == []
+
+
+async def test_k_and_mode_are_forwarded_to_the_retriever():
+    retriever = FakeRetriever([make_hit("1")])
+    await RagService(retriever, FakeLLM("ok [PMID:1]")).ask("q?", k=3, mode="keyword")
+    assert retriever.calls == [("q?", 3, "keyword")]
