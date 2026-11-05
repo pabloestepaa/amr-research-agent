@@ -38,9 +38,12 @@ Browser ──► Render (FastAPI + demo page + embeddings) ──► Neon (pgve
   `AGENT_ENABLED=false` skips it entirely to save memory. `NCBI_API_KEY` (optional) raises
   `amr-mcp`'s NCBI limit from 3 to 10 requests per second.
 - **Startup log.** Each start logs one line with the time per phase and the memory in use, e.g.
-  `Startup 20.1 s (db 1.2 s, model 12.3 s, amr-mcp 6.5 s) · agent on · RSS api 331 MB (peak 352 MB)
-  + children 95 MB = 426 MB`. Render Free has no memory metrics, so this is the way to see how
-  close the service is to 512 MB. Connecting to Neon times out after 10 s, so an unreachable
-  database makes the deploy fail fast instead of hanging at "Waiting for application startup".
+  `Startup 18.2 s (db 0.7 s, model 5.3 s, amr-mcp 12.2 s) · agent on · container 368 MB
+  (peak … MB) of 512 MB · RSS api 354 MB, children 95 MB`. Render Free has no memory metrics,
+  so this is the way to see how close the service is to its limit. The `container` figure comes
+  from the cgroup and is what the limit applies to; the per-process RSS shows the split between
+  the API and `amr-mcp` but cannot be added up, because both count the shared libraries.
+  Connecting to Neon times out after 10 s, so an unreachable database makes the deploy fail fast
+  instead of hanging at "Waiting for application startup".
 - **Updating the corpus.** Ingest locally (`amr-ingest`), check the evals, then run `amr-copy-db`
   again: it upserts by PMID and refreshes the keyword statistics.
