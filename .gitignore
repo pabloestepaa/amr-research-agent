@@ -13,3 +13,4 @@ wheels/
 .env
 .ruff_cache/
 .pytest_cache/
+CLAUDE.local.md
