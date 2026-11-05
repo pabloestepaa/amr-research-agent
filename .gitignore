@@ -14,3 +14,6 @@ wheels/
 .ruff_cache/
 .pytest_cache/
 CLAUDE.local.md
+
+# resultados de evals generados en CI
+evals/results/*_ci.json

@@ -21,6 +21,10 @@ dependencies = [
 
 [project.scripts]
 amr-ingest = "amr_agent.ingest.cli:main"
+amr-eval-build = "amr_agent.evals.build:main"
+amr-eval-retrieval = "amr_agent.evals.retrieval_eval:main"
+amr-eval-answers = "amr_agent.evals.answers_eval:main"
+amr-eval-report = "amr_agent.evals.report:main"
 
 [build-system]
 requires = ["uv_build>=0.13.7,<0.14.0"]

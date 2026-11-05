@@ -1,0 +1,4 @@
+{
+  "hybrid": {"recall@5": 0.80, "mrr": 0.60},
+  "vector": {"recall@5": 0.85, "mrr": 0.75}
+}

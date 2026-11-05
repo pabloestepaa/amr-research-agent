@@ -38,13 +38,16 @@ class HashingEmbedder:
 
 
 class FakeLLM:
-    def __init__(self, reply: str) -> None:
-        self.reply = reply
+    """Devuelve siempre `reply`; si se le da una lista, una respuesta por llamada."""
+
+    def __init__(self, reply: str | list[str]) -> None:
+        self.replies = [reply] if isinstance(reply, str) else list(reply)
         self.calls: list[tuple[str, str]] = []
 
-    async def complete(self, system: str, user: str) -> Completion:
+    async def complete(self, system: str, user: str, *, json_mode: bool = False) -> Completion:
         self.calls.append((system, user))
-        return Completion(self.reply, "fake-model", 100, 20, 1.0)
+        reply = self.replies[min(len(self.calls), len(self.replies)) - 1]
+        return Completion(reply, "fake-model", 100, 20, 1.0)
 
 
 class FakeRetriever:

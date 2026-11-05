@@ -1,0 +1,76 @@
+# Tests + lint + evals de búsqueda en cada push y PR. No usa claves ni gasta cuota de LLM.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: amr_agent_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      DATABASE_URL_TEST: postgresql://postgres:postgres@localhost:5432/amr_agent_test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - run: uv sync --locked
+      - run: uv run ruff check .
+      - run: uv run pytest -q
+
+  retrieval-evals:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: amr_agent_eval
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      DATABASE_URL_EVAL: postgresql://postgres:postgres@localhost:5432/amr_agent_eval
+      FASTEMBED_CACHE_PATH: /home/runner/.cache/fastembed
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - run: uv sync --locked
+      - name: Cache embedding model
+        uses: actions/cache@v4
+        with:
+          path: /home/runner/.cache/fastembed
+          key: fastembed-bge-small-en-v1.5
+      # Carga el snapshot (evals/corpus.jsonl), mide recall@k/MRR/nDCG y falla si alguna
+      # métrica baja de evals/thresholds.json.
+      - run: uv run amr-eval-retrieval --load-corpus --check --name retrieval_ci
+      - name: Job summary
+        if: always()
+        run: |
+          uv run python -c "import json; from amr_agent.evals.report import retrieval_table; \
+          print(retrieval_table(json.load(open('evals/results/retrieval_ci.json'))))" \
+          >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: retrieval-eval
+          path: evals/results/retrieval_ci.json

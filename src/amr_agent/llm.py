@@ -22,22 +22,31 @@ class Completion:
 
 
 class LLMClient(Protocol):
-    async def complete(self, system: str, user: str) -> Completion: ...
+    async def complete(self, system: str, user: str, *, json_mode: bool = False) -> Completion:
+        ...
 
 
 class OpenAICompatibleLLM:
-    def __init__(self, base_url: str, api_key: str, model: str, timeout_s: float = 30.0) -> None:
+    def __init__(
+        self, base_url: str, api_key: str, model: str, timeout_s: float = 30.0,
+        max_retries: int = 2,
+    ) -> None:
+        # El SDK reintenta solo los 429 y 5xx respetando la cabecera `retry-after`. En la API
+        # bastan 2 reintentos; las evals usan más porque mandan muchas peticiones seguidas.
         self._client = AsyncOpenAI(
-            base_url=base_url, api_key=api_key or "missing", timeout=timeout_s, max_retries=2
+            base_url=base_url, api_key=api_key or "missing", timeout=timeout_s,
+            max_retries=max_retries,
         )
         self.model = model
 
-    async def complete(self, system: str, user: str) -> Completion:
+    async def complete(self, system: str, user: str, *, json_mode: bool = False) -> Completion:
         start = time.perf_counter()
+        extra = {"response_format": {"type": "json_object"}} if json_mode else {}
         resp = await self._client.chat.completions.create(
             model=self.model,
             temperature=0.0,  # respuestas lo más deterministas posible: mejor para evaluar
             messages=[{"role": "system", "content": system}, {"role": "user", "content": user}],
+            **extra,
         )
         usage = resp.usage
         return Completion(
