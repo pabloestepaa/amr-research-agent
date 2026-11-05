@@ -155,3 +155,92 @@ depending on matching pgvector versions.
 **Why.** No frontend build, no second service to host and no CORS. The model's answer is
 HTML-escaped before citations and bold/italic are turned into markup, so model output can never
 inject HTML into the page.
+
+## 20. A tool-calling agent with a hand-written loop (2026-11-05)
+**Context.** `/ask` can only answer from the indexed abstracts. Questions such as "in which species
+is blaKPC-2 found most often?" need databases: NCBI's Reference Gene Catalog and its sequence
+records, which the author's `amr-mcp` server already exposes.
+**Decision.** A `/agent` endpoint where the model chooses tools through OpenAI-compatible tool
+calling, in a loop of about 100 lines (`agent.py`): call the model, run the requested tools (in
+parallel when it asks for several), append the results, repeat. The response includes the full
+trajectory: every tool, its arguments, errors, truncation and latency.
+**Why not LangGraph, PydanticAI or the OpenAI Agents SDK.** The loop is small enough to read in one
+sitting, every message sent to the model is visible, and the same `ChatLLM` protocol is easy to
+replace with a scripted fake in tests. A framework would pay off with persistent state, branching
+graphs or human-in-the-loop steps, none of which this agent needs.
+
+## 21. amr-mcp through a real MCP client (2026-11-05)
+**Decision.** The API starts `amr-mcp` once, as a stdio subprocess, in the FastAPI lifespan
+(`AsyncExitStack` closes it on shutdown), and `McpTools` turns the server's tool list into agent
+tools by converting each MCP `inputSchema` into an OpenAI `parameters` schema. Nothing in that
+class is specific to AMR: it works with any MCP server.
+**Why.** The project shows both sides of the protocol: the server published on PyPI and a client
+that consumes it. The server stays a separate process with its own dependencies and cache.
+**Cost.** The subprocess uses about 95 MB once the gene catalog is loaded. The whole container
+(API + subprocess) measured 367 MiB of Render's 512 MiB in CI, up from 274 MiB. If memory becomes
+tight, the same `mcp.Client` can connect to the server in-process, which is what the tests do.
+**Failure mode.** If `amr-mcp` cannot start, the API still starts: `/ask` and `/search` keep
+working and `/agent` answers 503 without spending the visitor's quota. The NCBI catalog is baked
+into the Docker image, like the embedding model, so the first question does not download it.
+
+## 22. Few tools, compact results (2026-11-05)
+**Context.** Groq's free tier allows 8,000 tokens per minute, and an agent re-sends the whole
+history, including every tool schema and result, on each step. One `search_amr_genes` call
+returned about 10,000 characters.
+**Decision.** An allowlist of four `amr-mcp` tools (`search_amr_genes`, `get_amr_gene`,
+`get_protein_hosts`, `get_pubmed_references`) plus `search_literature`. Excluded: `run_amrfinder`
+(it reads file paths on the server), `fetch_sequence` (a FASTA is thousands of tokens that do not
+help answer) and the UniProt tools. Results are serialised as compact JSON, fields the model never
+needs are dropped, and ranked lists are halved until the result fits in 6,000 characters, so the
+JSON stays valid and the least relevant items go first.
+**Errors are data.** A failing tool (unknown gene, NCBI returning 500, invalid JSON arguments)
+returns `ERROR: ...` to the model instead of raising, so it can correct itself; `amr-mcp`'s own
+hint ("try search_amr_genes for a fuzzy match") reaches the model unchanged.
+
+## 23. Literature as a tool, citations checked across all tools (2026-11-05)
+**Decision.** `search_literature` returns abstracts (up to 1,500 characters each) with their
+PMIDs, not an answer from the RAG pipeline: a nested LLM call would double the tokens and add a
+second place to hallucinate. A `[PMID:x]` citation is valid only if some tool returned that PMID
+(literature hits, a catalog entry's references, or PubMed metadata). Facts from databases are
+attributed in the text ("according to the NCBI Reference Gene Catalog") rather than with a second
+citation format.
+**Language.** The prompt asks the agent to query the literature in English whatever the language
+of the question and to answer in the question's language, a cheap workaround for the English-only
+embedding model (decision 4). Two Spanish tasks in the agent evals check it.
+
+## 24. Limits that end in an answer, not an error (2026-11-05)
+**Decision.** At most 5 steps, a 12,000-token budget per question and 4 tool calls per step. When a
+limit is reached, the agent makes one last call with `tool_choice="none"` and an instruction to
+answer with what it has; `stop_reason` records why it stopped. `/agent` has its own, stricter
+quota: 2 questions per minute per IP and 15 per day, since each one costs 3–4 times an `/ask`.
+
+## 25. gpt-oss-120b for the agent, not gpt-oss-20b (2026-11-05)
+**Measured.** On the same question, `gpt-oss-120b` chained `get_amr_gene("mcr-1")` and then
+`get_protein_hosts` with the accession taken from the first result. `gpt-oss-20b` wrapped its
+arguments in an extra object (`{"arguments": {...}, "name": ...}`), repeated the same call three
+times and ended with a 400 "Parsing failed" from Groq.
+**Decision.** The larger model runs the agent; the smaller one stays as the answer-eval judge,
+where it only has to return JSON.
+
+## 26. Fail fast on LLM rate limits in the API (2026-11-05)
+**Context.** With Groq's daily quota exhausted, `/ask` and `/agent` took about 35 s to return 503:
+the OpenAI SDK honours a `Retry-After` of up to two minutes on every retry, so a visitor watched a
+spinner only to get an error.
+**Decision.** `OpenAICompatibleLLM` retries 429, 5xx and network errors itself (the SDK's own
+retries are off) and only when the wait the server asks for is short: at most 5 s in the API,
+120 s in the evals, which can afford to wait. The 503 now arrives in under half a second.
+**Testing note.** OpenAI SDK 3.x is built on `httpx2`, not `httpx`, so `respx` does not intercept
+it; the tests pass an `httpx2` client with a `MockTransport` instead.
+
+## 27. Trajectory evals with deterministic rules and recorded tools (2026-11-05)
+**Context.** For an agent, a correct final answer is not enough evidence: it may come from the
+wrong tool, or from the right tool with the wrong arguments.
+**Decision.** 22 reviewed tasks (`evals/golden_agent.jsonl`) state the tools each one needs, the
+argument values that prove the chain worked (the `WP_` accession read from the catalog), the facts
+the answer must contain, the abstract the literature search should find, or that it must refuse.
+Scoring is rule-based, with no LLM judge, so a trajectory always gets the same score. The
+`amr-mcp` responses are recorded once and replayed (`evals/agent_cassette.jsonl`), so an NCBI
+outage or a catalog update cannot change the result; only successful responses are recorded.
+**Cost.** About 130,000 tokens per full run, most of Groq's daily budget, so it runs by hand
+(`amr-eval-agent`, `agent-evals.yml`) and supports `--only` and `--resume`. The agent loop itself
+is tested on every push with a scripted LLM against the real tools (`amr-mcp` in-process).

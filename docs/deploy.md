@@ -30,5 +30,12 @@ Browser ──► Render (FastAPI + demo page + embeddings) ──► Neon (pgve
   Neon also scales to zero, which adds about a second.
 - **Quota.** `/ask` is limited to 5 questions per minute per IP and 50 per day in total
   (`ASK_PER_IP_PER_MINUTE`, `ASK_PER_DAY`), to protect Groq's free daily token budget.
+  `/agent` costs 3–4 times as much per question and has its own limits: 2 per minute per IP and
+  15 per day (`AGENT_PER_IP_PER_MINUTE`, `AGENT_PER_DAY`).
+- **Agent.** The API starts `amr-mcp` as a subprocess at startup (about 95 MB with the gene catalog
+  loaded; the container measured 367 MiB of 512 MiB in CI). If it fails to start, `/ask` and
+  `/search` still work and `/agent` returns 503: check the logs for "Could not start amr-mcp".
+  `AGENT_ENABLED=false` skips it entirely to save memory. `NCBI_API_KEY` (optional) raises
+  `amr-mcp`'s NCBI limit from 3 to 10 requests per second.
 - **Updating the corpus.** Ingest locally (`amr-ingest`), check the evals, then run `amr-copy-db`
   again: it upserts by PMID and refreshes the keyword statistics.
