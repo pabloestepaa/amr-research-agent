@@ -73,3 +73,10 @@ def test_summarize_separates_in_scope_and_out_of_scope():
     assert s["abstention_accuracy"] == 0.5
     assert s["citation_validity"] == 0.75
     assert s["context_hit_rate"] == 0.5
+
+
+def test_only_the_daily_token_limit_stops_the_run():
+    from amr_agent.evals.answers_eval import is_daily_limit
+
+    assert is_daily_limit(Exception("Rate limit reached ... on tokens per day (TPD)"))
+    assert not is_daily_limit(Exception("Rate limit reached ... on tokens per minute (TPM)"))

@@ -6,7 +6,7 @@ Two kinds of evaluation, with different cost and cadence:
 |---|---|---|
 | What | recall@k, MRR, nDCG@10 for `hybrid`, `vector`, `keyword` | faithfulness, relevance, citation validity, abstention |
 | How | deterministic, local embeddings, no LLM | the RAG pipeline + an LLM judge (`openai/gpt-oss-20b`) |
-| Cost | free, ~1 min | Groq free-tier quota, ~20–30 min (8k tokens/min limit) |
+| Cost | free, ~1 min | ~150k tokens and ~25 min: Groq Free allows 8k tokens/min and 200k/day per model, so about one full run per day (`--resume` continues an interrupted run) |
 | When | every push and PR ([ci.yml](../.github/workflows/ci.yml)), fails below [thresholds.json](thresholds.json) | manual or weekly ([answer-evals.yml](../.github/workflows/answer-evals.yml)) |
 
 Latest numbers: [RESULTS.md](RESULTS.md).
@@ -18,7 +18,7 @@ Latest numbers: [RESULTS.md](RESULTS.md).
   `out_of_scope` (the system must refuse). Each in-scope question has the PMID(s) that answer it.
   Generated semi-automatically (`amr-eval-build questions`: an LLM proposes one question per
   sampled abstract) and then reviewed by hand (`reviewed` field).
-- `corpus.jsonl` — a 315-abstract snapshot used in CI instead of the full 3,000-abstract
+- `corpus.jsonl` — a 354-abstract snapshot used in CI instead of the full 3,000-abstract
   corpus: the relevant abstracts plus **hard negatives** (the top results of every search mode
   for every question on the full corpus), built with `amr-eval-build snapshot`.
   Random distractors would make the task trivially easy.
@@ -49,20 +49,31 @@ uv run amr-eval-report                                            # regenerates 
 - **Data.** The snapshot stores titles and abstracts from PubMed for non-commercial evaluation
   only; abstracts may be copyrighted by their publishers. Each record links back to its PMID.
 
-## What the first run (2026-11-05) found
+## What the evals found (2026-11-05)
 
-- **Hybrid retrieval is not the best mode here.** `vector` beats `hybrid` on recall@5 (0.86 vs
-  0.83) and MRR (0.78 vs 0.63) on the full corpus. Keyword search is weak (MRR 0.34) and equal
-  weighting in RRF drags hybrid down on paraphrased questions (recall@5 0.58 vs 0.83); hybrid only
-  wins on exact gene names (1.00 vs 0.83). A weighted fusion or a reranker is the next experiment.
-- **Every wrong refusal was a retrieval miss.** All 6 in-scope questions the model refused were
-  ones where the relevant abstract was not retrieved, so the generator abstained honestly instead of
-  guessing; the fix belongs in retrieval, not in the prompt.
+- **The first run showed hybrid search losing to vector search** (MRR 0.66 vs 0.78 on the full
+  corpus), because keyword search was weak (MRR 0.35): Postgres full-text ranking has no IDF, so
+  words found in every abstract ("resistance", "coli") dominated. Dropping query terms present in
+  more than 10% of abstracts fixed it (decision 14 in [docs/decisions.md](../docs/decisions.md)):
+
+  | full corpus (2,999 abstracts) | keyword MRR | hybrid MRR | hybrid recall@5 | hybrid recall@10 |
+  |---|---|---|---|---|
+  | before | 0.35 | 0.66 | 0.81 | 0.86 |
+  | after (`max_df=0.1`) | 0.61 | 0.80 | 0.86 | 0.97 |
+  | vector only, for reference | — | 0.78 | 0.86 | 0.86 |
+
+  Down-weighting keyword search in RRF never beat vector-only search. A cross-encoder reranker
+  reached MRR 0.85 but needs ~4 s and >1 GB per query, too much for Render Free (decision 15).
+- **Every wrong refusal in the first answer run was a retrieval miss.** All 6 in-scope questions
+  the model refused were ones where the relevant abstract was not retrieved, so the generator
+  abstained honestly instead of guessing; the fix belongs in retrieval, not in the prompt.
 - **One out-of-scope leak.** Asked how COVID-19 mRNA vaccines work, the model answered from its
   own knowledge and cited an unrelated (but retrieved) abstract, so citation validation did not
   catch it. Candidate fixes: judge out-of-scope answers for faithfulness too, or refuse when the
   retrieval scores are low.
 - Faithfulness 0.96: the few unsupported claims are small additions (e.g. "myricetin is a
   plant-derived polyphenol") rather than invented findings. No hallucinated PMIDs.
+- The answer results in RESULTS.md were measured **before** the keyword fix (`max_df=1.0`); a
+  rerun is pending because the first rerun hit Groq's daily token limit.
 - Latency in the answer evals (p50 ~22 s) is dominated by waiting for Groq's free-tier
   token-per-minute limit; it is not representative of a single `/ask`.

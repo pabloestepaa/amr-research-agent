@@ -25,6 +25,11 @@ class Settings(BaseSettings):
     embedding_threads: int = 1
 
     top_k: int = 5
+    # Búsqueda por palabras clave: se ignoran los términos presentes en más del 10 % de los
+    # abstracts (ver retrieval.py y docs/decisions.md, decisión 14). 1.0 = no ignorar ninguno.
+    keyword_max_df: float = 0.1
+    # Peso de la lista de palabras clave en la fusión RRF (la vectorial pesa 1.0).
+    keyword_weight: float = 1.0
 
     # NCBI E-utilities: la API key es opcional (sube el límite de 3 a 10 peticiones/s).
     ncbi_api_key: str | None = None

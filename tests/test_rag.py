@@ -53,3 +53,10 @@ async def test_k_and_mode_are_forwarded_to_the_retriever():
     retriever = FakeRetriever([make_hit("1")])
     await RagService(retriever, FakeLLM("ok [PMID:1]")).ask("q?", k=3, mode="keyword")
     assert retriever.calls == [("q?", 3, "keyword")]
+
+
+def test_rrf_weights_let_one_ranking_dominate():
+    a, b = make_hit("a"), make_hit("b")
+    # a gana en la primera lista y b en la segunda; con peso 0.5 en la segunda, gana a.
+    fused = rrf_fuse([[a, b], [b, a]], top_n=2, weights=[1.0, 0.5])
+    assert [h.pmid for h in fused] == ["a", "b"]

@@ -2,7 +2,7 @@ import os
 
 import pytest
 
-from amr_agent.db import apply_schema_async, make_pool, upsert_articles
+from amr_agent.db import apply_schema_async, make_pool, refresh_term_stats, upsert_articles
 from amr_agent.ingest.pubmed import Article
 from amr_agent.retrieval import Retriever
 from tests.fakes import HashingEmbedder
@@ -30,7 +30,7 @@ async def retriever():
     from pgvector.psycopg import register_vector
 
     with psycopg.connect(url) as conn:
-        conn.execute("drop table if exists documents")
+        conn.execute("drop table if exists documents, term_stats")
         conn.commit()
     await apply_schema_async(url)
     embedder = HashingEmbedder()
@@ -38,8 +38,10 @@ async def retriever():
         register_vector(conn)
         upsert_articles(conn, CORPUS, embedder.embed_documents(
             [a.text_for_embedding() for a in CORPUS]))
+        refresh_term_stats(conn)
 
     pool = make_pool(url, max_size=2)
     await pool.open()
-    yield Retriever(pool, embedder)
+    # max_df=1.0: con 3 documentos casi todos los términos superan el 10 %.
+    yield Retriever(pool, embedder, max_df=1.0)
     await pool.close()

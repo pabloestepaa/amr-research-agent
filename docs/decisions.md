@@ -95,3 +95,27 @@ with JSON output. The judge splits the answer into claims and checks each one ag
 abstracts the answer cites; faithfulness is supported / total claims. Abstentions are not judged.
 **Why.** A different model avoids grading its own output, and on Groq each model has its own
 token budget, so judging does not slow generation down further.
+
+## 14. Keyword search ignores corpus-wide terms (2026-11-05)
+**Context.** The first retrieval evals showed hybrid search losing to plain vector search (MRR
+0.66 vs 0.78 on the full corpus). The cause was keyword search (MRR 0.35): Postgres `ts_rank_cd`
+has no inverse document frequency, so in a corpus where every abstract says "resistance" and
+"Escherichia coli", the abstracts that repeat common words outrank the ones that match the rare,
+informative term.
+**Decision.** A `term_stats` table stores each lexeme's document frequency (refreshed after every
+ingestion with `ts_stat`, under a second for 3,000 abstracts). Query terms present in more than 10%
+of abstracts are dropped before the OR query is built.
+**Result (full corpus, 36 questions).** Keyword MRR 0.35 → 0.61; hybrid MRR 0.66 → 0.80 and
+recall@10 0.86 → 0.97, now ahead of vector search (0.78), and keeping its edge on exact gene names.
+**Alternatives tried.** Down-weighting the keyword list in RRF only moved hybrid towards
+vector-only search: it never beat it. A true BM25 extension (ParadeDB `pg_search`) is not
+available on Neon Free.
+**Caveat.** `max_df` (0.1) was chosen on the same 36 questions it is measured on. Results on two
+halves of the set (MRR 0.83 and 0.76) suggest it is not a fluke, but the gain is an estimate.
+
+## 15. No cross-encoder reranker for now (2026-11-05)
+**Measured.** Re-ranking the top 20 hybrid candidates with `ms-marco-MiniLM-L-6-v2` (fastembed)
+raised MRR to 0.85 and recall@5 to 0.92, but took ~4 s per query on an M-series laptop and pushed
+the process's peak memory above 1 GB.
+**Decision.** Not shipped: Render Free has 512 MB and a tenth of a CPU, so a single query would
+take tens of seconds. Worth revisiting with paid hosting or a hosted rerank API.

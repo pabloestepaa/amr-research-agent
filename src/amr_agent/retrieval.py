@@ -39,43 +39,63 @@ order by embedding <=> %(qvec)s
 limit %(k)s
 """
 
-# plainto_tsquery une los términos con AND ('a' & 'b'); una pregunta en lenguaje natural casi
-# nunca contiene todas sus palabras en un abstract, así que lo convertimos en OR ('a' | 'b')
-# y dejamos que ts_rank_cd premie a los documentos que cubren más términos.
+# Postgres no tiene IDF: `ts_rank_cd` puntúa igual un término que sale en todos los abstracts
+# ("resistance", "coli") que uno raro ("blaNDM-5"). En un corpus temático eso hunde la búsqueda
+# por palabras clave: gana el documento que repite más palabras comunes. Arreglo barato: quitar
+# de la consulta los lexemas cuya frecuencia documental (`term_stats.df`, fracción de abstracts
+# que lo contienen) supera `max_df`, y unir los que quedan con OR.
+# Si `term_stats` está vacía, no se descarta nada (coalesce a 0).
 KEYWORD_SQL = """
-with q as (
-    select to_tsquery('english',
-        replace(plainto_tsquery('english', %(q)s)::text, ' & ', ' | ')) as query
+with terms as (
+    select t.word
+    from unnest(tsvector_to_array(to_tsvector('english', %(q)s))) as t(word)
+    left join term_stats s on s.word = t.word
+    where coalesce(s.df, 0) <= %(max_df)s
+),
+q as (
+    select string_agg(quote_literal(word), ' | ')::tsquery as query from terms
 )
 select d.pmid, d.title, d.abstract, d.journal, d.year, ts_rank_cd(d.tsv, q.query) as score
 from documents d, q
-where d.tsv @@ q.query
+where q.query is not null and d.tsv @@ q.query
 order by score desc
 limit %(k)s
 """
 
 
-def rrf_fuse(rankings: list[list[Hit]], top_n: int, k: int = 60) -> list[Hit]:
-    """Reciprocal Rank Fusion: score(d) = sum(1 / (k + posición de d en cada lista)).
+def rrf_fuse(
+    rankings: list[list[Hit]], top_n: int, k: int = 60, weights: list[float] | None = None
+) -> list[Hit]:
+    """Reciprocal Rank Fusion: score(d) = Σ w_i / (k + posición de d en la lista i).
 
     Solo usa posiciones, no puntuaciones: así podemos mezclar una similitud coseno (0-1)
     con un ts_rank (escala arbitraria) sin tener que normalizarlas. k=60 es el valor del
     paper original (Cormack et al., 2009) y amortigua el peso de los primeros puestos.
+    Los pesos `w_i` (1.0 por defecto) permiten fiarse más de una lista que de otra.
     """
+    weights = weights or [1.0] * len(rankings)
+    if len(weights) != len(rankings):
+        raise ValueError("one weight per ranking")
     scores: dict[str, float] = {}
     first_seen: dict[str, Hit] = {}
-    for ranking in rankings:
+    for ranking, weight in zip(rankings, weights, strict=True):
         for rank, hit in enumerate(ranking, start=1):
-            scores[hit.pmid] = scores.get(hit.pmid, 0.0) + 1.0 / (k + rank)
+            scores[hit.pmid] = scores.get(hit.pmid, 0.0) + weight / (k + rank)
             first_seen.setdefault(hit.pmid, hit)
     ordered = sorted(scores, key=lambda pmid: (-scores[pmid], pmid))
     return [replace(first_seen[pmid], score=scores[pmid]) for pmid in ordered[:top_n]]
 
 
 class Retriever:
-    def __init__(self, pool: AsyncConnectionPool, embedder: Embedder) -> None:
+    def __init__(
+        self, pool: AsyncConnectionPool, embedder: Embedder, keyword_weight: float = 1.0,
+        max_df: float = 0.1,
+    ) -> None:
         self._pool = pool
         self._embedder = embedder
+        # Peso de la lista de palabras clave en la fusión (la vectorial pesa 1.0).
+        self.keyword_weight = keyword_weight
+        self.max_df = max_df  # 1.0 = no descartar ningún término
 
     async def _vector(self, query: str, k: int) -> list[Hit]:
         # Calcular el embedding usa CPU y es síncrono: lo mandamos a un hilo para no
@@ -84,7 +104,7 @@ class Retriever:
         return await self._fetch(VECTOR_SQL, {"qvec": qvec, "k": k})
 
     async def _keyword(self, query: str, k: int) -> list[Hit]:
-        return await self._fetch(KEYWORD_SQL, {"q": query, "k": k})
+        return await self._fetch(KEYWORD_SQL, {"q": query, "k": k, "max_df": self.max_df})
 
     async def _fetch(self, sql: str, params: dict) -> list[Hit]:
         async with self._pool.connection() as conn, conn.cursor(row_factory=dict_row) as cur:
@@ -100,4 +120,4 @@ class Retriever:
         vector_hits, keyword_hits = await asyncio.gather(
             self._vector(query, candidates), self._keyword(query, candidates)
         )
-        return rrf_fuse([vector_hits, keyword_hits], top_n=k)
+        return rrf_fuse([vector_hits, keyword_hits], top_n=k, weights=[1.0, self.keyword_weight])

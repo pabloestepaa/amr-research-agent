@@ -25,3 +25,12 @@ async def test_hybrid_search(retriever):
 
 async def test_keyword_search_with_only_stopwords_returns_nothing(retriever):
     assert await retriever.search("the of and", k=3, mode="keyword") == []
+
+
+async def test_keyword_search_ignores_terms_present_in_most_documents(retriever):
+    # "resistance" aparece en 2 de los 3 abstracts (df = 0.67): con max_df = 0.5 se ignora
+    # y solo cuenta "carbapenems", que únicamente tiene el 1002.
+    retriever.max_df = 0.5
+    hits = await retriever.search("resistance carbapenems", k=3, mode="keyword")
+    assert [h.pmid for h in hits] == ["1002"]
+    assert await retriever.search("resistance", k=3, mode="keyword") == []

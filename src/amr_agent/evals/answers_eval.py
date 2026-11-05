@@ -149,8 +149,17 @@ def summarize(rows: list[dict]) -> dict:
     }
 
 
+def is_daily_limit(exc: Exception) -> bool:
+    # Groq devuelve 429 tanto por tokens/minuto (el SDK espera y reintenta) como por
+    # tokens/día (TPD, 200.000 en gpt-oss-120b): ese no se arregla esperando unos segundos.
+    return "per day" in str(exc)
+
+
 async def run(database_url: str, items: list[GoldenItem], k: int, mode: SearchMode,
-              judge_model: str) -> dict:
+              judge_model: str, done: list[dict] | None = None) -> dict:
+    """Evalúa `items`. `done` son filas de una ejecución anterior que se reutilizan."""
+    import openai
+
     from amr_agent.config import get_settings
     from amr_agent.db import make_pool
     from amr_agent.embeddings import FastEmbedEmbedder
@@ -160,25 +169,42 @@ async def run(database_url: str, items: list[GoldenItem], k: int, mode: SearchMo
     s = get_settings()
     if not s.llm_api_key:
         raise SystemExit("LLM_API_KEY is not set")
-    # Groq Free: 8.000 tokens/minuto por modelo y cada /ask gasta ~3.000. Muchos reintentos
-    # (el SDK espera lo que diga `retry-after`) convierten los 429 en esperas, no en fallos.
+    # Groq Free: 8.000 tokens/minuto y 200.000/día por modelo; cada /ask gasta ~3.000, así
+    # que una ejecución completa (~150.000) consume casi todo el día de gpt-oss-120b.
+    # Muchos reintentos (el SDK espera lo que diga `retry-after`) convierten los 429 por minuto
+    # en esperas, no en fallos.
     generator = OpenAICompatibleLLM(s.llm_base_url, s.llm_api_key, s.llm_model, 60, 10)
     judge_llm = OpenAICompatibleLLM(s.llm_base_url, s.llm_api_key, judge_model, 60, 10)
     pool = make_pool(database_url, max_size=2)
     await pool.open()
     try:
-        recorder = RecordingRetriever(Retriever(pool, FastEmbedEmbedder(s.embedding_model)))
+        recorder = RecordingRetriever(Retriever(
+            pool, FastEmbedEmbedder(s.embedding_model), s.keyword_weight, s.keyword_max_df))
         rag = RagService(recorder, generator, top_k=k)
-        rows = []
+        rows = list(done or [])
+        finished = {r["id"] for r in rows}
+        complete = True
         for n, item in enumerate(items, start=1):  # en serie: el límite es de la cuenta
-            row = await evaluate_item(item, rag, recorder, judge_llm, k, mode)
+            if item.id in finished:
+                continue
+            try:
+                row = await evaluate_item(item, rag, recorder, judge_llm, k, mode)
+            except openai.RateLimitError as exc:
+                if not is_daily_limit(exc):
+                    raise
+                # Guardamos lo hecho para continuar mañana con --resume en vez de perderlo.
+                print(f"Daily token limit reached at {item.id}; saving partial results")
+                complete = False
+                break
             rows.append(row)
             print(f"[{n}/{len(items)}] {item.id} abstained={row['abstained']} "
                   f"faithfulness={row['faithfulness']} relevance={row['relevance']}", flush=True)
     finally:
         await pool.close()
     return {"generator_model": s.llm_model, "judge_model": judge_model, "mode": mode, "k": k,
-            "n_questions": len(rows), "summary": summarize(rows), "per_question": rows}
+            "keyword_max_df": s.keyword_max_df, "keyword_weight": s.keyword_weight,
+            "complete": complete, "n_questions": len(rows), "summary": summarize(rows),
+            "per_question": rows}
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -194,18 +220,24 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("-k", type=int, default=5)
     parser.add_argument("--limit", type=int, help="only the first N questions")
     parser.add_argument("--name", default="answers", help="results file name (no extension)")
+    parser.add_argument("--resume", action="store_true",
+                        help="keep the questions already in the results file, run the rest")
     args = parser.parse_args(argv)
+    out = RESULTS_DIR / f"{args.name}.json"
 
     url = resolve_eval_db(args.database_url, args.load_corpus)
     if args.load_corpus:
         print(f"Loaded {load_snapshot(url, CORPUS_PATH)} abstracts from {CORPUS_PATH}")
     items = load_golden(GOLDEN_PATH)[: args.limit]
-    report = asyncio.run(run(url, items, args.k, args.mode, args.judge_model))
+    done = json.loads(out.read_text())["per_question"] if args.resume and out.exists() else []
+    report = asyncio.run(run(url, items, args.k, args.mode, args.judge_model, done))
 
-    out = RESULTS_DIR / f"{args.name}.json"
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(report, indent=2, ensure_ascii=False) + "\n")
     print("\n" + answers_table(report) + f"\n\nSaved {out}")
+    if not report["complete"]:
+        print(f"Incomplete: run again with --resume --name {args.name} when the quota resets")
+        raise SystemExit(2)
 
 
 if __name__ == "__main__":

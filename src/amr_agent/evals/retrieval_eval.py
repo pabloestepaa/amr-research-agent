@@ -90,7 +90,7 @@ def load_snapshot(database_url: str, corpus_path: Path) -> int:
     import psycopg
 
     from amr_agent.config import get_settings
-    from amr_agent.db import apply_schema, upsert_articles
+    from amr_agent.db import apply_schema, refresh_term_stats, upsert_articles
     from amr_agent.embeddings import FastEmbedEmbedder
     from amr_agent.evals.dataset import load_corpus
 
@@ -100,7 +100,9 @@ def load_snapshot(database_url: str, corpus_path: Path) -> int:
     with psycopg.connect(database_url) as conn:
         conn.execute("drop table if exists documents")
         apply_schema(conn)
-        return upsert_articles(conn, articles, vectors)
+        n = upsert_articles(conn, articles, vectors)
+        refresh_term_stats(conn)
+        return n
 
 
 def resolve_eval_db(arg: str | None, load_corpus: bool) -> str:
@@ -115,7 +117,7 @@ def resolve_eval_db(arg: str | None, load_corpus: bool) -> str:
     return url
 
 
-async def run(database_url: str) -> dict:
+async def run(database_url: str, keyword_weight: float, max_df: float) -> dict:
     from amr_agent.config import get_settings
     from amr_agent.db import make_pool
     from amr_agent.embeddings import FastEmbedEmbedder
@@ -127,11 +129,14 @@ async def run(database_url: str) -> dict:
     try:
         async with pool.connection() as conn:
             n_docs = (await (await conn.execute("select count(*) from documents")).fetchone())[0]
-        retriever = Retriever(pool, FastEmbedEmbedder(settings.embedding_model))
+        retriever = Retriever(
+            pool, FastEmbedEmbedder(settings.embedding_model), keyword_weight, max_df
+        )
         report = await evaluate(retriever, load_golden(GOLDEN_PATH))
     finally:
         await pool.close()
-    return {"corpus_size": n_docs, "embedding_model": settings.embedding_model} | report
+    return {"corpus_size": n_docs, "embedding_model": settings.embedding_model,
+            "keyword_weight": keyword_weight, "keyword_max_df": max_df} | report
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -141,13 +146,21 @@ def main(argv: list[str] | None = None) -> None:
                         help=f"drop and reload the eval DB from {CORPUS_PATH}")
     parser.add_argument("--check", action="store_true",
                         help=f"exit 1 if a metric falls below {THRESHOLDS_PATH}")
+    # Por defecto, la misma configuración que la API (variables de entorno / .env).
+    from amr_agent.config import get_settings
+
+    settings = get_settings()
+    parser.add_argument("--keyword-weight", type=float, default=settings.keyword_weight,
+                        help="weight of the keyword ranking in hybrid RRF")
+    parser.add_argument("--max-df", type=float, default=settings.keyword_max_df,
+                        help="ignore keyword terms found in more than this share of abstracts")
     parser.add_argument("--name", default="retrieval", help="results file name (no extension)")
     args = parser.parse_args(argv)
 
     url = resolve_eval_db(args.database_url, args.load_corpus)
     if args.load_corpus:
         print(f"Loaded {load_snapshot(url, CORPUS_PATH)} abstracts from {CORPUS_PATH}")
-    report = asyncio.run(run(url))
+    report = asyncio.run(run(url, args.keyword_weight, args.max_df))
 
     out = RESULTS_DIR / f"{args.name}.json"
     out.parent.mkdir(parents=True, exist_ok=True)

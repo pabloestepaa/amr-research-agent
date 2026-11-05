@@ -17,7 +17,9 @@ def _fmt(value) -> str:
 def retrieval_table(report: dict) -> str:
     lines = [
         f"Corpus: {report.get('corpus_size', '?')} abstracts · "
-        f"{report['n_questions']} questions · {report.get('embedding_model', '')}",
+        f"{report['n_questions']} questions · {report.get('embedding_model', '')} · "
+        f"keyword max_df={report.get('keyword_max_df', 1.0)}, "
+        f"weight={report.get('keyword_weight', 1.0)}",
         "",
         "| mode | " + " | ".join(COLUMNS) + " | p50 latency (ms) |",
         "|---" * (len(COLUMNS) + 2) + "|",
@@ -55,7 +57,9 @@ def answers_table(report: dict) -> str:
     s = report["summary"]
     lines = [
         f"Generator: `{report['generator_model']}` · judge: `{report['judge_model']}` · "
-        f"{report['n_questions']} questions · retrieval `{report['mode']}`, k={report['k']}",
+        f"{report['n_questions']} questions · retrieval `{report['mode']}`, k={report['k']}, "
+        f"keyword max_df={report.get('keyword_max_df', 1.0)}"
+        + ("" if report.get("complete", True) else " · **incomplete run**"),
         "",
         "| metric | value |",
         "|---|---|",

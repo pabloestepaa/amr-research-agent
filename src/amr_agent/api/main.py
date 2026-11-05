@@ -27,7 +27,7 @@ async def lifespan(app: FastAPI):
     await pool.open()
     embedder = FastEmbedEmbedder(settings.embedding_model, threads=settings.embedding_threads)
     embedder.embed_query("warm-up")  # carga el modelo ya, no en la primera petición
-    retriever = Retriever(pool, embedder)
+    retriever = Retriever(pool, embedder, settings.keyword_weight, settings.keyword_max_df)
     llm = OpenAICompatibleLLM(
         settings.llm_base_url, settings.llm_api_key, settings.llm_model, settings.llm_timeout_s
     )

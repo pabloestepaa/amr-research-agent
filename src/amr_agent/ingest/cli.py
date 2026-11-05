@@ -11,7 +11,7 @@ import httpx
 import psycopg
 
 from amr_agent.config import get_settings
-from amr_agent.db import apply_schema, upsert_articles
+from amr_agent.db import apply_schema, refresh_term_stats, upsert_articles
 from amr_agent.embeddings import FastEmbedEmbedder
 from amr_agent.ingest.pubmed import Article, PubMedClient, PubMedError, search_europepmc
 
@@ -67,6 +67,7 @@ def main(argv: list[str] | None = None) -> None:
                 print(f"  {total} abstracts indexed...", flush=True)
         if buffer:
             total += flush(buffer)
+        refresh_term_stats(conn)
 
     print(f"Done: {total} abstracts in {time.perf_counter() - start:.0f}s")
 

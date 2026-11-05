@@ -34,6 +34,21 @@ create table if not exists documents (
 create index if not exists documents_embedding_idx
     on documents using hnsw (embedding vector_cosine_ops);
 create index if not exists documents_tsv_idx on documents using gin (tsv);
+
+-- Frecuencia documental de cada lexema (fracción de abstracts que lo contienen). La usa la
+-- búsqueda por palabras clave para ignorar términos que aparecen en casi todo el corpus.
+create table if not exists term_stats (
+    word text primary key,
+    df   real not null
+);
+"""
+
+# ts_stat recorre todos los tsvector: con 3.000 abstracts tarda menos de un segundo.
+REFRESH_TERM_STATS = """
+delete from term_stats;
+insert into term_stats (word, df)
+select word, ndoc::real / (select count(*) from documents)
+from ts_stat('select tsv from documents');
 """
 
 UPSERT = """
@@ -49,6 +64,12 @@ def apply_schema(conn: psycopg.Connection) -> None:
     conn.execute(SCHEMA)
     conn.commit()
     register_vector(conn)
+
+
+def refresh_term_stats(conn: psycopg.Connection) -> None:
+    """Recalcula `term_stats`. Hay que llamarlo después de cada ingesta."""
+    conn.execute(REFRESH_TERM_STATS)
+    conn.commit()
 
 
 async def apply_schema_async(database_url: str) -> None:
