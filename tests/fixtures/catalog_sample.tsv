@@ -1,0 +1,10 @@
+allele	gene_family	whitelisted_taxa	product_name	scope	type	subtype	class	subclass	refseq_protein_accession	refseq_nucleotide_accession	curated_refseq_start	genbank_protein_accession	genbank_nucleotide_accession	genbank_strand	genbank_start	genbank_stop	refseq_strand	refseq_start	refseq_stop	pubmed_reference	blacklisted_taxa	synonyms	hierarchy_node	db_version
+blaKPC-2	blaKPC		carbapenem-hydrolyzing class A beta-lactamase KPC-2	core	AMR	AMR	BETA-LACTAM	CARBAPENEM	WP_004199234.1	NG_049253.1	No	AAK70220.1	AY034847.1	+	6	887	+	6	887	12615876,37255469		blaKPC-1	blaKPC-2	2026-10-29.1
+blaKPC-20	blaKPC		carbapenem-hydrolyzing class A beta-lactamase KPC-20	core	AMR	AMR	BETA-LACTAM	CARBAPENEM	WP_436452774.1	NG_245797.1	No	MGK4321900.1	JBPQFE010000002.1	+	33852	34733	+	101	982				blaKPC-20	2026-10-29.1
+blaKPC-3	blaKPC		carbapenem-hydrolyzing class A beta-lactamase KPC-3	core	AMR	AMR	BETA-LACTAM	CARBAPENEM	WP_004152396.1	NG_049257.1	No	AAL05630.1	AF395881.1	+	1	882	+	1	882	15561858,19015357,37255469			blaKPC-3	2026-10-29.1
+mcr-1.1	mcr-1		phosphoethanolamine--lipid A transferase MCR-1.1	core	AMR	AMR	COLISTIN	COLISTIN	WP_049589868.1	NG_050417.1	No	AKF16168.1	KP347127.1	+	22413	24038	+	101	1726	26603172			mcr-1.1	2026-10-29.1
+adeL_G27R	adeL	Acinetobacter_baumannii	multidrug efflux transcriptional repressor AdeL	core	AMR	POINT	TETRACYCLINE	TIGECYCLINE	WP_002000718.1	NZ_CP091335.1	No	UMO35973.1	CP091335.1	+	73589	74620	+	73589	74620	35704614				2026-10-29.1
+	arsB		arsenite efflux transporter membrane subunit ArsB	plus	STRESS	METAL	ARSENIC	ARSENITE	WP_004152098.1		No	BAA24823.1	AB004659.1	+	3095	4384					Escherichia		arsB_pKW301	2026-10-29.1
+	kdeA		multidrug efflux MFS transporter KdeA	plus	AMR	AMR	EFFLUX	EFFLUX	WP_004141972.1		No	ABR76310.1	CP000647.1	+	980459	981691				17917272	Klebsiella_pneumoniae		kdeA	2026-10-29.1
+	aafA		aggregative adherence fimbria II major subunit AafA	plus	VIRULENCE	VIRULENCE			WP_077767014.1		No	BAJ79293.1	AB571091.1	+	34	516							aafA	2026-10-29.1
+16S_A523C	16S	Escherichia	16S ribosomal RNA	core	AMR	POINT	AMINOGLYCOSIDE	STREPTOMYCIN		NC_000913.3			U00096.3	+	4166659	4168201	+	4166659	4168201	3054810				2026-10-29.1
