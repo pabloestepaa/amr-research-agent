@@ -17,3 +17,8 @@ CLAUDE.local.md
 
 # resultados de evals generados en CI
 evals/results/*_ci.json
+
+# configuración local de Claude Code (skills, MCP, lanzador del navegador): no es del proyecto
+.claude/
+.mcp.json
+skills-lock.json
