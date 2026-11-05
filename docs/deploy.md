@@ -1,5 +1,7 @@
 # Deployment
 
+Live demo: <https://amr-research-agent.onrender.com> (API docs at `/docs`).
+
 Production runs on free tiers: **Neon** (Postgres + pgvector) and **Render** (the Docker image in
 this repo). Render deploys `main` automatically once CI passes.
 
