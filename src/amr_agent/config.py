@@ -19,6 +19,8 @@ class Settings(BaseSettings):
     llm_api_key: str = ""
     llm_model: str = "openai/gpt-oss-120b"
     llm_timeout_s: float = 30.0
+    # En la API solo se reintenta si el proveedor pide esperar poco: con más, se responde 503 ya.
+    llm_max_retry_wait_s: float = 5.0
 
     embedding_model: str = "BAAI/bge-small-en-v1.5"
     # 1 hilo: en Render Free hay 0.1 CPU y 512 MB; más hilos solo gastan RAM.
@@ -34,6 +36,15 @@ class Settings(BaseSettings):
     # Límites de /ask en la demo pública (0 = sin límite). Ver api/ratelimit.py.
     ask_per_ip_per_minute: int = 5
     ask_per_day: int = 50
+
+    # Agente (/agent). Cada pregunta gasta ~8.000-12.000 tokens (3-4 veces un /ask), y la cuota
+    # diaria de Groq (200.000 tokens) es compartida: 50 /ask (~150.000) + 15 /agent la llenan.
+    agent_enabled: bool = True  # False = no arrancar amr-mcp (ahorra ~100 MB de RAM)
+    agent_per_ip_per_minute: int = 2
+    agent_per_day: int = 15
+    agent_max_steps: int = 5
+    agent_token_budget: int = 12_000
+    mcp_timeout_s: float = 30.0
 
     # NCBI E-utilities: la API key es opcional (sube el límite de 3 a 10 peticiones/s).
     ncbi_api_key: str | None = None

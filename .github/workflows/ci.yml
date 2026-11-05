@@ -106,6 +106,7 @@ jobs:
           docker run -d --name api --network host --memory 512m \
             -e PORT=8000 \
             -e DATABASE_URL=postgresql://postgres:postgres@localhost:5432/amr_agent \
+            -e LLM_BASE_URL=http://localhost:9/v1 \
             amr-research-agent:ci
           for i in $(seq 1 60); do
             curl -fsS localhost:8000/health && break
@@ -116,6 +117,12 @@ jobs:
           curl -fsS localhost:8000/ | grep -q "AMR Research Agent"
           # BD vacía: la búsqueda debe responder 200 con una lista vacía (ejercita el modelo)
           test "$(curl -fsS 'localhost:8000/search?q=colistin%20resistance')" = "[]"
+          # El LLM apunta a un puerto cerrado: si amr-mcp arrancó, /agent llega a llamar al LLM y
+          # responde 502; un 503 significaría que el agente está desactivado (amr-mcp no arrancó).
+          code=$(curl -s -o /dev/null -w '%{http_code}' -X POST localhost:8000/agent \
+            -H 'Content-Type: application/json' -d '{"question": "What is mcr-1?"}')
+          echo "/agent -> $code"; test "$code" = "502"
+          # Incluye el subproceso amr-mcp con el catálogo ya cargado (lo calienta el lifespan)
           docker stats --no-stream --format 'Memory: {{.MemUsage}}' api | tee -a "$GITHUB_STEP_SUMMARY"
       - name: Container logs
         if: always()

@@ -22,6 +22,12 @@ RUN uv sync --locked --no-dev
 ENV FASTEMBED_CACHE_PATH=/app/models
 RUN .venv/bin/python -c "from fastembed import TextEmbedding; TextEmbedding('BAAI/bge-small-en-v1.5')"
 
+# Lo mismo con el catálogo de genes de NCBI que usa amr-mcp (~2 MB): si no, se descargaría en la
+# primera pregunta al agente. amr-mcp lo refresca solo si tiene más de 30 días, y si NCBI no
+# responde sigue usando esta copia.
+ENV AMR_MCP_CACHE_DIR=/app/amr-mcp-cache
+RUN .venv/bin/python -c "import asyncio; from amr_mcp.catalog import load_catalog; asyncio.run(load_catalog())"
+
 
 FROM python:3.13-slim
 RUN useradd --create-home --uid 1000 app
@@ -29,6 +35,7 @@ WORKDIR /app
 COPY --from=builder --chown=app:app /app /app
 ENV PATH=/app/.venv/bin:$PATH \
     FASTEMBED_CACHE_PATH=/app/models \
+    AMR_MCP_CACHE_DIR=/app/amr-mcp-cache \
     HF_HUB_OFFLINE=1 \
     PYTHONUNBUFFERED=1
 USER app

@@ -5,11 +5,13 @@ Usando el SDK de OpenAI con otra `base_url`, cambiar de proveedor es cambiar dos
 de entorno, sin tocar código.
 """
 
+import asyncio
 import json
 import time
 from dataclasses import dataclass, field
 from typing import Any, Literal, Protocol
 
+import openai
 from openai import AsyncOpenAI
 
 
@@ -81,23 +83,58 @@ class ChatLLM(Protocol):
         ...
 
 
+RETRYABLE = (openai.RateLimitError, openai.InternalServerError, openai.APIConnectionError)
+
+
+def retry_delay(exc: Exception, attempt: int) -> float:
+    """Lo que pide el servidor en `Retry-After` o, si no dice nada, espera exponencial."""
+    response = getattr(exc, "response", None)
+    if response is not None:
+        try:
+            return max(0.0, float(response.headers.get("retry-after", "")))
+        except ValueError:
+            pass
+    return min(0.5 * 2**attempt, 8.0)
+
+
 class OpenAICompatibleLLM:
     def __init__(
         self, base_url: str, api_key: str, model: str, timeout_s: float = 30.0,
-        max_retries: int = 2,
+        max_retries: int = 2, max_retry_wait_s: float = 120.0, http_client: Any = None,
     ) -> None:
-        # El SDK reintenta solo los 429 y 5xx respetando la cabecera `retry-after`. En la API
-        # bastan 2 reintentos; las evals usan más porque mandan muchas peticiones seguidas.
+        # Los reintentos los hacemos nosotros (ver `_create`), no el SDK: el SDK respeta un
+        # `Retry-After` de hasta 2 minutos, que está bien en las evals pero no en una petición web.
         self._client = AsyncOpenAI(
-            base_url=base_url, api_key=api_key or "missing", timeout=timeout_s,
-            max_retries=max_retries,
+            base_url=base_url, api_key=api_key or "missing", timeout=timeout_s, max_retries=0,
+            http_client=http_client,  # solo en tests: un cliente con respuestas simuladas
         )
         self.model = model
+        self.max_retries = max_retries
+        self.max_retry_wait_s = max_retry_wait_s
+
+    async def _create(self, **kwargs: Any) -> Any:
+        """Llama al proveedor reintentando 429, 5xx y errores de red, pero solo si compensa.
+
+        Si el servidor pide esperar más de `max_retry_wait_s` (con la cuota diaria de Groq
+        agotada pide minutos), fallamos ya: en la API es mejor un 503 inmediato que un visitante
+        mirando "Working..." durante minutos para recibir el mismo error. Las evals, en cambio,
+        pueden permitirse esperar.
+        """
+        attempt = 0
+        while True:
+            try:
+                return await self._client.chat.completions.create(**kwargs)
+            except RETRYABLE as exc:
+                wait = retry_delay(exc, attempt)
+                if attempt >= self.max_retries or wait > self.max_retry_wait_s:
+                    raise
+                await asyncio.sleep(wait)
+                attempt += 1
 
     async def complete(self, system: str, user: str, *, json_mode: bool = False) -> Completion:
         start = time.perf_counter()
         extra = {"response_format": {"type": "json_object"}} if json_mode else {}
-        resp = await self._client.chat.completions.create(
+        resp = await self._create(
             model=self.model,
             temperature=0.0,  # respuestas lo más deterministas posible: mejor para evaluar
             messages=[{"role": "system", "content": system}, {"role": "user", "content": user}],
@@ -117,7 +154,7 @@ class OpenAICompatibleLLM:
         # tool_choice="none" sigue enviando los esquemas (el historial contiene llamadas a esas
         # herramientas) pero prohíbe usarlas: el agente lo usa para forzar la respuesta final.
         start = time.perf_counter()
-        resp = await self._client.chat.completions.create(
+        resp = await self._create(
             model=self.model, temperature=0.0, messages=messages, tools=tools,
             tool_choice=tool_choice,
         )

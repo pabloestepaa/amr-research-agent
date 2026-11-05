@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>AMR Research Agent</title>
-<meta name="description" content="Ask questions about antimicrobial resistance in E. coli and get answers cited from PubMed abstracts.">
+<meta name="description" content="Ask questions about antimicrobial resistance and get answers cited from PubMed abstracts, or let an agent query NCBI's gene catalog too.">
 <style>
   :root {
     --bg: #f7f7f5; --surface: #ffffff; --text: #1d1d1b; --muted: #66665f; --border: #e2e1dc;
@@ -21,6 +21,8 @@
     }
   }
   * { box-sizing: border-box; }
+  /* `hidden` debe ganar siempre, también a reglas como .examples { display: flex } */
+  [hidden] { display: none !important; }
   body {
     margin: 0; background: var(--bg); color: var(--text);
     font: 16px/1.55 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
@@ -64,6 +66,27 @@
   ol.sources a:hover { text-decoration: underline; }
   .src-meta { color: var(--muted); font-size: 0.85rem; }
   .tag { font-size: 0.75rem; color: var(--accent); font-weight: 600; margin-left: 6px; }
+  .modes { display: inline-flex; border: 1px solid var(--border); border-radius: 999px; padding: 3px; margin: 0 0 14px; background: var(--surface); }
+  .modes label { cursor: pointer; padding: 5px 14px; border-radius: 999px; font-size: 0.9rem; color: var(--muted); }
+  .modes input { position: absolute; opacity: 0; pointer-events: none; }
+  .modes input:checked + span { color: var(--accent); font-weight: 600; }
+  .modes label:has(input:checked) { background: var(--accent-soft); }
+  .modes label:has(input:focus-visible) { outline: 2px solid var(--accent); }
+  .hint { color: var(--muted); font-size: 0.85rem; margin: 8px 0 0; }
+  ol.steps { list-style: none; padding: 0; margin: 0; display: grid; gap: 8px; }
+  ol.steps li { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 10px 14px; }
+  ol.steps li.error { border-color: var(--err); }
+  .step-head { display: flex; flex-wrap: wrap; gap: 8px; align-items: baseline; }
+  .step-n { color: var(--muted); font-size: 0.8rem; font-variant-numeric: tabular-nums; }
+  code { font: 0.85rem/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; overflow-wrap: anywhere; }
+  .step-tool { font-weight: 600; }
+  .step-args { color: var(--muted); }
+  .step-meta { color: var(--muted); font-size: 0.8rem; margin-left: auto; }
+  .tag.err { color: var(--err); }
+  .tag.warn { color: var(--warn); }
+  details.preview { margin-top: 6px; }
+  details.preview summary { cursor: pointer; color: var(--muted); font-size: 0.8rem; }
+  details.preview pre { margin: 6px 0 0; white-space: pre-wrap; max-height: 160px; overflow: auto; }
   footer { margin-top: 48px; color: var(--muted); font-size: 0.85rem; }
   footer a { color: inherit; }
 </style>
@@ -71,26 +94,41 @@
 <body>
 <main>
   <h1>AMR Research Agent</h1>
-  <p class="lead">Questions about antimicrobial resistance in <i>E. coli</i>, answered only from
-    ~3,000 PubMed abstracts, with every claim cited. Hybrid search (pgvector + Postgres full-text)
-    and an LLM on Groq.</p>
+  <p class="lead">Questions about antimicrobial resistance, answered only from ~3,000 recent PubMed
+    abstracts with every claim cited (hybrid search with pgvector + Postgres full-text and an LLM on
+    Groq). In agent mode, the model also queries NCBI's gene catalog and protein databases through
+    an MCP server.</p>
 
   <form id="ask">
+    <div class="modes" role="radiogroup" aria-label="Mode">
+      <label><input type="radio" name="kind" value="ask" checked><span>Literature (RAG)</span></label>
+      <label><input type="radio" name="kind" value="agent"><span>Agent (tools)</span></label>
+    </div>
     <textarea id="question" name="question" minlength="3" maxlength="500" required
       placeholder="e.g. Which genes confer colistin resistance in E. coli?"></textarea>
     <div class="row">
-      <label for="mode">Search</label>
-      <select id="mode" name="mode">
-        <option value="hybrid" selected>hybrid</option>
-        <option value="vector">vector</option>
-        <option value="keyword">keyword</option>
-      </select>
+      <span id="search-mode">
+        <label for="mode">Search</label>
+        <select id="mode" name="mode">
+          <option value="hybrid" selected>hybrid</option>
+          <option value="vector">vector</option>
+          <option value="keyword">keyword</option>
+        </select>
+      </span>
       <button type="submit" id="submit">Ask</button>
     </div>
-    <div class="examples" aria-label="Example questions">
+    <p class="hint" id="agent-hint" hidden>The agent decides which tools to call (literature search,
+      NCBI gene catalog, species that carry a protein, PubMed metadata) and shows every step. It uses
+      more of the free LLM quota, so it is limited to a few questions per minute.</p>
+    <div class="examples" id="examples-ask" aria-label="Example questions">
       <button type="button">Which genes confer colistin resistance in E. coli?</button>
       <button type="button">How does blaNDM-1 spread between bacteria?</button>
       <button type="button">Are ESBL-producing E. coli found in food animals?</button>
+    </div>
+    <div class="examples" id="examples-agent" aria-label="Example agent questions" hidden>
+      <button type="button">What drug class does mcr-1 confer resistance to, and in which species is it most often found?</button>
+      <button type="button">Which carbapenemase gene families are in the NCBI catalog, and what does recent literature say about KPC?</button>
+      <button type="button">¿En qué especies se ha secuenciado más blaNDM-1?</button>
     </div>
   </form>
 
@@ -102,13 +140,19 @@
     <div id="meta" class="meta"></div>
   </section>
 
+  <section id="steps-section" hidden>
+    <h2>How the agent worked</h2>
+    <ol id="steps" class="steps"></ol>
+  </section>
+
   <section id="sources-section" hidden>
     <h2>Retrieved abstracts</h2>
     <ol id="sources" class="sources"></ol>
   </section>
 
   <footer>
-    Answers come only from the indexed abstracts and can still be wrong: check the cited papers.
+    Answers come only from the indexed abstracts (and, in agent mode, NCBI databases) and can still
+    be wrong: check the cited papers.
     Free hosting: the first request after a while can take up to a minute.
     · <a href="/docs">API docs</a>
     · <a href="https://github.com/pabloestepaa/amr-research-agent">Source code</a>
@@ -132,12 +176,48 @@ function showNotice(text, kind) {
 // El texto se escapa ANTES de darle formato: la respuesta del LLM nunca se inserta como HTML
 // tal cual. Después solo se reconocen tres cosas: citas, **negrita** y *cursiva* (el modelo
 // escribe Markdown aunque no se le pida).
-function renderAnswer(text) {
+// En modo RAG la cita salta a la fuente de la lista; en modo agente no hay lista de abstracts
+// (los PMIDs pueden venir de varias herramientas), así que enlaza directamente a PubMed.
+function renderAnswer(text, toPubmed) {
   return escapeHtml(text)
     .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
     .replace(/(^|[^*])\*([^*\n]+?)\*/g, "$1<em>$2</em>")
-    .replace(/\[PMID:(\d+)\]/g,
-      (_, pmid) => `<a href="#src-${pmid}" title="Jump to source">[PMID:${pmid}]</a>`);
+    .replace(/\[PMID:(\d+)\]/g, (_, pmid) => toPubmed
+      ? `<a href="https://pubmed.ncbi.nlm.nih.gov/${pmid}/" target="_blank" rel="noopener" title="Open in PubMed">[PMID:${pmid}]</a>`
+      : `<a href="#src-${pmid}" title="Jump to source">[PMID:${pmid}]</a>`);
+}
+
+function renderSteps(steps) {
+  $("steps").innerHTML = steps.map((s) => {
+    // Como una llamada a función: get_amr_gene(name="mcr-1")
+    const args = s.arguments
+      ? "(" + Object.entries(s.arguments).map(([k, v]) => `${k}=${JSON.stringify(v)}`).join(", ") + ")"
+      : "(invalid arguments)";
+    const tags = [
+      s.is_error ? '<span class="tag err">error</span>' : "",
+      s.truncated ? '<span class="tag warn">trimmed</span>' : "",
+    ].join("");
+    return `<li class="${s.is_error ? "error" : ""}">
+      <div class="step-head">
+        <span class="step-n">step ${s.step}</span>
+        <code><span class="step-tool">${escapeHtml(s.tool)}</span><span class="step-args">${escapeHtml(args)}</span></code>
+        ${tags}
+        <span class="step-meta">${Math.round(s.latency_ms)} ms · ${s.result_chars.toLocaleString()} chars</span>
+      </div>
+      <details class="preview"><summary>Result preview</summary><pre><code>${escapeHtml(s.preview)}</code></pre></details>
+    </li>`;
+  }).join("");
+  $("steps-section").hidden = steps.length === 0;
+}
+
+const isAgent = () => form.elements.kind.value === "agent";
+
+function syncMode() {
+  const agent = isAgent();
+  $("search-mode").hidden = agent;
+  $("agent-hint").hidden = !agent;
+  $("examples-ask").hidden = agent;
+  $("examples-agent").hidden = !agent;
 }
 
 function renderSources(sources, cited) {
@@ -156,18 +236,20 @@ async function ask(event) {
   event.preventDefault();
   const q = question.value.trim();
   if (q.length < 3) return;
+  const agent = isAgent();
   submit.disabled = true;
-  submit.textContent = "Thinking…";
+  submit.textContent = agent ? "Working…" : "Thinking…";
   $("answer-section").hidden = true;
   $("sources-section").hidden = true;
+  $("steps-section").hidden = true;
   // Si tarda, casi siempre es el arranque en frío de Render o de Neon: lo decimos.
   const slow = setTimeout(() => showNotice("Waking up the free-tier server and database, this can take up to a minute…", "wait"), 4000);
   showNotice("", "wait");
   try {
-    const resp = await fetch("/ask", {
+    const resp = await fetch(agent ? "/agent" : "/ask", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ question: q, mode: $("mode").value }),
+      body: JSON.stringify(agent ? { question: q } : { question: q, mode: $("mode").value }),
     });
     const body = await resp.json().catch(() => ({}));
     if (!resp.ok) {
@@ -175,15 +257,23 @@ async function ask(event) {
       throw new Error(resp.status >= 500 && !body.detail ? "Server error, please try again." : detail);
     }
     showNotice("", "wait");
-    $("answer").innerHTML = renderAnswer(body.answer);
+    $("answer").innerHTML = renderAnswer(body.answer, agent);
     const lat = body.latency_ms || {};
-    const parts = [`retrieval ${Math.round(lat.retrieval || 0)} ms`];
-    if (lat.generation) parts.push(`generation ${(lat.generation / 1000).toFixed(1)} s`);
-    if (body.usage) parts.push(`${body.usage.model}, ${body.usage.prompt_tokens + body.usage.completion_tokens} tokens`);
-    if (body.invalid_citations.length) parts.push(`${body.invalid_citations.length} citation(s) to papers that were not retrieved`);
+    const parts = [];
+    if (agent) {
+      parts.push(`${body.steps.length} tool call(s)`, `total ${(lat.total / 1000).toFixed(1)} s`);
+      parts.push(`${body.usage.model}, ${body.usage.llm_calls} LLM calls, ${body.usage.prompt_tokens + body.usage.completion_tokens} tokens`);
+      if (body.stop_reason !== "answer") parts.push(`stopped early (${body.stop_reason.replace("_", " ")})`);
+    } else {
+      parts.push(`retrieval ${Math.round(lat.retrieval || 0)} ms`);
+      if (lat.generation) parts.push(`generation ${(lat.generation / 1000).toFixed(1)} s`);
+      if (body.usage) parts.push(`${body.usage.model}, ${body.usage.prompt_tokens + body.usage.completion_tokens} tokens`);
+    }
+    if (body.invalid_citations.length) parts.push(`${body.invalid_citations.length} citation(s) to papers no tool returned`);
     $("meta").textContent = parts.join(" · ");
     $("answer-section").hidden = false;
-    renderSources(body.sources, new Set(body.citations.map((c) => c.pmid)));
+    if (agent) renderSteps(body.steps);
+    else renderSources(body.sources, new Set(body.citations.map((c) => c.pmid)));
   } catch (err) {
     showNotice(err.message || "Network error, please try again.", "error");
   } finally {
@@ -194,6 +284,8 @@ async function ask(event) {
 }
 
 form.addEventListener("submit", ask);
+form.querySelectorAll('input[name="kind"]').forEach((r) => r.addEventListener("change", syncMode));
+syncMode();  // por si el navegador recuerda la opción elegida al recargar
 question.addEventListener("keydown", (e) => {
   if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) form.requestSubmit();
 });

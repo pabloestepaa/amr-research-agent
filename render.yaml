@@ -22,3 +22,7 @@ services:
         value: "5"
       - key: ASK_PER_DAY
         value: "50"
+      - key: AGENT_PER_IP_PER_MINUTE
+        value: "2"
+      - key: AGENT_PER_DAY
+        value: "15"
