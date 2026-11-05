@@ -11,6 +11,12 @@ from amr_agent.ingest.pubmed import Article
 
 EMBEDDING_DIM = 384  # dimensión de BAAI/bge-small-en-v1.5
 
+# Sin estos límites, si la red hacia Neon se queda colgada al arrancar, la API espera sin fin:
+# el 2026-11-05 un despliegue en Render pasó 15 minutos en "Waiting for application startup".
+# Mejor fallar en segundos con un error claro y que Render reinicie la instancia.
+CONNECT_TIMEOUT_S = 10
+SCHEMA_LOCK_TIMEOUT = "5s"  # si otra sesión bloquea la tabla, no esperar indefinidamente
+
 # Una fila por abstract: los abstracts son cortos (~250 palabras), así que no hace falta
 # trocearlos (chunking). La columna `tsv` la calcula Postgres sola y alimenta la búsqueda
 # por palabras clave; `embedding` alimenta la búsqueda semántica.
@@ -72,8 +78,12 @@ def refresh_term_stats(conn: psycopg.Connection) -> None:
     conn.commit()
 
 
-async def apply_schema_async(database_url: str) -> None:
-    async with await psycopg.AsyncConnection.connect(database_url) as conn:
+async def apply_schema_async(database_url: str, connect_timeout: int = CONNECT_TIMEOUT_S) -> None:
+    async with await psycopg.AsyncConnection.connect(
+        database_url, connect_timeout=connect_timeout
+    ) as conn:
+        # SET LOCAL solo dura esta transacción: también funciona detrás del pooler de Neon.
+        await conn.execute(f"set local lock_timeout = '{SCHEMA_LOCK_TIMEOUT}'")
         await conn.execute(SCHEMA)
         await conn.commit()
 
@@ -110,5 +120,5 @@ def make_pool(database_url: str, max_size: int = 5) -> AsyncConnectionPool:
         open=False,
         configure=_configure,
         check=AsyncConnectionPool.check_connection,
-        kwargs={"prepare_threshold": None},
+        kwargs={"prepare_threshold": None, "connect_timeout": CONNECT_TIMEOUT_S},
     )

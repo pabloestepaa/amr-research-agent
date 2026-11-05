@@ -2,6 +2,7 @@
 
 import logging
 import math
+import time
 from contextlib import AsyncExitStack, asynccontextmanager, contextmanager
 from pathlib import Path
 from typing import Annotated
@@ -13,6 +14,7 @@ from mcp import Client
 from pydantic import BaseModel, Field
 
 from amr_agent.agent import Agent, AgentAnswer
+from amr_agent.api.diagnostics import memory_summary
 from amr_agent.api.ratelimit import AskQuota
 from amr_agent.config import get_settings
 from amr_agent.db import apply_schema_async, make_pool
@@ -24,20 +26,38 @@ from amr_agent.tools import LiteratureTools, McpTools, Toolset, amr_mcp_server
 
 log = logging.getLogger("amr_agent")
 
+
+def _setup_logging() -> None:
+    """Que nuestros log.info salgan junto a los de uvicorn (por defecto solo saldrían WARNING+)."""
+    if not log.handlers:
+        handler = logging.StreamHandler()
+        handler.setFormatter(logging.Formatter("%(levelname)s:     %(message)s"))
+        log.addHandler(handler)
+        log.setLevel(logging.INFO)
+        log.propagate = False
+
 DEMO_PAGE = Path(__file__).parent / "static" / "index.html"
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Se ejecuta una vez al arrancar: crea los recursos caros y los comparte entre peticiones."""
+    _setup_logging()
     settings = get_settings()
+    # Tiempos por fase: en Render Free (0,15 CPU) el arranque tarda ~20 s y, si un despliegue
+    # se atasca o falla, este log dice dónde.
+    timings: dict[str, float] = {}
+    t = time.perf_counter()
     await apply_schema_async(settings.database_url)
     async with AsyncExitStack() as stack:  # cierra todo lo abierto, en orden inverso, al apagar
         pool = make_pool(settings.database_url)
         await pool.open()
         stack.push_async_callback(pool.close)
+        timings["db"] = time.perf_counter() - t
+        t = time.perf_counter()
         embedder = FastEmbedEmbedder(settings.embedding_model, threads=settings.embedding_threads)
         embedder.embed_query("warm-up")  # carga el modelo ya, no en la primera petición
+        timings["model"] = time.perf_counter() - t
         retriever = Retriever(pool, embedder, settings.keyword_weight, settings.keyword_max_df)
         llm = OpenAICompatibleLLM(
             settings.llm_base_url, settings.llm_api_key, settings.llm_model, settings.llm_timeout_s,
@@ -49,7 +69,12 @@ async def lifespan(app: FastAPI):
         app.state.agent_quota = AskQuota(settings.agent_per_ip_per_minute, settings.agent_per_day)
         app.state.agent = None
         if settings.agent_enabled:
+            t = time.perf_counter()
             app.state.agent = await start_agent(stack, llm, retriever, settings)
+            timings["amr-mcp"] = time.perf_counter() - t
+        phases = ", ".join(f"{k} {v:.1f} s" for k, v in timings.items())
+        log.info("Startup %.1f s (%s) · agent %s · %s", sum(timings.values()), phases,
+                 "on" if app.state.agent else "off", memory_summary())
         yield
 
 
