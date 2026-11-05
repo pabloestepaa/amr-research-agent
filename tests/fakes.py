@@ -3,12 +3,14 @@
 Así los tests son rápidos, deterministas y no necesitan red ni API keys.
 """
 
+import copy
 import hashlib
+import json
 import re
 
 import numpy as np
 
-from amr_agent.llm import Completion
+from amr_agent.llm import ChatTurn, Completion, ToolCall
 from amr_agent.retrieval import Hit
 
 
@@ -62,3 +64,35 @@ class FakeRetriever:
 
 def make_hit(pmid: str, title: str = "A title", abstract: str = "An abstract.") -> Hit:
     return Hit(pmid=pmid, title=title, abstract=abstract, journal="J Test", year=2024, score=0.5)
+
+
+def tool_turn(*calls: tuple[str, dict | str], tokens: int = 100) -> ChatTurn:
+    """Turno en el que el modelo pide herramientas. Un str como argumentos = JSON en bruto."""
+    return ChatTurn(
+        text="",
+        tool_calls=[ToolCall.parse(f"call_{i}", name, args if isinstance(args, str)
+                                   else json.dumps(args)) for i, (name, args) in enumerate(calls)],
+        model="fake-model", prompt_tokens=tokens, completion_tokens=10, latency_ms=1.0,
+    )
+
+
+def text_turn(text: str, tokens: int = 100) -> ChatTurn:
+    return ChatTurn(text=text, model="fake-model", prompt_tokens=tokens, completion_tokens=10,
+                    latency_ms=1.0)
+
+
+class ScriptedLLM:
+    """LLM con guion: devuelve los turnos en orden y guarda lo que recibió en cada llamada.
+
+    Prueba el bucle del agente (no al modelo): qué mensajes se le envían, cuándo se le prohíben
+    las herramientas, qué pasa si pide algo raro...
+    """
+
+    def __init__(self, *turns: ChatTurn) -> None:
+        self.turns = list(turns)
+        self.calls: list[dict] = []
+
+    async def chat(self, messages, tools, *, tool_choice="auto") -> ChatTurn:
+        self.calls.append({"messages": copy.deepcopy(messages), "tools": tools,
+                           "tool_choice": tool_choice})
+        return self.turns[min(len(self.calls), len(self.turns)) - 1]
