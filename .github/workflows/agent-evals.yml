@@ -1,0 +1,61 @@
+# Evals de trayectoria del agente. Gastan cuota de Groq (~130.000 tokens las 22 tareas), así que
+# solo se lanzan a mano (pestaña Actions -> Run workflow): con las evals de respuestas semanales
+# no cabrían las dos el mismo día en los 200.000 tokens diarios.
+# Requiere el secret GROQ_API_KEY (Settings -> Secrets and variables -> Actions).
+name: Agent evals
+
+on:
+  workflow_dispatch:
+    inputs:
+      only:
+        description: "Comma-separated task ids (empty = all)"
+        required: false
+
+jobs:
+  agent-evals:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    services:
+      postgres:
+        image: pgvector/pgvector:pg17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: amr_agent_eval
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      DATABASE_URL_EVAL: postgresql://postgres:postgres@localhost:5432/amr_agent_eval
+      FASTEMBED_CACHE_PATH: /home/runner/.cache/fastembed
+      LLM_API_KEY: ${{ secrets.GROQ_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - run: uv sync --locked
+      - uses: actions/cache@v4
+        with:
+          path: /home/runner/.cache/fastembed
+          key: fastembed-bge-small-en-v1.5
+      # Las respuestas de amr-mcp se reproducen desde evals/agent_cassette.jsonl (versionado);
+      # solo las llamadas que no estén grabadas van a NCBI.
+      - name: Run agent evals
+        run: |
+          ONLY="${{ github.event.inputs.only }}"
+          uv run amr-eval-agent --load-corpus --name agent_ci ${ONLY:+--only "$ONLY"}
+      - name: Job summary
+        if: always()
+        run: |
+          uv run python -c "import json; from amr_agent.evals.report import agent_table; \
+          print(agent_table(json.load(open('evals/results/agent_ci.json'))))" \
+          >> "$GITHUB_STEP_SUMMARY"
+      # El cassette se sube también: si se grabaron llamadas nuevas, se puede descargar y versionar.
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: agent-eval
+          path: |
+            evals/results/agent_ci.json
+            evals/agent_cassette.jsonl

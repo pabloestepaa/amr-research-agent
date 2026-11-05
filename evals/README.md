@@ -1,6 +1,6 @@
 # Evals
 
-Two kinds of evaluation, with different cost and cadence:
+Three kinds of evaluation, with different cost and cadence:
 
 | | Retrieval evals | Answer evals |
 |---|---|---|
@@ -8,6 +8,14 @@ Two kinds of evaluation, with different cost and cadence:
 | How | deterministic, local embeddings, no LLM | the RAG pipeline + an LLM judge (`openai/gpt-oss-20b`) |
 | Cost | free, ~1 min | ~150k tokens and ~25 min: Groq Free allows 8k tokens/min and 200k/day per model, so about one full run per day (`--resume` continues an interrupted run) |
 | When | every push and PR ([ci.yml](../.github/workflows/ci.yml)), fails below [thresholds.json](thresholds.json) | manual or weekly ([answer-evals.yml](../.github/workflows/answer-evals.yml)) |
+
+The third kind evaluates the **agent** (`/agent`), where the final answer is not enough: an agent
+can get it right by luck, or wrong because it picked the wrong tool. Agent evals check the
+**trajectory** with deterministic rules, no LLM judge: did it call the tools the task needs, with
+the right arguments (e.g. the `WP_` accession it read from the catalog), does the answer contain
+the verifiable facts, did `search_literature` find the relevant abstract, did it refuse
+out-of-scope questions, and at what cost (extra or failed calls, steps, tokens). About 130k tokens
+for the 22 tasks, so they run by hand only ([agent-evals.yml](../.github/workflows/agent-evals.yml)).
 
 Latest numbers: [RESULTS.md](RESULTS.md).
 
@@ -22,6 +30,15 @@ Latest numbers: [RESULTS.md](RESULTS.md).
   corpus: the relevant abstracts plus **hard negatives** (the top results of every search mode
   for every question on the full corpus), built with `amr-eval-build snapshot`.
   Random distractors would make the task trivially easy.
+- `golden_agent.jsonl` — 22 agent tasks in six categories: `catalog` (what a gene is),
+  `hosts` (catalog → `WP_` accession → species), `references` (catalog → PMIDs → PubMed),
+  `literature` (questions from `golden.jsonl`), `multi_tool` and `out_of_scope`. Two tasks are in
+  Spanish (`host-04`, `lit-05`): the agent must still query the English-only index in English. Expected facts were checked against the
+  catalog and NCBI on 2026-11-05. Alternatives are written with `|`
+  (`"Klebsiella pneumoniae|K. pneumoniae"`).
+- `agent_cassette.jsonl` — recorded `amr-mcp` responses (tool + arguments → result). Agent evals
+  replay them, so a slow or failing NCBI, or a new catalog version, does not change the score;
+  calls not recorded yet go live and are added. `--cassette refresh` re-records everything.
 - `thresholds.json` — minimum metric values; CI fails if a change drops below them.
 - `results/*.json` — full outputs, including per-question results for error analysis.
 
@@ -33,6 +50,7 @@ export DATABASE_URL_EVAL=postgresql://localhost/amr_agent_eval
 uv run amr-eval-retrieval --load-corpus --check                  # snapshot, like CI
 uv run amr-eval-retrieval --database-url postgresql://localhost/amr_agent --name retrieval_full
 uv run amr-eval-answers --limit 5                                 # quick check, uses quota
+uv run amr-eval-agent --load-corpus --only host-01,oos-01         # agent evals, uses quota
 uv run amr-eval-report                                            # regenerates RESULTS.md
 ```
 

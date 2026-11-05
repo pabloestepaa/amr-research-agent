@@ -58,3 +58,52 @@ def load_golden(path: Path = GOLDEN_PATH) -> list[GoldenItem]:
 
 def load_corpus(path: Path = CORPUS_PATH) -> list[Article]:
     return [Article(**row) for row in read_jsonl(path)]
+
+
+# --- Evals del agente (trayectoria) ----------------------------------------------------------
+
+AGENT_GOLDEN_PATH = EVALS_DIR / "golden_agent.jsonl"
+CASSETTE_PATH = EVALS_DIR / "agent_cassette.jsonl"
+
+TaskCategory = Literal[
+    "catalog", "hosts", "references", "literature", "multi_tool", "out_of_scope"]
+
+
+class AgentTask(BaseModel):
+    """Una tarea para el agente y lo que se espera de su trayectoria.
+
+    Alternativas con "|": "get_amr_gene|search_amr_genes" se cumple si llama a cualquiera de las
+    dos, y "Klebsiella pneumoniae|K. pneumoniae" si la respuesta contiene cualquiera de los dos.
+    Todas las comparaciones de texto ignoran mayúsculas.
+    """
+
+    id: str
+    question: str
+    category: TaskCategory
+    # Herramientas que debe llamar (al menos una vez cada grupo).
+    expect_tools: list[str] = Field(default_factory=list)
+    # Grupo de herramientas -> texto que debe aparecer en los argumentos de alguna de sus
+    # llamadas. Ej.: {"get_protein_hosts": "WP_004199234"} comprueba que usó la accesión correcta.
+    expect_args: dict[str, str] = Field(default_factory=dict)
+    # Textos que debe contener la respuesta (hechos del catálogo y de NCBI, verificables).
+    answer_contains: list[str] = Field(default_factory=list)
+    # Abstracts que responden a la pregunta: se mira si search_literature los encontró.
+    relevant_pmids: list[str] = Field(default_factory=list)
+    should_abstain: bool = False
+    reviewed: bool = False
+
+
+def load_agent_golden(path: Path = AGENT_GOLDEN_PATH) -> list[AgentTask]:
+    tasks = [AgentTask(**row) for row in read_jsonl(path)]
+    ids = [t.id for t in tasks]
+    if len(ids) != len(set(ids)):
+        raise ValueError(f"duplicated ids in {path}")
+    for t in tasks:
+        if t.should_abstain and (t.expect_tools or t.answer_contains):
+            raise ValueError(f"{t.id}: an abstention task cannot expect tools or answer text")
+        if not t.should_abstain and not t.expect_tools:
+            raise ValueError(f"{t.id}: expect at least one tool")
+        unknown = set(t.expect_args) - set(t.expect_tools)
+        if unknown:
+            raise ValueError(f"{t.id}: expect_args for tools not in expect_tools: {unknown}")
+    return tasks
