@@ -3,7 +3,8 @@ import openai
 import pytest
 from fastapi.testclient import TestClient
 
-from amr_agent.api.main import app, get_rag, get_retriever
+from amr_agent.api.main import app, get_quota, get_rag, get_retriever
+from amr_agent.api.ratelimit import AskQuota
 from amr_agent.rag import RagService
 from tests.fakes import FakeLLM, FakeRetriever, make_hit
 
@@ -14,6 +15,8 @@ def client():
     retriever = FakeRetriever([make_hit("1001", title="mcr-1")])
     app.dependency_overrides[get_retriever] = lambda: retriever
     app.dependency_overrides[get_rag] = lambda: RagService(retriever, FakeLLM("Yes [PMID:1001]."))
+    quota = AskQuota(per_ip_per_minute=100, per_day=100)
+    app.dependency_overrides[get_quota] = lambda: quota
     yield TestClient(app)
     app.dependency_overrides.clear()
 
@@ -56,3 +59,19 @@ def test_rate_limit_from_llm_becomes_503(client):
     app.dependency_overrides[get_rag] = lambda: RagService(
         FakeRetriever([make_hit("1")]), RateLimitedLLM())
     assert client.post("/ask", json={"question": "colistin?"}).status_code == 503
+
+
+def test_demo_page_is_served(client):
+    resp = client.get("/")
+    assert resp.status_code == 200
+    assert resp.headers["content-type"].startswith("text/html")
+    assert "fetch(\"/ask\"" in resp.text
+
+
+def test_ask_is_rate_limited_per_ip(client):
+    quota = AskQuota(per_ip_per_minute=2, per_day=100)
+    app.dependency_overrides[get_quota] = lambda: quota
+    codes = [client.post("/ask", json={"question": "colistin?"}).status_code for _ in range(3)]
+    assert codes == [200, 200, 429]
+    resp = client.post("/ask", json={"question": "colistin?"})
+    assert int(resp.headers["retry-after"]) > 0

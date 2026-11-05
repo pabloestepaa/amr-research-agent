@@ -1,0 +1,204 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AMR Research Agent</title>
+<meta name="description" content="Ask questions about antimicrobial resistance in E. coli and get answers cited from PubMed abstracts.">
+<style>
+  :root {
+    --bg: #f7f7f5; --surface: #ffffff; --text: #1d1d1b; --muted: #66665f; --border: #e2e1dc;
+    --accent: #0b6e4f; --accent-soft: #e3f1ec; --warn-bg: #fdf3e1; --warn: #8a5300;
+    --err-bg: #fde8e6; --err: #a3271b;
+    color-scheme: light;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #141413; --surface: #1d1d1b; --text: #ecebe6; --muted: #a3a29b; --border: #33332f;
+      --accent: #5cc9a0; --accent-soft: #1d3a30; --warn-bg: #3a2c12; --warn: #f0c070;
+      --err-bg: #3d1b17; --err: #f3a197;
+      color-scheme: dark;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 16px/1.55 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  main { max-width: 760px; margin: 0 auto; padding: 40px 16px 64px; }
+  h1 { font-size: 1.6rem; margin: 0 0 4px; letter-spacing: -0.01em; }
+  .lead { color: var(--muted); margin: 0 0 24px; }
+  form { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 16px; }
+  textarea {
+    width: 100%; min-height: 84px; resize: vertical; padding: 10px 12px; font: inherit;
+    color: inherit; background: var(--bg); border: 1px solid var(--border); border-radius: 8px;
+  }
+  textarea:focus, select:focus, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-top: 12px; }
+  label { color: var(--muted); font-size: 0.9rem; }
+  select { font: inherit; color: inherit; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 6px 8px; }
+  button[type=submit] {
+    margin-left: auto; font: inherit; font-weight: 600; color: #fff; background: var(--accent);
+    border: 0; border-radius: 8px; padding: 8px 18px; cursor: pointer;
+  }
+  @media (prefers-color-scheme: dark) { button[type=submit] { color: #0d1f18; } }
+  button[disabled] { opacity: 0.6; cursor: progress; }
+  .examples { display: flex; flex-wrap: wrap; gap: 8px; margin: 14px 0 0; }
+  .examples button {
+    font: inherit; font-size: 0.85rem; color: var(--accent); background: var(--accent-soft);
+    border: 0; border-radius: 999px; padding: 4px 12px; cursor: pointer; text-align: left;
+  }
+  .notice { margin-top: 20px; padding: 12px 14px; border-radius: 8px; }
+  .notice.wait { background: var(--warn-bg); color: var(--warn); }
+  .notice.error { background: var(--err-bg); color: var(--err); }
+  section { margin-top: 28px; }
+  h2 { font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin: 0 0 10px; }
+  .answer { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 16px 18px; white-space: pre-wrap; }
+  .answer a { color: var(--accent); font-size: 0.85em; text-decoration: none; font-weight: 600; }
+  .meta { color: var(--muted); font-size: 0.85rem; margin-top: 8px; }
+  ol.sources { list-style: none; padding: 0; margin: 0; display: grid; gap: 8px; }
+  ol.sources li { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 10px 14px; }
+  ol.sources li.cited { border-color: var(--accent); }
+  ol.sources li:target { box-shadow: 0 0 0 2px var(--accent); }
+  ol.sources a { color: var(--text); font-weight: 600; text-decoration: none; }
+  ol.sources a:hover { text-decoration: underline; }
+  .src-meta { color: var(--muted); font-size: 0.85rem; }
+  .tag { font-size: 0.75rem; color: var(--accent); font-weight: 600; margin-left: 6px; }
+  footer { margin-top: 48px; color: var(--muted); font-size: 0.85rem; }
+  footer a { color: inherit; }
+</style>
+</head>
+<body>
+<main>
+  <h1>AMR Research Agent</h1>
+  <p class="lead">Questions about antimicrobial resistance in <i>E. coli</i>, answered only from
+    ~3,000 PubMed abstracts, with every claim cited. Hybrid search (pgvector + Postgres full-text)
+    and an LLM on Groq.</p>
+
+  <form id="ask">
+    <textarea id="question" name="question" minlength="3" maxlength="500" required
+      placeholder="e.g. Which genes confer colistin resistance in E. coli?"></textarea>
+    <div class="row">
+      <label for="mode">Search</label>
+      <select id="mode" name="mode">
+        <option value="hybrid" selected>hybrid</option>
+        <option value="vector">vector</option>
+        <option value="keyword">keyword</option>
+      </select>
+      <button type="submit" id="submit">Ask</button>
+    </div>
+    <div class="examples" aria-label="Example questions">
+      <button type="button">Which genes confer colistin resistance in E. coli?</button>
+      <button type="button">How does blaNDM-1 spread between bacteria?</button>
+      <button type="button">Are ESBL-producing E. coli found in food animals?</button>
+    </div>
+  </form>
+
+  <div id="notice" class="notice" hidden></div>
+
+  <section id="answer-section" hidden>
+    <h2>Answer</h2>
+    <div id="answer" class="answer"></div>
+    <div id="meta" class="meta"></div>
+  </section>
+
+  <section id="sources-section" hidden>
+    <h2>Retrieved abstracts</h2>
+    <ol id="sources" class="sources"></ol>
+  </section>
+
+  <footer>
+    Answers come only from the indexed abstracts and can still be wrong: check the cited papers.
+    Free hosting: the first request after a while can take up to a minute.
+    · <a href="/docs">API docs</a>
+    · <a href="https://github.com/pabloestepaa/amr-research-agent">Source code</a>
+  </footer>
+</main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const form = $("ask"), question = $("question"), submit = $("submit"), notice = $("notice");
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+function showNotice(text, kind) {
+  notice.textContent = text;
+  notice.className = "notice " + kind;
+  notice.hidden = !text;
+}
+
+// El texto se escapa ANTES de darle formato: la respuesta del LLM nunca se inserta como HTML
+// tal cual. Después solo se reconocen tres cosas: citas, **negrita** y *cursiva* (el modelo
+// escribe Markdown aunque no se le pida).
+function renderAnswer(text) {
+  return escapeHtml(text)
+    .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
+    .replace(/(^|[^*])\*([^*\n]+?)\*/g, "$1<em>$2</em>")
+    .replace(/\[PMID:(\d+)\]/g,
+      (_, pmid) => `<a href="#src-${pmid}" title="Jump to source">[PMID:${pmid}]</a>`);
+}
+
+function renderSources(sources, cited) {
+  $("sources").innerHTML = sources.map((s) => {
+    const isCited = cited.has(s.pmid);
+    const meta = [s.journal, s.year, "PMID " + s.pmid].filter(Boolean).map(escapeHtml).join(" · ");
+    return `<li id="src-${escapeHtml(s.pmid)}" class="${isCited ? "cited" : ""}">
+      <a href="${escapeHtml(s.url)}" target="_blank" rel="noopener">${escapeHtml(s.title)}</a>
+      ${isCited ? '<span class="tag">cited</span>' : ""}
+      <div class="src-meta">${meta}</div></li>`;
+  }).join("");
+  $("sources-section").hidden = sources.length === 0;
+}
+
+async function ask(event) {
+  event.preventDefault();
+  const q = question.value.trim();
+  if (q.length < 3) return;
+  submit.disabled = true;
+  submit.textContent = "Thinking…";
+  $("answer-section").hidden = true;
+  $("sources-section").hidden = true;
+  // Si tarda, casi siempre es el arranque en frío de Render o de Neon: lo decimos.
+  const slow = setTimeout(() => showNotice("Waking up the free-tier server and database, this can take up to a minute…", "wait"), 4000);
+  showNotice("", "wait");
+  try {
+    const resp = await fetch("/ask", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ question: q, mode: $("mode").value }),
+    });
+    const body = await resp.json().catch(() => ({}));
+    if (!resp.ok) {
+      const detail = typeof body.detail === "string" ? body.detail : "Invalid question.";
+      throw new Error(resp.status >= 500 && !body.detail ? "Server error, please try again." : detail);
+    }
+    showNotice("", "wait");
+    $("answer").innerHTML = renderAnswer(body.answer);
+    const lat = body.latency_ms || {};
+    const parts = [`retrieval ${Math.round(lat.retrieval || 0)} ms`];
+    if (lat.generation) parts.push(`generation ${(lat.generation / 1000).toFixed(1)} s`);
+    if (body.usage) parts.push(`${body.usage.model}, ${body.usage.prompt_tokens + body.usage.completion_tokens} tokens`);
+    if (body.invalid_citations.length) parts.push(`${body.invalid_citations.length} citation(s) to papers that were not retrieved`);
+    $("meta").textContent = parts.join(" · ");
+    $("answer-section").hidden = false;
+    renderSources(body.sources, new Set(body.citations.map((c) => c.pmid)));
+  } catch (err) {
+    showNotice(err.message || "Network error, please try again.", "error");
+  } finally {
+    clearTimeout(slow);
+    submit.disabled = false;
+    submit.textContent = "Ask";
+  }
+}
+
+form.addEventListener("submit", ask);
+question.addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) form.requestSubmit();
+});
+document.querySelectorAll(".examples button").forEach((b) =>
+  b.addEventListener("click", () => { question.value = b.textContent; form.requestSubmit(); }));
+</script>
+</body>
+</html>

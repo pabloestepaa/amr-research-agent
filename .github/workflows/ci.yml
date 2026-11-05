@@ -74,3 +74,49 @@ jobs:
         with:
           name: retrieval-eval
           path: evals/results/retrieval_ci.json
+
+  # Construye la imagen de producción y la arranca contra un Postgres vacío: detecta antes
+  # de desplegar en Render un Dockerfile roto, un fichero que no entra en la imagen o un
+  # consumo de memoria que no cabría en los 512 MB del plan gratuito.
+  docker:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: amr_agent
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Build image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          load: true
+          tags: amr-research-agent:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Run container (512 MB, like Render Free)
+        run: |
+          docker run -d --name api --network host --memory 512m \
+            -e PORT=8000 \
+            -e DATABASE_URL=postgresql://postgres:postgres@localhost:5432/amr_agent \
+            amr-research-agent:ci
+          for i in $(seq 1 60); do
+            curl -fsS localhost:8000/health && break
+            sleep 2
+          done
+      - name: Smoke test
+        run: |
+          curl -fsS localhost:8000/ | grep -q "AMR Research Agent"
+          # BD vacía: la búsqueda debe responder 200 con una lista vacía (ejercita el modelo)
+          test "$(curl -fsS 'localhost:8000/search?q=colistin%20resistance')" = "[]"
+          docker stats --no-stream --format 'Memory: {{.MemUsage}}' api | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Container logs
+        if: always()
+        run: docker logs api

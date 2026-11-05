@@ -1,0 +1,24 @@
+# Blueprint de Render: describe el servicio como código. En Render: New > Blueprint > este repo.
+# Los secretos (sync: false) se rellenan a mano en el panel la primera vez; nunca van en git.
+services:
+  - type: web
+    name: amr-research-agent
+    runtime: docker
+    plan: free
+    region: frankfurt # la más cercana a Neon eu-central-1 (Fráncfort): menos latencia a la BD
+    healthCheckPath: /health
+    # Despliega solo cuando el CI de GitHub (tests + evals de búsqueda) ha pasado.
+    autoDeployTrigger: checksPass
+    envVars:
+      - key: DATABASE_URL # URL "pooled" de Neon (lleva -pooler en el host)
+        sync: false
+      - key: LLM_API_KEY # clave de Groq
+        sync: false
+      - key: LLM_BASE_URL
+        value: https://api.groq.com/openai/v1
+      - key: LLM_MODEL
+        value: openai/gpt-oss-120b
+      - key: ASK_PER_IP_PER_MINUTE
+        value: "5"
+      - key: ASK_PER_DAY
+        value: "50"

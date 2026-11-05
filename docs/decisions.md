@@ -119,3 +119,39 @@ raised MRR to 0.85 and recall@5 to 0.92, but took ~4 s per query on an M-series 
 the process's peak memory above 1 GB.
 **Decision.** Not shipped: Render Free has 512 MB and a tenth of a CPU, so a single query would
 take tens of seconds. Worth revisiting with paid hosting or a hosted rerank API.
+
+## 16. A Docker image with the embedding model baked in (2026-11-05)
+**Context.** Render Free has no persistent disk and sleeps after 15 minutes idle, so every cold
+start is a fresh container.
+**Decision.** A two-stage Dockerfile: uv installs the locked dependencies and downloads
+`bge-small-en-v1.5` (~64 MB) at build time; the runtime stage runs as a non-root user with
+`HF_HUB_OFFLINE=1`. CI builds the image, runs it with a 512 MB memory cap against an empty
+Postgres, smoke-tests `/`, `/health` and `/search`, and reports its memory use.
+**Why.** Cold starts do not depend on Hugging Face being reachable, and a broken image is caught
+before Render tries to deploy it. Render deploys only after CI passes (`autoDeployTrigger:
+checksPass` in `render.yaml`).
+
+## 17. Rate limits on the public demo (2026-11-05)
+**Context.** Each `/ask` uses about 3,000 Groq tokens and the free tier allows 200,000 tokens per
+day per model, shared with the answer evals: one script in a loop could exhaust it in minutes.
+**Decision.** An in-memory sliding-window limiter: 5 questions per minute per IP and 50 per day in
+total (both configurable), answering `429` with `Retry-After`. `/search` is not limited because it
+does not call the LLM.
+**Trade-offs.** State lives in one process, which is correct for Render Free's single instance and
+resets on restart. Several instances would need a shared store (Redis or Postgres). The client IP
+comes from Render's `X-Forwarded-For`, which a client can prepend to, so the global daily cap is
+the real protection for the quota.
+
+## 18. Copy the index to production instead of re-ingesting (2026-11-05)
+**Decision.** `amr-copy-db` streams `documents` (including the vectors) from the local database to
+Neon with `COPY`, upserts by PMID through a temporary table, and refreshes `term_stats`. It took
+11 s for 2,999 abstracts locally and is idempotent.
+**Why.** Production gets exactly the corpus the evals were measured on, without calling PubMed
+again (its search API was down that day) or re-computing embeddings. Text `COPY` format avoids
+depending on matching pgvector versions.
+
+## 19. A dependency-free demo page served by the API (2026-11-05)
+**Decision.** One static HTML file with plain JavaScript at `/`, calling `/ask` on the same origin.
+**Why.** No frontend build, no second service to host and no CORS. The model's answer is
+HTML-escaped before citations and bold/italic are turned into markup, so model output can never
+inject HTML into the page.

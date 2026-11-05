@@ -31,6 +31,10 @@ class Settings(BaseSettings):
     # Peso de la lista de palabras clave en la fusión RRF (la vectorial pesa 1.0).
     keyword_weight: float = 1.0
 
+    # Límites de /ask en la demo pública (0 = sin límite). Ver api/ratelimit.py.
+    ask_per_ip_per_minute: int = 5
+    ask_per_day: int = 50
+
     # NCBI E-utilities: la API key es opcional (sube el límite de 3 a 10 peticiones/s).
     ncbi_api_key: str | None = None
     ncbi_email: str | None = None
