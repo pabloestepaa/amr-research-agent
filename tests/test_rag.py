@@ -20,6 +20,15 @@ def test_extract_citations_dedupes_in_order():
     assert extract_citations(text) == ["2", "1"]
 
 
+async def test_fullwidth_brackets_are_parsed_and_normalized():
+    # Caso real: gpt-oss-120b citó con 【PMID:…】 en vez de [PMID:…].
+    llm = FakeLLM("mcr-1 is dominant【PMID:1001】 and ［PMID：1002］.")
+    rag = RagService(FakeRetriever([make_hit("1001"), make_hit("1002")]), llm)
+    result = await rag.ask("colistin?")
+    assert [c.pmid for c in result.citations] == ["1001", "1002"]
+    assert result.answer == "mcr-1 is dominant[PMID:1001] and [PMID:1002]."
+
+
 async def test_answer_keeps_valid_citations_and_flags_hallucinated_ones():
     llm = FakeLLM("mcr-1 confers colistin resistance [PMID:1001]. Also [PMID:9999].")
     rag = RagService(FakeRetriever([make_hit("1001"), make_hit("1002")]), llm)

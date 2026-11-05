@@ -20,7 +20,14 @@ Rules:
   Do not use outside knowledge.
 - Be concise: at most two short paragraphs."""
 
-CITATION_RE = re.compile(r"\[PMID:\s*(\d+)\]")
+# Los modelos no siempre respetan el formato pedido: gpt-oss, por ejemplo, a veces cita con
+# corchetes de ancho completo (【PMID:123】 o ［PMID:123］). Aceptamos esas variantes y las
+# normalizamos a [PMID:123] para que la respuesta sea consistente.
+CITATION_RE = re.compile(r"[\[【［]\s*PMID\s*[:：]\s*(\d+)\s*[\]】］]")
+
+
+def normalize_citations(text: str) -> str:
+    return CITATION_RE.sub(lambda m: f"[PMID:{m.group(1)}]", text)
 
 
 class Source(BaseModel):
@@ -91,9 +98,10 @@ class RagService:
 
         # Guardarraíl: comprobamos que cada cita apunta a un documento recuperado.
         by_pmid = {s.pmid: s for s in sources}
-        cited = extract_citations(completion.text)
+        answer = normalize_citations(completion.text)
+        cited = extract_citations(answer)
         return RagAnswer(
-            answer=completion.text,
+            answer=answer,
             citations=[by_pmid[p] for p in cited if p in by_pmid],
             sources=sources,
             invalid_citations=[p for p in cited if p not in by_pmid],

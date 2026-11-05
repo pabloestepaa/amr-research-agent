@@ -126,8 +126,36 @@ class PubMedClient:
         )
         return parse_pubmed_xml(resp.content)
 
-    def iter_articles(self, term: str, max_results: int, batch: int = 200) -> Iterator[Article]:
-        pmids = self.search(term, max_results)
+    def iter_articles(self, pmids: list[str], batch: int = 200) -> Iterator[Article]:
         for i in range(0, len(pmids), batch):
             time.sleep(self._delay)
             yield from self.fetch(pmids[i : i + batch])
+
+
+EUROPEPMC = "https://www.ebi.ac.uk/europepmc/webservices/rest/search"
+
+
+def search_europepmc(http: httpx.Client, query: str, max_results: int) -> list[str]:
+    """Buscador alternativo (Europe PMC indexa PubMed) para cuando esearch de NCBI falla.
+
+    Pagina con `cursorMark`: cada respuesta trae el cursor de la siguiente página.
+    """
+    pmids: list[str] = []
+    cursor = "*"
+    while len(pmids) < max_results:
+        params = {"query": query, "format": "json", "resultType": "idlist",
+                  "pageSize": min(500, max_results - len(pmids)), "cursorMark": cursor}
+        for attempt in range(5):
+            resp = http.get(EUROPEPMC, params=params)
+            if resp.status_code not in (429, 500, 502, 503) or attempt == 4:
+                break
+            time.sleep(2**attempt)
+        resp.raise_for_status()
+        data = resp.json()
+        page = [r["pmid"] for r in data["resultList"]["result"] if r.get("pmid")]
+        if not page or data.get("nextCursorMark") in (None, cursor):
+            pmids.extend(page)
+            break
+        pmids.extend(page)
+        cursor = data["nextCursorMark"]
+    return list(dict.fromkeys(pmids))[:max_results]
