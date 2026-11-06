@@ -138,7 +138,8 @@ in the numbers:
   matching the rare, informative term. Dropping query terms present in more than 10 % of the corpus
   fixed it: hybrid MRR 0.80, recall@10 0.86 → 0.97.
 - **The API reported zero citations for a correct answer**: `gpt-oss` sometimes writes
-  `【PMID:x】` instead of `[PMID:x]`. Citations are now parsed tolerantly and then validated.
+  `【PMID:x】` instead of `[PMID:x]`, and the agent evals later showed `【3†PMID:x】`, `(PMID x)` and
+  several PMIDs in one bracket. Citations are now parsed tolerantly and then validated.
 - **The agent crashed at its step limit.** Asked for a final answer with `tool_choice="none"`,
   `gpt-oss` kept calling tools: Groq returned a 400, or the call leaked into the answer as text.
   The final turn is now a fresh conversation with no tools in it.

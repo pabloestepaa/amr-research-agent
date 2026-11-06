@@ -20,14 +20,29 @@ Rules:
   Do not use outside knowledge.
 - Be concise: at most two short paragraphs."""
 
-# Los modelos no siempre respetan el formato pedido: gpt-oss, por ejemplo, a veces cita con
-# corchetes de ancho completo (【PMID:123】 o ［PMID:123］). Aceptamos esas variantes y las
-# normalizamos a [PMID:123] para que la respuesta sea consistente.
-CITATION_RE = re.compile(r"[\[【［]\s*PMID\s*[:：]\s*(\d+)\s*[\]】］]")
+# Los modelos no siempre respetan el formato pedido. Variantes vistas con gpt-oss:
+#   【PMID:123】 o ［PMID:123］   corchetes de ancho completo
+#   【3†PMID:123】                el formato de citas de su herramienta de navegación
+#   (PMID 123)                   entre paréntesis
+# Las aceptamos y las normalizamos a [PMID:123]: así la respuesta es consistente y, sobre todo,
+# esas citas pasan por la validación (una cita que no se reconoce tampoco se comprueba).
+CITATION_RE = re.compile(
+    r"[\[【［]\s*(?:\d+\s*†\s*)?PMID\s*[:：]\s*(\d+)\s*(?:†[^\]】］]*)?[\]】］]"
+    r"|\(\s*PMID\s*[:：]?\s*(\d+)\s*\)"
+)
+# Varios PMIDs en un mismo corchete (cat-05): 【PMID:11470367, PMID:37255469】 o [PMID:1; 2].
+CITATION_LIST_RE = re.compile(
+    r"[\[【［]\s*(PMID\s*[:：]?\s*\d+(?:\s*[,;]\s*(?:PMID\s*[:：]?\s*)?\d+)+)\s*[\]】］]"
+)
+# Referencias de navegación sin PMID, como 【2】 o 【3†L1-L5】: no le dicen nada al lector.
+BARE_REF_RE = re.compile(r"[ \t]*【\s*\d+\s*(?:†[^】]*)?】")
 
 
 def normalize_citations(text: str) -> str:
-    return CITATION_RE.sub(lambda m: f"[PMID:{m.group(1)}]", text)
+    text = CITATION_LIST_RE.sub(
+        lambda m: "".join(f"[PMID:{p}]" for p in re.findall(r"\d+", m.group(1))), text)
+    text = CITATION_RE.sub(lambda m: f"[PMID:{m.group(1) or m.group(2)}]", text)
+    return BARE_REF_RE.sub("", text)
 
 
 class Source(BaseModel):
@@ -74,7 +89,9 @@ def format_sources(hits: list[Hit]) -> str:
 
 
 def extract_citations(text: str) -> list[str]:
-    return list(dict.fromkeys(CITATION_RE.findall(text)))  # únicos y en orden de aparición
+    text = normalize_citations(text)  # para que cuenten también las listas de PMIDs
+    pmids = (m.group(1) or m.group(2) for m in CITATION_RE.finditer(text))
+    return list(dict.fromkeys(pmids))  # únicos y en orden de aparición
 
 
 class RagService:

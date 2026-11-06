@@ -1,4 +1,4 @@
-from amr_agent.rag import NO_EVIDENCE, RagService, extract_citations
+from amr_agent.rag import NO_EVIDENCE, RagService, extract_citations, normalize_citations
 from amr_agent.retrieval import rrf_fuse
 from tests.fakes import FakeLLM, FakeRetriever, make_hit
 
@@ -27,6 +27,30 @@ async def test_fullwidth_brackets_are_parsed_and_normalized():
     result = await rag.ask("colistin?")
     assert [c.pmid for c in result.citations] == ["1001", "1002"]
     assert result.answer == "mcr-1 is dominant[PMID:1001] and [PMID:1002]."
+
+
+def test_browsing_style_and_parenthesised_citations_are_normalized():
+    # Casos reales de gpt-oss en las evals del agente (multi-02 y cat-06).
+    text = ("Strong synergy【3†PMID:42852341】, confirmed【4†PMID:41719126†L10-L12】. "
+            "Seen in K. pneumoniae (≈ 47 %)【2】 and E. coli【3†L1-L5】; "
+            "resistant (PMID 41847190).")
+    assert normalize_citations(text) == (
+        "Strong synergy[PMID:42852341], confirmed[PMID:41719126]. "
+        "Seen in K. pneumoniae (≈ 47 %) and E. coli; resistant [PMID:41847190].")
+    assert extract_citations(text) == ["42852341", "41719126", "41847190"]
+
+
+def test_several_pmids_in_one_bracket_become_separate_citations():
+    # cat-05: "【PMID:11470367, PMID:37255469】"
+    text = "KPC-2 was described in 2001【PMID:11470367, PMID:37255469】 and later [PMID:5; 6]."
+    assert normalize_citations(text) == (
+        "KPC-2 was described in 2001[PMID:11470367][PMID:37255469] and later [PMID:5][PMID:6].")
+    assert extract_citations(text) == ["11470367", "37255469", "5", "6"]
+
+
+def test_normalize_leaves_ordinary_brackets_and_parentheses_alone():
+    text = "Resistance rose [2021 data] (n = 12) to 47 % [PMID:1] (PMID-free note)."
+    assert normalize_citations(text) == text
 
 
 async def test_answer_keeps_valid_citations_and_flags_hallucinated_ones():

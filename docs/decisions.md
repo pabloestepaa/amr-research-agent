@@ -55,6 +55,10 @@ first real query, when the answer looked fine but the API reported zero citation
 **Decision.** Parse tolerant citation variants, normalise them, and split them into `citations`
 (PMIDs that were actually retrieved) and `invalid_citations` (hallucinated PMIDs). If retrieval
 returns nothing, the LLM is not called and the API returns a fixed "no evidence" answer.
+**Update (2026-11-06).** The agent evals found more variants: `【3†PMID:x】` (the model's browsing
+citation format), `(PMID x)`, several PMIDs in one bracket (`【PMID:1, PMID:2】`) and bare
+references such as `【2】`. The first three are normalised to `[PMID:x]`, so they are validated
+too; an unrecognised citation is also an unchecked one. Bare references are removed.
 
 ## 8. Resilient ingestion with a fallback search (2026-11-05)
 **Context.** On 2026-11-05 NCBI's `esearch` was down, returning HTTP 500 or an HTTP 200 body with an
