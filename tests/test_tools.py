@@ -143,6 +143,19 @@ async def test_mcp_tool_errors_are_returned_to_the_model(offline_catalog):
         assert "search_amr_genes" in result.content  # la pista del servidor llega al modelo
 
 
+async def test_invented_arguments_are_an_error_the_model_can_fix(offline_catalog):
+    # Con amr-mcp <= 0.1.3, `gene_family` se ignoraba sin avisar y la búsqueda devolvía 10.261
+    # genes sin relación (cat-06). Desde la 0.1.4 es un error que lista los argumentos válidos.
+    async with amr_tools() as mcp_tools:
+        result = await mcp_tools.call("search_amr_genes", {"gene_family": "blaNDM", "limit": 5})
+        assert result.is_error
+        assert "Unknown argument(s) for search_amr_genes: gene_family" in result.content
+        assert "query" in result.content
+        # Un argumento inventado a null ("sin filtro", como en ref-02) no molesta.
+        ok = await mcp_tools.call("search_amr_genes", {"query": "KPC", "gene_class": None})
+        assert not ok.is_error
+
+
 async def test_mcp_tools_refuses_tools_outside_the_allowlist(offline_catalog):
     async with amr_tools() as mcp_tools:
         result = await mcp_tools.call("run_amrfinder", {"fasta_path": "/etc/passwd"})

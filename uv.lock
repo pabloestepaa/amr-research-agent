@@ -8,15 +8,15 @@ resolution-markers = [
 
 [[package]]
 name = "amr-mcp"
-version = "0.1.3"
+version = "0.1.4"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "httpx" },
     { name = "mcp" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/b6/96/2f07a0ec5f4cae80f0078873bc6f0bd57a5aba131f4c9879b5e71389a919/amr_mcp-0.1.3.tar.gz", hash = "sha256:9c1efd3ab686582be8d5e41f0498e561ac7c2606486668654f64bd5e26a7d46c", size = 4346702, upload-time = "2026-11-03T20:32:34.687Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/40/a5/3c6564102ab8fe3d479cd2ead45eb60ad1547537ff0175074df32c63a259/amr_mcp-0.1.4.tar.gz", hash = "sha256:a617f6b5cd324927eb9c04cb40246751105f774346f17702cb787a5ddc08e346", size = 4347625, upload-time = "2026-11-06T11:09:15.477Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/36/35/c215946bdf0e63c155ee4d164bf46686eb8c8c36cf9bc2c541cee76724ee/amr_mcp-0.1.3-py3-none-any.whl", hash = "sha256:665a41d274a71285da362ba201072479e177cddcef90cc37478f0eee15c8839c", size = 14818, upload-time = "2026-11-03T20:32:33.333Z" },
+    { url = "https://files.pythonhosted.org/packages/8b/24/5462517cff1b8333cf34239f87c5af76366e98245fdaa1818cebb80a72c9/amr_mcp-0.1.4-py3-none-any.whl", hash = "sha256:e7b63273b191c9e48ace6de95211d42c8c4a629515ee28a0ab7ff843251e0aea", size = 15529, upload-time = "2026-11-06T11:09:13.829Z" },
 ]
 
 [[package]]
@@ -45,7 +45,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "amr-mcp", specifier = ">=0.1.3" },
+    { name = "amr-mcp", specifier = ">=0.1.4" },
     { name = "fastapi", specifier = ">=0.162.0" },
     { name = "fastembed", specifier = ">=0.9.1" },
     { name = "httpx", specifier = ">=0.28.1" },
