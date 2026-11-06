@@ -18,7 +18,7 @@
     --shell: #173a2c; --shell-ink: #e8f0eb; --shell-muted: #a9c4b6; --shell-line: #ffffff3d;
     --link: #1f5fa8; --ok: #17643f; --ok-soft: #e1f1e7; --bad: #a3241a; --bad-soft: #fbe7e4;
     --warn: #7a4b00; --warn-soft: #fbf0d9;
-    --app: #2f6db5; --app-soft: #e4edf8; --mcp: #9a5f0c; --mcp-bar: #c7861f; --mcp-soft: #f7ebd6;
+    --app: #2f6db5; --app-soft: #e4edf8; --mcp: #8a5308; --mcp-bar: #c7861f; --mcp-soft: #f7ebd6;
     --select: #cfe3d7; --placeholder: #5f6d74;
     --serif: "STIX Two Text", "STIX Two", Cambria, "Times New Roman", serif;
     --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue", Arial, sans-serif;
@@ -86,6 +86,7 @@
   select { font: inherit; color: var(--ink); background: var(--paper); border: 1px solid var(--rule); border-radius: 4px; padding: 6px 8px; min-height: 36px; }
   .submit-row { display: flex; align-items: center; gap: 12px; margin-top: 12px; }
   .kbd { color: var(--muted); font-size: 0.8rem; }
+  @media (hover: none) { .kbd { visibility: hidden; } }
   .btn { margin-left: auto; font: 600 0.95rem var(--sans); color: var(--shell-ink); background: var(--shell); border: 0; border-radius: 4px; padding: 0 20px; min-height: 44px; cursor: pointer; transition: background-color 150ms ease-out; }
   .btn:hover:not(:disabled) { background: #0f2b20; }
   .btn:disabled { cursor: not-allowed; opacity: 0.62; }
@@ -119,10 +120,16 @@
   .evidence dl { margin: 0; max-width: 34ch; display: grid; grid-template-columns: 3.4rem 1fr; gap: 8px 12px; }
   .evidence dt { font: 600 1.12rem/1.3 var(--serif); font-variant-numeric: lining-nums tabular-nums; }
   .evidence dd { margin: 0; color: var(--muted); font-size: 0.88rem; line-height: 1.35; padding-top: 2px; }
+  .evidence .fig-date { margin: 12px 0 0; font-size: 0.84rem; color: var(--muted); }
   .evidence .links { margin: 14px 0 0; font-size: 0.88rem; display: flex; flex-wrap: wrap; gap: 4px 16px; }
-  details.how { margin-top: 14px; border-top: 1px solid var(--rule); padding-top: 10px; font-size: 0.9rem; }
-  details.how summary { cursor: pointer; font-weight: 600; min-height: 32px; display: flex; align-items: center; }
-  details.how ol { margin: 6px 0 0; padding-left: 1.3rem; }
+  details.how { margin: -6px 0 18px; font-size: 0.92rem; }
+  details.how summary { cursor: pointer; font-weight: 600; min-height: 32px; display: flex; align-items: center; color: var(--link); }
+  /* Marcador propio: con display:flex el <summary> pierde el triángulo del navegador */
+  details > summary { list-style: none; }
+  details > summary::-webkit-details-marker { display: none; }
+  details > summary::before { content: ""; flex: none; width: 6px; height: 6px; margin: 0 9px 0 2px; border-right: 1.5px solid currentColor; border-bottom: 1.5px solid currentColor; transform: rotate(-45deg); transition: transform 150ms ease-out; }
+  details[open] > summary::before { transform: rotate(45deg) translate(-1px, -1px); }
+  details.how ol { margin: 6px 0 4px; padding-left: 1.3rem; color: var(--ink); }
   details.how li { margin-bottom: 6px; }
 
   /* --- La entrada del cuaderno --------------------------------------------------------- */
@@ -131,11 +138,12 @@
   .entry:focus-visible { outline: 2px solid var(--link); }
   .entry-meta { display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: center; font-size: 0.84rem; color: var(--muted); margin-bottom: 12px; }
   .entry-meta b { font-weight: 600; color: var(--ink); }
-  .entry h2.q { font: 600 1.6rem/1.25 var(--serif); margin: 0 0 18px; max-width: 44ch; text-wrap: balance; overflow-wrap: anywhere; }
+  .entry h2.q { font: 600 1.6rem/1.25 var(--serif); margin: 0 0 18px; max-width: 44ch; text-wrap: balance; overflow-wrap: break-word; }
   .answer { font: 400 1.1rem/1.62 var(--serif); max-width: 68ch; overflow-wrap: break-word; font-variant-numeric: oldstyle-nums proportional-nums; }
   .answer p, .answer ul, .answer ol { margin: 0 0 0.75em; }
   .answer ul, .answer ol { padding-left: 1.3em; }
   .answer strong { font-weight: 600; }
+  i.gene, i.sp { white-space: nowrap; }
   .refs-inline { font: 600 0.68em/1 var(--sans); vertical-align: 0.5em; margin-left: 1px; white-space: nowrap; }
   .refs-inline a { text-decoration: none; padding: 0 1px; }
   .refs-inline a:hover { text-decoration: underline; }
@@ -149,7 +157,7 @@
   .witness b { font-weight: 700; }
 
   .entry h3 { font: 600 1.15rem/1.3 var(--serif); margin: 32px 0 2px; }
-  .entry .sub { color: var(--muted); font-size: 0.86rem; margin: 0 0 12px; max-width: 68ch; }
+  .entry .sub { color: var(--muted); font-size: 0.84rem; margin: 0 0 12px; max-width: 68ch; }
   .entry .sub b { color: var(--ink); }
 
   /* Métodos: la trayectoria, con la frontera MCP como línea discontinua */
@@ -170,7 +178,7 @@
   .call.error { box-shadow: inset 0 0 0 1px var(--bad); }
   .call code { font-size: 0.8rem; line-height: 1.4; overflow-wrap: anywhere; }
   .call code b { font-weight: 700; }
-  .call .where { display: none; font-size: 0.75rem; font-weight: 600; color: var(--mcp); }
+  .call .where { display: none; font-size: 0.76rem; font-weight: 600; color: var(--mcp); }
   .bar { display: flex; align-items: center; gap: 8px; margin-top: 7px; font-size: 0.76rem; color: var(--muted); font-variant-numeric: tabular-nums; }
   .bar .track { flex: 1 1 0; max-width: 62%; min-width: 48px; }
   .bar .label { flex: none; }
@@ -200,11 +208,20 @@
 
   /* Espera */
   .pending { color: var(--muted); font-size: 0.95rem; max-width: 60ch; }
+  .wait-cell { grid-column: 2 / 4; min-height: 56px; }
+  .wait-track { height: 6px; margin-top: 18px; border-radius: 3px; background: var(--ground); overflow: hidden; }
+  .wait-track i { display: block; height: 100%; width: 0; background: var(--muted); opacity: 0.45; transition: width 1s linear; }
   .pending p { margin: 0 0 6px; }
   .pending .elapsed { font-variant-numeric: tabular-nums; }
 
+  .entry-notice { padding: 12px 14px; border-radius: 3px; max-width: 68ch; font-size: 0.95rem; }
+  .entry-notice p { margin: 0; }
+  .entry-notice .countdown:not(:empty) { margin-top: 6px; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .entry-notice.error { background: var(--bad-soft); color: var(--bad); }
+  .entry-notice.limit { background: var(--warn-soft); color: var(--warn); }
+  .entry-notice .link-btn { color: inherit; font-weight: 600; }
   .next { margin: 28px 0 0; padding-top: 14px; border-top: 1px solid var(--rule); font-size: 0.92rem; color: var(--muted); }
-  footer.foot { grid-column: 1 / -1; color: var(--muted); font-size: 0.86rem; border-top: 1px solid var(--rule); padding-top: 16px; max-width: 90ch; }
+  footer.foot { grid-column: 1 / -1; color: var(--muted); font-size: 0.84rem; border-top: 1px solid var(--rule); padding-top: 16px; max-width: 90ch; }
   footer.foot p { margin: 0 0 6px; }
 
   /* El único movimiento: las barras de latencia se dibujan al aparecer la trayectoria */
@@ -254,18 +271,30 @@
     <section class="ask" aria-label="Ask a question">
       <p class="lead">Ask about antimicrobial resistance. Answers come from ~3,000 recent PubMed abstracts
         and NCBI's gene catalog, and every citation is checked against what was actually retrieved.</p>
+      <details class="how">
+        <summary>How it works</summary>
+        <ol>
+          <li>Your question is searched two ways over ~3,000 PubMed abstracts (2022–2026): Postgres
+            full-text for exact terms and pgvector embeddings for meaning, merged with reciprocal rank fusion.</li>
+          <li>An LLM (gpt-oss-120b on Groq) answers only from the abstracts it was given and cites them by PMID.</li>
+          <li>Every cited PMID is checked against what was retrieved. Anything else is flagged, never trusted.</li>
+          <li>In agent mode the model runs a loop of up to 5 rounds and chooses its tools: the same
+            literature search, or NCBI's gene catalog, protein records and PubMed through
+            <a href="https://pypi.org/project/amr-mcp/">amr-mcp</a>, an MCP server I wrote.</li>
+        </ol>
+      </details>
 
       <form id="ask">
         <fieldset class="tabs">
           <legend class="vh">Mode</legend>
-          <label><input type="radio" name="kind" value="ask" checked>Literature<small>cited answer</small></label>
-          <label><input type="radio" name="kind" value="agent">Agent<small>calls tools via MCP</small></label>
+          <label><input type="radio" name="kind" value="ask">Literature<small>cited answer</small></label>
+          <label><input type="radio" name="kind" value="agent" checked>Agent<small>calls tools via MCP</small></label>
         </fieldset>
         <label for="question" class="vh">Your question</label>
         <textarea id="question" name="question" maxlength="500" autocomplete="off"
-          placeholder="e.g. Which genes confer colistin resistance in E. coli?" aria-describedby="lang-note mode-note"></textarea>
+          placeholder="e.g. In which species is blaKPC-2 most often found?" aria-describedby="lang-note mode-note"></textarea>
         <p class="field-note lang" id="lang-note" hidden>The search index is English-only, so English questions find more. The answer will still be in your language.</p>
-        <div class="opts" id="search-opts">
+        <div class="opts" id="search-opts" hidden>
           <label for="mode">Search by</label>
           <select id="mode" name="mode">
             <option value="hybrid" selected>keywords + meaning (hybrid)</option>
@@ -273,10 +302,10 @@
             <option value="keyword">exact keywords (full-text)</option>
           </select>
         </div>
-        <p class="field-note" id="mode-note" hidden>The agent takes 15–60 s and about 12,000 LLM tokens per question, so it allows one question per minute.</p>
+        <p class="field-note" id="mode-note">The agent takes 15–60 s and about 12,000 LLM tokens per question, so it allows one question per minute.</p>
         <div class="submit-row">
           <span class="kbd" id="kbd" aria-hidden="true"></span>
-          <button type="submit" class="btn" id="submit">Search the literature</button>
+          <button type="submit" class="btn" id="submit">Ask the agent</button>
         </div>
         <div class="status" id="status" role="status" aria-live="polite"></div>
       </form>
@@ -284,13 +313,13 @@
     </section>
 
     <section class="examples-box" aria-labelledby="ex-h">
-      <p class="ex-h" id="ex-h">Or try one</p>
-      <ul class="examples" id="examples-ask" aria-labelledby="ex-h">
+      <p class="ex-h" id="ex-h">Example questions</p>
+      <ul class="examples" id="examples-ask" aria-labelledby="ex-h" hidden>
         <li><button type="button">Which genes confer colistin resistance in E. coli?</button></li>
         <li><button type="button">How does blaNDM-1 spread between bacteria?</button></li>
         <li><button type="button">Are ESBL-producing E. coli found in food animals?</button></li>
       </ul>
-      <ul class="examples" id="examples-agent" aria-labelledby="ex-h" hidden>
+      <ul class="examples" id="examples-agent" aria-labelledby="ex-h">
         <li><button type="button">What drug class does mcr-1 confer resistance to, and in which species is it most often found?</button></li>
         <li><button type="button">Which carbapenemase gene families are in the NCBI catalog, and what does recent literature say about KPC?</button></li>
         <li><button type="button">¿En qué especies se ha secuenciado más blaNDM-1?</button></li>
@@ -305,22 +334,11 @@
         <dt>0.96</dt><dd>of claims supported by the cited abstract, scored by an LLM judge</dd>
         <dt>19/22</dt><dd>agent tasks fully correct: right tools, right arguments, right facts</dd>
       </dl>
+      <p class="fig-date">From the eval runs of 5–6 Nov 2026.</p>
       <p class="links">
         <a href="https://github.com/pabloestepaa/amr-research-agent/blob/main/evals/RESULTS.md">All eval results</a>
         <a href="https://github.com/pabloestepaa/amr-research-agent/blob/main/docs/decisions.md">Design decisions</a>
       </p>
-      <details class="how">
-        <summary>How it works</summary>
-        <ol>
-          <li>Your question is searched two ways over ~3,000 PubMed abstracts (2022–2026): Postgres
-            full-text for exact terms and pgvector embeddings for meaning, merged with reciprocal rank fusion.</li>
-          <li>An LLM (gpt-oss-120b on Groq) answers only from the abstracts it was given and cites them by PMID.</li>
-          <li>Every cited PMID is checked against what was retrieved. Anything else is flagged, never trusted.</li>
-          <li>In agent mode the model runs a loop of up to 5 rounds and chooses its tools: the same
-            literature search, or NCBI's gene catalog, protein records and PubMed through
-            <a href="https://pypi.org/project/amr-mcp/">amr-mcp</a>, an MCP server I wrote.</li>
-        </ol>
-      </details>
     </section>
   </div>
 
@@ -362,7 +380,8 @@ const plural = (n, one, many) => `${fmt(n)} ${n === 1 ? one : many}`;
 
 // gpt-oss escribe espacios finos (U+202F) y guiones que no cortan (U+2011): se ven como espacios
 // perdidos y rompen las búsquedas de genes. Se normalizan antes de nada.
-const normalize = (t) => String(t).replace(/[    ]/g, " ").replace(/[‐‑]/g, "-");
+const normalize = (t) => String(t).replace(/[    ]/g, " ").replace(/[‐‑]/g, "-").replace(/(\d) +%/g, "$1%")
+  .replace(/\b[Bb]la_(?=[A-Z])/g, "bla");  // gpt-oss escribe a veces bla_NDM-1
 
 // Convención científica: especies y genes en cursiva.
 const GENERA = "Escherichia|Klebsiella|Acinetobacter|Pseudomonas|Salmonella|Enterobacter|Enterococcus|Staphylococcus|Streptococcus|Proteus|Serratia|Citrobacter|Shigella|Campylobacter|Neisseria|Mycobacterium|Clostridioides|Helicobacter|Vibrio|Morganella|Providencia|Burkholderia|Stenotrophomonas|Haemophilus|Listeria|Bacteroides";
@@ -374,7 +393,7 @@ const GENES = /\b(?:bla[A-Z][A-Za-z]*(?:-\d+)?|mcr-\d+(?:\.\d+)?|qnr[A-Z]\d*|tet
 function italicize(html) {
   // Solo en el texto, nunca dentro de etiquetas (que aquí solo son <strong>/<em>).
   return html.split(/(<[^>]+>)/).map((part) => part.startsWith("<") ? part
-    : part.replace(SPECIES, "<i>$&</i>").replace(GENES, "<i>$&</i>")).join("");
+    : part.replace(SPECIES, '<i class="sp">$&</i>').replace(GENES, '<i class="gene">$&</i>')).join("");
 }
 
 // El texto se escapa ANTES de darle formato: la respuesta del LLM nunca se inserta como HTML tal
@@ -543,6 +562,8 @@ function renderEntry(e) {
     if (rest.length)
       parts.push(`<details class="more-src"><summary>${rest.length === sources.length ? "Retrieved" : "Also retrieved"}, not cited (${rest.length})</summary><ol class="refs">${rest.map((s) => `<li>${reference(s, s.pmid)}</li>`).join("")}</ol></details>`);
   }
+  if (!recorded && RECORDED)
+    parts.push(`<p class="next"><button type="button" class="link-btn" data-act="ask-again">Ask another question</button> or <button type="button" class="link-btn" data-act="recorded">see the recorded agent run</button>.</p>`);
   if (recorded)
     parts.push(`<p class="next">This run was recorded. <button type="button" class="link-btn" data-act="agent">Ask the agent your own question</button> (one per minute), or <button type="button" class="link-btn" data-act="literature">search the literature</button>.</p>`);
   const bodyEl = $("entry-body");
@@ -550,6 +571,17 @@ function renderEntry(e) {
   entry.classList.remove("drawn");
   void entry.offsetWidth;  // reinicia la animación de las barras
   entry.classList.add("drawn");
+}
+
+// Cuando una pregunta falla, el aviso va en la propia entrada: en móvil la página ya se ha
+// desplazado hasta aquí y el formulario queda arriba, fuera de la vista.
+function renderFailure(kind, q, err) {
+  $("entry-meta").innerHTML = `<span><b>Your question</b> · ${kind === "agent" ? "agent mode" : "literature mode"} · not answered</span>`;
+  $("entry-q").innerHTML = italicize(escapeHtml(normalize(q)));
+  const back = current ? ` <button type="button" class="link-btn" data-act="restore">Show the previous entry</button>.` : "";
+  $("entry-body").innerHTML = `<div class="entry-notice ${err.cls || "error"}"><p>${err.html || escapeHtml(String(err.message || err))}</p>`
+    + `<p class="countdown" data-countdown="${kind}"></p></div><p class="next">Your question is still in the box above.${back}</p>`;
+  syncButton();
 }
 
 // --- Envío, espera y límites ---------------------------------------------------------------
@@ -569,6 +601,10 @@ function syncButton() {
   const kind = kindNow();
   const left = Math.ceil((cooldown[kind] - Date.now()) / 1000);
   if (busy) { submit.disabled = true; return; }
+  document.querySelectorAll("[data-countdown]").forEach((el) => {
+    const s = Math.ceil((cooldown[el.dataset.countdown] - Date.now()) / 1000);
+    el.textContent = s > 0 ? `You can ask again in ${s} s.` : (cooldown[el.dataset.countdown] ? "You can ask again now." : "");
+  });
   if (left > 0) {
     submit.disabled = true;
     submit.textContent = `Next question in ${left} s`;
@@ -602,7 +638,7 @@ function syncMode() {
   syncButton();
 }
 
-const SPANISH = /[¿¡ñáéíóú]|\b(qué|cuál|cómo|dónde|genes? de|resistencia|especies?|bacterias?)\b/i;
+const SPANISH = /[¿¡ñáéíóú]|\b(qué|cuál|cómo|dónde|genes? de|resistencia|especies?|bacterias)\b/i;
 function syncLang() { $("lang-note").hidden = isAgent() || !SPANISH.test(question.value); }
 
 function showPending(kind, q) {
@@ -611,13 +647,23 @@ function showPending(kind, q) {
   const what = kind === "agent"
     ? "The agent is choosing tools and reading their results. This usually takes 15–60 s."
     : "Searching the abstracts and writing a cited answer. This usually takes a few seconds.";
-  $("entry-body").innerHTML = `<div class="pending"><p>${what}</p><p class="elapsed" id="elapsed">0 s elapsed</p><p id="slow" hidden></p></div>`;
+  const frame = kind !== "agent" ? "" : `<h3>Methods</h3>
+    <p class="sub"><b>Fig. 1.</b> The agent runs up to 5 rounds on the server; its tool calls are drawn here, each in its lane, when it answers.</p>
+    <div class="lanes">
+      <div class="lane-h" aria-hidden="true"></div>
+      <div class="lane-h app">In this app<span>hybrid search on Postgres</span></div>
+      <div class="lane-h mcp">amr-mcp, over MCP<span>NCBI gene catalog, proteins, PubMed</span></div>
+      <div class="lane-n">…</div><div class="cell wait-cell"><div class="wait-track"><i id="wait-fill"></i></div></div>
+    </div>`;
+  $("entry-body").innerHTML = `<div class="pending"><p>${what}</p><p class="elapsed" id="elapsed">0 s elapsed</p><p id="slow" hidden></p></div>${frame}`;
   entry.setAttribute("aria-busy", "true");
   const t0 = Date.now();
   return setInterval(() => {
     const s = Math.round((Date.now() - t0) / 1000);
     const el = $("elapsed");
     if (el) el.textContent = `${s} s elapsed`;
+    const fill = $("wait-fill");  // tiempo real transcurrido frente a los 60 s habituales
+    if (fill) fill.style.width = `${Math.min(100, (s / 60) * 100)}%`;
     const slow = $("slow");
     if (slow && s >= (kind === "agent" ? 70 : 12)) {
       slow.hidden = false;
@@ -670,9 +716,10 @@ async function ask(event) {
     entry.focus({ preventScroll: true });
     bringIntoView();
   } catch (err) {
-    if (current) renderEntry(current);
-    setStatus(err.html || escapeHtml(String(err.message || err)), err.cls || "error");
-    if (err.until) statusBox.dataset.until = err.until;
+    renderFailure(kind, q, err);
+    setStatus("Not answered: " + (err.cls === "limit" ? "a usage limit was reached." : "something went wrong."), "sr");
+    entry.focus({ preventScroll: true });
+    bringIntoView();
   } finally {
     clearInterval(timer);
     entry.removeAttribute("aria-busy");
@@ -695,6 +742,8 @@ function problem(resp, body, kind) {
       ? "The agent allows one question per minute from each visitor, to stay inside the free LLM quota. The button counts down until you can ask again."
       : "That's five questions in a minute. The button counts down until you can ask again.", cls: "limit", until: cooldown[kind] };
   }
+  if (resp.status === 503 && /daily/i.test(detail))
+    return { html: `The free LLM token budget for today is nearly used up (it's shared by every visitor and frees up gradually over the day). Try again later. Meanwhile, <button type="button" class="link-btn" data-act="recorded">see the recorded agent run</button>.`, cls: "limit" };
   if (resp.status === 503 && /rate limit/i.test(detail)) {
     cooldown[kind] = Date.now() + 60_000;
     return { html: `The free LLM quota for this minute is used up (it's shared by every visitor). Try again in a minute${kind === "agent" ? ', or <button type="button" class="link-btn" data-act="literature">switch to Literature mode</button>, which needs far fewer tokens' : ""}.`, cls: "limit", until: cooldown[kind] };
@@ -722,6 +771,12 @@ function onAct(e) {
     const target = question.value.trim() ? submit : question;
     target.focus({ preventScroll: true });
     target.scrollIntoView({ behavior: reduceMotion ? "auto" : "smooth", block: "center" });
+  } else if (act === "restore" && current) {
+    renderEntry(current);
+    entry.focus({ preventScroll: true });
+  } else if (act === "ask-again") {
+    question.focus({ preventScroll: true });
+    question.scrollIntoView({ behavior: reduceMotion ? "auto" : "smooth", block: "center" });
   } else if (act === "recorded" && RECORDED) {
     current = RECORDED;
     renderEntry(current);

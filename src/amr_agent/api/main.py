@@ -164,6 +164,11 @@ def llm_errors():
     try:
         yield
     except openai.RateLimitError as exc:
+        # Groq Free tiene dos límites: tokens por minuto y por día (TPD, ventana móvil de 24 h).
+        # Decir "en un minuto" cuando es el diario manda al visitante a fallar otra vez.
+        if "per day" in str(exc):
+            raise HTTPException(
+                503, "LLM free-tier daily token limit reached, try again later") from exc
         raise HTTPException(503, "LLM free-tier rate limit reached, try again in a minute") from exc
     except openai.APIError as exc:
         log.exception("LLM provider error")

@@ -68,7 +68,22 @@ def test_rate_limit_from_llm_becomes_503(client):
 
     app.dependency_overrides[get_rag] = lambda: RagService(
         FakeRetriever([make_hit("1")]), RateLimitedLLM())
-    assert client.post("/ask", json={"question": "colistin?"}).status_code == 503
+    resp = client.post("/ask", json={"question": "colistin?"})
+    assert resp.status_code == 503 and "in a minute" in resp.json()["detail"]
+
+
+def test_daily_llm_limit_is_reported_as_daily(client):
+    class DailyLimitedLLM:
+        async def complete(self, system, user):
+            request = httpx.Request("POST", "https://x")
+            raise openai.RateLimitError(
+                "Rate limit reached on tokens per day (TPD): Limit 200000",
+                response=httpx.Response(429, request=request), body=None)
+
+    app.dependency_overrides[get_rag] = lambda: RagService(
+        FakeRetriever([make_hit("1")]), DailyLimitedLLM())
+    resp = client.post("/ask", json={"question": "colistin?"})
+    assert resp.status_code == 503 and "daily" in resp.json()["detail"]
 
 
 def test_demo_page_is_served(client):
