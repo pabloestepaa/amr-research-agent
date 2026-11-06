@@ -3,11 +3,11 @@
 [![CI](https://github.com/pabloestepaa/amr-research-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/pabloestepaa/amr-research-agent/actions/workflows/ci.yml)
 ![Python 3.13](https://img.shields.io/badge/python-3.13-blue)
 
-A research assistant for **antimicrobial resistance (AMR)**. It answers questions with hybrid RAG
-over ~3,000 recent PubMed abstracts, and with a **tool-calling agent** that also queries NCBI's AMR
+A research assistant for antimicrobial resistance (AMR). It answers questions with hybrid RAG
+over ~3,000 recent PubMed abstracts, and with a tool-calling agent that also queries NCBI's AMR
 gene catalog and sequence records through [`amr-mcp`](https://pypi.org/project/amr-mcp/), an MCP
 server I wrote and published. Every citation is checked against what the tools actually returned,
-and retrieval, answers and agent trajectories are all measured by evals.
+and evals measure retrieval, answers and agent trajectories.
 
 **Live demo: <https://amr-research-agent.onrender.com>** · API docs at
 [`/docs`](https://amr-research-agent.onrender.com/docs)
@@ -16,27 +16,29 @@ and retrieval, answers and agent trajectories are all measured by evals.
 <p align="center">
   <a href="https://amr-research-agent.onrender.com">
     <img src="docs/img/demo-agent.png" width="720"
-      alt="Agent mode of the demo: the answer about mcr-1 with PMID citations, and the three tool calls it made (search_amr_genes, get_protein_hosts, search_literature)">
+      alt="Agent mode of the demo: a recorded answer about mcr-1 with numbered citations, and its four tool calls (search_amr_genes twice, get_pubmed_references, search_literature) drawn in two lanes, this app and amr-mcp">
   </a>
 </p>
 
-- **Hybrid retrieval** (Postgres full-text + pgvector, fused with Reciprocal Rank Fusion):
-  recall@10 of **0.97** on a 36-question golden set, against 0.86 for vector search alone.
-- **Agent with a hand-written tool-calling loop** (no framework): it chains catalog lookups, NCBI
-  protein records and the literature search, with step, token and per-step call limits.
-- **Citations are validated, not trusted**: a PMID only counts if a tool returned it.
-  **0 hallucinated PMIDs** across 42 RAG answers and 22 agent tasks.
-- **Three layers of evals**: retrieval (on every push, with thresholds that fail CI), answers
-  (LLM-as-judge) and agent trajectories (deterministic rules over recorded tool responses).
-- **Runs entirely on free tiers**: Render (512 MB), Neon Postgres and Groq. CI builds the Docker
+- Hybrid retrieval (Postgres full-text and pgvector, fused with Reciprocal Rank Fusion) reaches
+  recall@10 of 0.97 on a 36-question golden set; vector search alone gets 0.86.
+- The agent is a tool-calling loop written by hand, without a framework. It chains catalog
+  lookups, NCBI protein records and the literature search, within limits on steps, tokens and
+  calls per step.
+- A PMID only counts as a citation if a tool returned it. In 42 RAG answers and 22 agent tasks,
+  no answer cited a PMID that no tool had returned.
+- Evals run at three levels: retrieval on every push, with thresholds that fail CI; answers,
+  scored by an LLM judge; and agent trajectories, checked with deterministic rules against
+  recorded tool responses.
+- Everything runs on free tiers: Render (512 MB), Neon Postgres and Groq. CI builds the Docker
   image and runs it under the same 512 MB limit.
 
 ## What it does
 
 The API has two ways to ask:
 
-- **`POST /ask`**: classic RAG. Search the abstracts, then answer citing them as `[PMID:x]`.
-- **`POST /agent`**: the model decides which tools to call and in what order, then answers.
+- `POST /ask`: classic RAG. Search the abstracts, then answer citing them as `[PMID:x]`.
+- `POST /agent`: the model decides which tools to call and in what order, then answers.
   The response includes the full trajectory: each tool call, its arguments, latency and result.
 
 An example from the agent evals (task `multi-01`), which needs two different sources:
@@ -59,13 +61,13 @@ An example from the agent evals (task `multi-01`), which needs two different sou
 > of resistant isolates carrying **mcr-1** [PMID:41238024]; and **24.8 % colistin-resistant E. coli**
 > in broiler chickens [PMID:40777829]. *(trimmed)*
 
-The demo page at `/` lets you switch between the two modes and shows the agent's trajectory step
-by step.
+The demo page at `/` opens on a recorded agent run, so you can see an answer and its tool calls
+without waiting or spending quota. From there you can ask your own question in either mode.
 
 <details>
-<summary>Screenshot of the RAG mode</summary>
+<summary>Screenshot of the literature (RAG) mode</summary>
 <p align="center"><img src="docs/img/demo-ask.png" width="720"
-  alt="RAG mode of the demo: an answer about how blaNDM-1 spreads, citing four PMIDs, above the five retrieved abstracts with the cited ones marked"></p>
+  alt="Literature mode of the demo: an answer about how blaNDM-1 spreads, with four verified citations, the search it ran and the numbered references"></p>
 </details>
 
 ## Architecture
@@ -91,21 +93,21 @@ flowchart TB
     ING["amr-ingest (offline)<br/>PubMed / Europe PMC"] --> DB
 ```
 
-- **Ingestion** ([`ingest/`](src/amr_agent/ingest/)): NCBI E-utilities, falling back to Europe PMC
+- Ingestion ([`ingest/`](src/amr_agent/ingest/)): NCBI E-utilities, falling back to Europe PMC
   when NCBI search is down. One row per abstract (no chunking: abstracts are short), with its text,
   a `tsvector` for keyword search and a 384-dimension embedding from `bge-small-en-v1.5`, computed
   locally with ONNX ([`embeddings.py`](src/amr_agent/embeddings.py)).
-- **Retrieval** ([`retrieval.py`](src/amr_agent/retrieval.py)): full-text and vector search run in
+- Retrieval ([`retrieval.py`](src/amr_agent/retrieval.py)): full-text and vector search run in
   parallel and are fused with RRF. Keyword search ignores terms present in more than 10 % of the
   corpus, which `ts_rank_cd` alone would not (it has no IDF).
-- **RAG** ([`rag.py`](src/amr_agent/rag.py)): each source is labelled with its PMID in the prompt,
+- RAG ([`rag.py`](src/amr_agent/rag.py)): each source is labelled with its PMID in the prompt,
   the answer cites them as `[PMID:x]`, and there is a fixed refusal message when the sources do
   not answer the question.
-- **Agent** ([`agent.py`](src/amr_agent/agent.py), [`tools.py`](src/amr_agent/tools.py)): a loop of
+- Agent ([`agent.py`](src/amr_agent/agent.py), [`tools.py`](src/amr_agent/tools.py)): a loop of
   about fifty lines. Tools are the literature search plus four `amr-mcp` tools reached through a
   real MCP client. Results are trimmed to 6,000 characters, independent calls run in parallel, and
   when a limit is hit the model is asked for a final answer with the evidence it has.
-- **LLM client** ([`llm.py`](src/amr_agent/llm.py)): any OpenAI-compatible API through `base_url`.
+- LLM client ([`llm.py`](src/amr_agent/llm.py)): any OpenAI-compatible API through `base_url`.
   It retries rate limits only when the wait is short, so the API fails fast instead of hanging.
 
 ## Evals
@@ -131,34 +133,33 @@ are in [`evals/RESULTS.md`](evals/RESULTS.md).
 Keyword search alone is weak on paraphrases (recall@5 0.50) and vector search on exact gene names
 (0.83 against 0.92); hybrid holds up on both.
 
-**Answers** (42 questions, 6 of them out of scope): faithfulness **0.96**, relevance 0.99, no
+**Answers** (42 questions, 6 of them out of scope): faithfulness 0.96, relevance 0.99, no
 hallucinated PMIDs, every in-scope answer cites a source; 5 of 6 out-of-scope questions refused,
 but also 6 of 36 in-scope questions wrongly refused. This run predates the keyword-search fix
 below, which retrieves the relevant abstract more often; a re-run is pending.
 
 **Agent** (22 tasks over catalog, species, references, literature, multi-tool and out-of-scope
-questions): **19/22** tasks fully correct, right tools 0.94, right arguments 0.93, no hallucinated
+questions): 19/22 tasks fully correct, right tools 0.94, right arguments 0.93, no hallucinated
 PMIDs, all out-of-scope questions refused, ~6,000 tokens per task. The three failures led to the
 fixes below; the run that measures them is pending.
 
 ### What the evals caught
 
-The point of the evals is not the scores. These problems looked fine by eye and were only visible
-in the numbers:
+Each of these problems looked fine by eye and only showed up in the numbers:
 
-- **Hybrid search was worse than vector search alone** (MRR 0.66 against 0.78). Postgres
+- Hybrid search was worse than vector search alone (MRR 0.66 against 0.78). Postgres
   `ts_rank_cd` has no IDF, so abstracts repeating "resistance" and "E. coli" outranked those
   matching the rare, informative term. Dropping query terms present in more than 10 % of the corpus
   fixed it: hybrid MRR 0.80, recall@10 0.86 → 0.97.
-- **The API reported zero citations for a correct answer**: `gpt-oss` sometimes writes
+- The API reported zero citations for a correct answer: `gpt-oss` sometimes writes
   `【PMID:x】` instead of `[PMID:x]`, and the agent evals later showed `【3†PMID:x】`, `(PMID x)` and
   several PMIDs in one bracket. Citations are now parsed tolerantly and then validated.
-- **The agent crashed at its step limit.** Asked for a final answer with `tool_choice="none"`,
+- The agent crashed at its step limit. Asked for a final answer with `tool_choice="none"`,
   `gpt-oss` kept calling tools: Groq returned a 400, or the call leaked into the answer as text.
   The final turn is now a fresh conversation with no tools in it.
-- **A provider-side 400 for an out-of-range argument** (`k=10` with a schema maximum of 6). Numeric
+- Groq returned a 400 for an out-of-range argument (`k=10` with a schema maximum of 6). Numeric
   bounds now go in the description and are enforced on our side, where an error is recoverable.
-- **A bug in the evaluator, not the agent**: a correct answer failed because `gpt-oss` writes
+- One failure was the evaluator's fault: a correct answer failed because `gpt-oss` writes
   "Escherichia coli" with a narrow no-break space. Facts are now compared after Unicode
   normalisation.
 
@@ -169,14 +170,14 @@ The ones that shaped the project most:
 
 | Decision | Why | Trade-off |
 |---|---|---|
-| **Postgres + pgvector** for text, keywords and vectors | one system to run, transactional upserts, plain SQL; 3,000 abstracts take ~27 MB | no built-in BM25, so keyword ranking needed the document-frequency fix above |
-| **No chunking**: one row per abstract | abstracts are short and self-contained, and one PMID = one citable source | to revisit if full texts are ingested |
-| **Citations are validated, not trusted** | a PMID counts only if retrieval or a tool returned it; the rest go to `invalid_citations` | tolerant parsing has to keep up with each model's citation habits |
-| **Hand-written agent loop**, no framework | every message sent to the model is visible, and a scripted fake LLM tests the loop | no persistent state or branching graphs, which this agent does not need |
-| **`amr-mcp` through a real MCP client** in a subprocess | the project shows both sides of MCP; the client works with any MCP server | ~95 MB of the 512 MB budget (the container measures 367 MiB) |
-| **Own eval metrics** instead of Ragas or DeepEval | each metric is a few tested lines, and the judge prompt is versioned with the code | fewer metrics out of the box |
-| **No cross-encoder reranker** | it raised MRR to 0.85, but took ~4 s per query and over 1 GB of RAM | worth adding on paid hosting or with a hosted rerank API |
-| **Fail fast on LLM rate limits** | with the daily quota spent, a 503 in 0.5 s beats a 35 s spinner ending in the same error | the evals, which can wait, allow longer retries |
+| Postgres + pgvector for text, keywords and vectors | one system to run, transactional upserts, plain SQL; 3,000 abstracts take ~27 MB | no built-in BM25, so keyword ranking needed the document-frequency fix above |
+| No chunking: one row per abstract | abstracts are short and self-contained, and one PMID = one citable source | to revisit if full texts are ingested |
+| Validate citations against what was retrieved | a PMID counts only if retrieval or a tool returned it; the rest go to `invalid_citations` | tolerant parsing has to keep up with each model's citation habits |
+| Hand-written agent loop, no framework | every message sent to the model is visible, and a scripted fake LLM tests the loop | no persistent state or branching graphs, which this agent does not need |
+| `amr-mcp` through a real MCP client in a subprocess | the project shows both sides of MCP; the client works with any MCP server | ~95 MB of the 512 MB budget (the container measures 367 MiB) |
+| Own eval metrics instead of Ragas or DeepEval | each metric is a few tested lines, and the judge prompt is versioned with the code | fewer metrics out of the box |
+| No cross-encoder reranker | it raised MRR to 0.85, but took ~4 s per query and over 1 GB of RAM | worth adding on paid hosting or with a hosted rerank API |
+| Fail fast on LLM rate limits | with the daily quota spent, a 503 in 0.5 s beats a 35 s spinner ending in the same error | the evals, which can wait, allow longer retries |
 
 ## Run it locally
 
@@ -213,24 +214,24 @@ Deployment to Render and Neon is described in [`docs/deploy.md`](docs/deploy.md)
 
 ## Stack and limitations
 
-**Stack:** Python 3.13 · FastAPI · PostgreSQL + pgvector (Neon) · fastembed (`bge-small-en-v1.5`,
+Stack: Python 3.13 · FastAPI · PostgreSQL + pgvector (Neon) · fastembed (`bge-small-en-v1.5`,
 ONNX) · OpenAI SDK against Groq (`gpt-oss-120b`, judge `gpt-oss-20b`) · MCP (`mcp` client,
 [`amr-mcp`](https://github.com/pabloestepaa/amr-mcp) server) · pytest · ruff · Docker ·
 GitHub Actions · Render.
 
-**Limitations:**
+Limitations:
 
-- **Small, recent corpus**: ~3,000 abstracts (2022–2026), abstracts only, no full texts.
-- **English-only embeddings**: questions in other languages retrieve worse. The agent is told to
-  query the literature in English, which mitigates it.
-- **Small eval sets**: 36 retrieval questions, 42 answers and 22 agent tasks are enough to catch
-  regressions and compare options, not to give tight confidence intervals. The keyword threshold
+- The corpus is small and recent: ~3,000 abstracts from 2022–2026, with no full texts.
+- The embeddings are English-only, so questions in other languages retrieve worse. The agent is
+  told to query the literature in English, which helps.
+- The eval sets are small (36 retrieval questions, 42 answers, 22 agent tasks): enough to catch
+  regressions and compare options, but not for tight confidence intervals. The keyword threshold
   (10 %) was tuned on the same questions it is measured on.
-- **Not deterministic**: even at temperature 0, the same agent task can take a different path
-  from one run to the next.
-- **Free-tier limits**: the demo sleeps when idle, and Groq's daily token budget is shared by the
-  demo and the evals, so the demo has per-IP and daily quotas.
-- **A research tool, not clinical advice.** Answers summarise abstracts and public databases and
+- Results are not deterministic: even at temperature 0, the same agent task can take a different
+  path from one run to the next.
+- The free tiers set limits: the demo sleeps when idle, and the demo and the evals share Groq's
+  daily token budget, so the demo has per-IP and daily quotas.
+- It is a research tool, not clinical advice. Answers summarise abstracts and public databases and
   can be wrong; check the cited sources.
 
 ## License

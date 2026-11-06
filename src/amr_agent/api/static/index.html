@@ -277,7 +277,7 @@
           <li>Your question is searched two ways over ~3,000 PubMed abstracts (2022–2026): Postgres
             full-text for exact terms and pgvector embeddings for meaning, merged with reciprocal rank fusion.</li>
           <li>An LLM (gpt-oss-120b on Groq) answers only from the abstracts it was given and cites them by PMID.</li>
-          <li>Every cited PMID is checked against what was retrieved. Anything else is flagged, never trusted.</li>
+          <li>Every cited PMID is checked against what was retrieved. Any other PMID is flagged as unverified.</li>
           <li>In agent mode the model runs a loop of up to 5 rounds and chooses its tools: the same
             literature search, or NCBI's gene catalog, protein records and PubMed through
             <a href="https://pypi.org/project/amr-mcp/">amr-mcp</a>, an MCP server I wrote.</li>
@@ -327,7 +327,7 @@
     </section>
 
     <section class="evidence" aria-labelledby="ev-h">
-      <h2 id="ev-h">Measured, not demoed</h2>
+      <h2 id="ev-h">Eval results</h2>
       <dl>
         <dt>0</dt><dd>invented PMIDs in 64 evaluated answers (42 literature, 22 agent)</dd>
         <dt>0.97</dt><dd>recall@10 of the hybrid search on 36 questions</dd>
@@ -739,8 +739,8 @@ function problem(resp, body, kind) {
   if (resp.status === 429) {
     cooldown[kind] = Date.now() + wait * 1000;
     return { html: kind === "agent"
-      ? "The agent allows one question per minute from each visitor, to stay inside the free LLM quota. The button counts down until you can ask again."
-      : "That's five questions in a minute. The button counts down until you can ask again.", cls: "limit", until: cooldown[kind] };
+      ? "The agent allows one question per minute from each visitor, to stay inside the free LLM quota."
+      : "That's five questions in a minute.", cls: "limit", until: cooldown[kind] };
   }
   if (resp.status === 503 && /daily/i.test(detail))
     return { html: `The free LLM token budget for today is nearly used up (it's shared by every visitor and frees up gradually over the day). Try again later. Meanwhile, <button type="button" class="link-btn" data-act="recorded">see the recorded agent run</button>.`, cls: "limit" };

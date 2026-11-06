@@ -219,7 +219,7 @@ The same roles are retuned under `prefers-color-scheme: dark` (values in `.impec
 ### Hierarchy
 - **Display** (600, 1.6rem, 1.25; 1.35rem below 900px): the question as the entry's title, balanced, max 44ch.
 - **Headline** (700, 1.4rem, 1.2): the project title on the cover strip.
-- **Title** (600, 1.15rem, 1.3): entry sections (Methods, References) and, at 1.08rem, the "Measured, not demoed" heading.
+- **Title** (600, 1.15rem, 1.3): entry sections (Methods, References) and, at 1.08rem, the "Eval results" heading.
 - **Answer** (400, 1.1rem, 1.62; 1.05rem below 900px): the answer text, max 68ch, old-style proportional figures. Citation numbers are superscript sans at 0.68em, 600.
 - **Lead** (400, 1.15rem, 1.45): the one-sentence introduction, max 34ch on desktop.
 - **Reference** (400, 0.98rem, 1.45): the numbered reference list, max 72ch; journal names italic, the PMID link and notes in 0.8rem sans.
