@@ -217,7 +217,9 @@ embedding model (decision 4). Two Spanish tasks in the agent evals check it.
 limit is reached, the agent makes one last call without tools and an instruction to answer with
 what it has (first done with `tool_choice="none"`, which `gpt-oss` ignored: see decision 28);
 `stop_reason` records why it stopped. `/agent` has its own, stricter
-quota: 2 questions per minute per IP and 15 per day, since each one costs 3–4 times an `/ask`.
+quota: 15 per day and, since 2026-11-06, 1 question per minute per IP (it was 2): one question
+spends ~11,700 tokens and Groq Free allows 8,000 per minute, so a second one in the same minute
+failed with the provider's 503 instead of our own 429 with a countdown.
 
 ## 25. gpt-oss-120b for the agent, not gpt-oss-20b (2026-11-05)
 **Measured.** On the same question, `gpt-oss-120b` chained `get_amr_gene("mcr-1")` and then

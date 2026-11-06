@@ -18,6 +18,7 @@ from amr_agent.tools import (
     SEARCH_LITERATURE,
     LiteratureTools,
     McpTools,
+    Paper,
     ToolResult,
     Toolset,
     ToolSpec,
@@ -25,6 +26,7 @@ from amr_agent.tools import (
     bounds_to_description,
     drop_keys,
     drop_seen_abstracts,
+    find_papers,
     find_pmids,
     shrink,
 )
@@ -106,6 +108,17 @@ def test_find_pmids_reads_comma_separated_references_at_any_depth():
     data = {"entries": [{"pubmed_reference": "12615876,37255469"}],
             "articles": [{"pmid": "26603172", "title": "not 99999999"}]}
     assert find_pmids(data) == {"12615876", "37255469", "26603172"}
+
+
+def test_find_papers_reads_title_journal_and_year_from_either_tool():
+    data = {"entries": [{"pubmed_reference": "26603172"}],  # el catálogo: sin título
+            "articles": [{"pmid": "26603172", "title": " Emergence of MCR-1 ",
+                          "journal": "Lancet Infect Dis", "pubdate": "2016 Feb"}],
+            "results": [{"pmid": 41759465, "title": "Chickens", "journal": None, "year": 2025}]}
+    assert sorted(find_papers(data), key=lambda p: p.pmid) == [
+        Paper("26603172", "Emergence of MCR-1", "Lancet Infect Dis", 2016),
+        Paper("41759465", "Chickens", None, 2025),
+    ]
 
 
 def test_drop_keys_removes_noise_fields_recursively():

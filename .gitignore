@@ -22,3 +22,6 @@ evals/results/*_ci.json
 .claude/
 .mcp.json
 skills-lock.json
+
+# artefactos locales de la skill impeccable (críticas, capturas, contrato de dirección)
+.impeccable/

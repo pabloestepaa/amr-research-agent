@@ -79,12 +79,23 @@ def bounds_to_description(schema: dict[str, Any]) -> dict[str, Any]:
 
 
 @dataclass(frozen=True)
+class Paper:
+    """Lo que hace falta para escribir una referencia: la demo numera las citas como un paper."""
+
+    pmid: str
+    title: str
+    journal: str | None = None
+    year: int | None = None
+
+
+@dataclass(frozen=True)
 class ToolResult:
     content: str  # lo que lee el modelo
     is_error: bool = False
     pmids: frozenset[str] = frozenset()  # PMIDs vistos: las citas válidas salen de aquí
     truncated: bool = False
     latency_ms: float = 0.0
+    papers: tuple[Paper, ...] = ()  # título, revista y año de los PMIDs que los traen
 
 
 class ToolBox(Protocol):
@@ -158,6 +169,30 @@ def find_pmids(obj: Any) -> frozenset[str]:
     return frozenset(found)
 
 
+def find_papers(obj: Any) -> tuple[Paper, ...]:
+    """Artículos con título en cualquier nivel del resultado (`search_literature` y
+    `get_pubmed_references` los traen; el catálogo solo trae el PMID). Se lee antes de recortar
+    el resultado, así que no depende de lo que quepa en el contexto."""
+    papers: list[Paper] = []
+    stack = [obj]
+    while stack:
+        node = stack.pop()
+        if isinstance(node, dict):
+            pmid, title = node.get("pmid"), node.get("title")
+            if isinstance(pmid, str | int) and isinstance(title, str) and title.strip():
+                year = node.get("year")
+                if not isinstance(year, int):  # amr-mcp da "pubdate": "2016 Feb"
+                    match = re.match(r"\d{4}", str(node.get("pubdate") or ""))
+                    year = int(match.group()) if match else None
+                journal = node.get("journal")
+                papers.append(Paper(str(pmid), title.strip(),
+                                    journal if isinstance(journal, str) else None, year))
+            stack.extend(v for v in node.values() if isinstance(v, dict | list))
+        elif isinstance(node, list):
+            stack.extend(node)
+    return tuple(papers)
+
+
 def _error(message: str) -> ToolResult:
     # Los errores se devuelven al modelo en vez de lanzarse: así puede corregir los argumentos
     # o probar otra herramienta (amr-mcp, por ejemplo, sugiere "try search_amr_genes").
@@ -210,7 +245,7 @@ class LiteratureTools:
         } for h in hits]
         content, truncated = shrink({"results": results})
         return ToolResult(content=content, pmids=frozenset(h.pmid for h in hits),
-                          truncated=truncated)
+                          truncated=truncated, papers=find_papers(results))
 
 
 def drop_seen_abstracts(result: ToolResult, seen: set[str]) -> ToolResult:
@@ -292,7 +327,8 @@ class McpTools:
             data = " ".join(getattr(c, "text", "") for c in result.content)
         data = drop_keys(data)
         content, truncated = shrink(data)
-        return ToolResult(content=content, pmids=find_pmids(data), truncated=truncated)
+        return ToolResult(content=content, pmids=find_pmids(data), truncated=truncated,
+                          papers=find_papers(data))
 
 
 # --- Composición -----------------------------------------------------------------------------
@@ -327,4 +363,4 @@ class Toolset:
             except Exception as exc:  # red caída, NCBI devolviendo 500...: el agente sigue
                 result = _error(f"{name} failed: {type(exc).__name__}: {exc}")
         ms = round((time.perf_counter() - t0) * 1000, 1)
-        return ToolResult(result.content, result.is_error, result.pmids, result.truncated, ms)
+        return replace(result, latency_ms=ms)

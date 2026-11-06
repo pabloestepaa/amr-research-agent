@@ -40,7 +40,9 @@ class Settings(BaseSettings):
     # Agente (/agent). Cada pregunta gasta ~8.000-12.000 tokens (3-4 veces un /ask), y la cuota
     # diaria de Groq (200.000 tokens) es compartida: 50 /ask (~150.000) + 15 /agent la llenan.
     agent_enabled: bool = True  # False = no arrancar amr-mcp (ahorra ~100 MB de RAM)
-    agent_per_ip_per_minute: int = 2
+    # 1/min: una pregunta gasta ~11.700 tokens y Groq Free da 8.000/min, así que la segunda en el
+    # mismo minuto fallaría con un 503 del proveedor. Mejor un 429 propio con cuenta atrás.
+    agent_per_ip_per_minute: int = 1
     agent_per_day: int = 15
     agent_max_steps: int = 5
     agent_token_budget: int = 12_000

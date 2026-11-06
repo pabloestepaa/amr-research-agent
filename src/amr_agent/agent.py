@@ -18,7 +18,13 @@ from pydantic import BaseModel
 
 from amr_agent.llm import ChatLLM, ChatTurn, ToolCall
 from amr_agent.rag import NO_EVIDENCE, extract_citations, normalize_citations
-from amr_agent.tools import SEARCH_LITERATURE, ToolBox, ToolResult, drop_seen_abstracts
+from amr_agent.tools import (
+    SEARCH_LITERATURE,
+    Paper,
+    ToolBox,
+    ToolResult,
+    drop_seen_abstracts,
+)
 
 ROLE = "You are a research assistant specialised in antimicrobial resistance (AMR)."
 
@@ -105,6 +111,18 @@ class ToolStep(BaseModel):
 class Citation(BaseModel):
     pmid: str
     url: str
+    # Solo si alguna herramienta trajo el artículo (search_literature, get_pubmed_references);
+    # un PMID que solo sale del catálogo de genes no tiene título.
+    title: str | None = None
+    journal: str | None = None
+    year: int | None = None
+
+
+def _citation(pmid: str, paper: Paper | None) -> Citation:
+    url = f"https://pubmed.ncbi.nlm.nih.gov/{pmid}/"
+    if paper is None:
+        return Citation(pmid=pmid, url=url)
+    return Citation(pmid=pmid, url=url, title=paper.title, journal=paper.journal, year=paper.year)
 
 
 class AgentUsage(BaseModel):
@@ -148,6 +166,7 @@ class Agent:
         called: dict[str, int] = {}  # llamada (herramienta + argumentos) -> paso en que se hizo
         shown_abstracts: set[str] = set()  # PMIDs que search_literature ya mostró
         seen_pmids: set[str] = set()
+        papers: dict[str, Paper] = {}  # PMID -> título, revista y año, para las referencias
         turns: list[ChatTurn] = []
         llm_ms = tools_ms = 0.0
         stop: StopReason = "answer"
@@ -190,6 +209,7 @@ class Agent:
                                  "content": result.content})
                 evidence.append((call, result))
                 seen_pmids |= result.pmids
+                papers.update((p.pmid, p) for p in result.papers)
                 steps.append(ToolStep(
                     step=step, tool=call.name, arguments=call.arguments,
                     is_error=result.is_error, truncated=result.truncated,
@@ -202,8 +222,7 @@ class Agent:
         cited = extract_citations(answer)
         return AgentAnswer(
             answer=answer,
-            citations=[Citation(pmid=p, url=f"https://pubmed.ncbi.nlm.nih.gov/{p}/")
-                       for p in cited if p in seen_pmids],
+            citations=[_citation(p, papers.get(p)) for p in cited if p in seen_pmids],
             invalid_citations=[p for p in cited if p not in seen_pmids],
             steps=steps,
             stop_reason=stop,

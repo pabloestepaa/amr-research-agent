@@ -1,9 +1,11 @@
+import json
+
 import httpx
 import openai
 import pytest
 from fastapi.testclient import TestClient
 
-from amr_agent.agent import Agent
+from amr_agent.agent import Agent, AgentAnswer
 from amr_agent.api.main import app, get_agent, get_agent_quota, get_quota, get_rag, get_retriever
 from amr_agent.api.ratelimit import AskQuota
 from amr_agent.rag import RagService
@@ -74,6 +76,16 @@ def test_demo_page_is_served(client):
     assert resp.status_code == 200
     assert resp.headers["content-type"].startswith("text/html")
     assert '"/ask"' in resp.text and '"/agent"' in resp.text
+    assert resp.headers["cache-control"] == "no-cache"  # sin página vieja tras un deploy
+
+
+def test_demo_page_embeds_a_valid_recorded_agent_run(client):
+    html = client.get("/").text
+    start = '<script type="application/json" id="recorded">'
+    blob = html.split(start, 1)[1].split("</script>", 1)[0]
+    recorded = json.loads(blob)
+    assert recorded["question"] and recorded["recorded_on"]
+    AgentAnswer.model_validate(recorded["response"])  # mismo esquema que devuelve /agent
 
 
 def test_ask_is_rate_limited_per_ip(client):

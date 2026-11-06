@@ -180,7 +180,8 @@ class AskRequest(BaseModel):
 @app.get("/", include_in_schema=False)
 async def demo() -> FileResponse:
     """Página de demo: HTML + JS sin dependencias que llama a /ask desde el navegador."""
-    return FileResponse(DEMO_PAGE)
+    # no-cache: el navegador revalida (ETag) y nadie se queda con la página de antes de un deploy.
+    return FileResponse(DEMO_PAGE, headers={"Cache-Control": "no-cache"})
 
 
 @app.get("/health")

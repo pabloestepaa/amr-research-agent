@@ -4,293 +4,756 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>AMR Research Agent</title>
-<meta name="description" content="Ask questions about antimicrobial resistance and get answers cited from PubMed abstracts, or let an agent query NCBI's gene catalog too.">
+<meta name="description" content="Ask questions about antimicrobial resistance and get answers cited from PubMed abstracts, or let an agent query NCBI's gene catalog through an MCP server. Every citation is checked.">
+<meta name="theme-color" content="#173a2c">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=STIX+Two+Text:ital,wght@0,400;0,600;0,700;1,400;1,600&display=swap" rel="stylesheet">
 <style>
+  /* Cuaderno científico: tapa verde, papel blanco frío, STIX Two (la fuente de las editoriales
+     científicas) para preguntas, respuestas y referencias; azul = herramientas de la app,
+     ámbar = herramientas de amr-mcp (el color del agar Mueller-Hinton). */
   :root {
-    --bg: #f7f7f5; --surface: #ffffff; --text: #1d1d1b; --muted: #66665f; --border: #e2e1dc;
-    --accent: #0b6e4f; --accent-soft: #e3f1ec; --warn-bg: #fdf3e1; --warn: #8a5300;
-    --err-bg: #fde8e6; --err: #a3271b;
+    --ground: #f1f5f2; --paper: #ffffff; --ink: #15212b; --muted: #52616a; --rule: #d3dcd6;
+    --shell: #173a2c; --shell-ink: #e8f0eb; --shell-muted: #a9c4b6; --shell-line: #ffffff3d;
+    --link: #1f5fa8; --ok: #17643f; --ok-soft: #e1f1e7; --bad: #a3241a; --bad-soft: #fbe7e4;
+    --warn: #7a4b00; --warn-soft: #fbf0d9;
+    --app: #2f6db5; --app-soft: #e4edf8; --mcp: #9a5f0c; --mcp-bar: #c7861f; --mcp-soft: #f7ebd6;
+    --select: #cfe3d7; --placeholder: #5f6d74;
+    --serif: "STIX Two Text", "STIX Two", Cambria, "Times New Roman", serif;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
     color-scheme: light;
   }
   @media (prefers-color-scheme: dark) {
     :root {
-      --bg: #141413; --surface: #1d1d1b; --text: #ecebe6; --muted: #a3a29b; --border: #33332f;
-      --accent: #5cc9a0; --accent-soft: #1d3a30; --warn-bg: #3a2c12; --warn: #f0c070;
-      --err-bg: #3d1b17; --err: #f3a197;
+      --ground: #0f1513; --paper: #161e1b; --ink: #e2eae5; --muted: #9eaca5; --rule: #2b3732;
+      --shell: #10291f; --shell-ink: #e2ece6; --shell-muted: #93b1a2; --shell-line: #ffffff33;
+      --link: #93bdf0; --ok: #7fd3a5; --ok-soft: #15301f; --bad: #f2a096; --bad-soft: #3a1b17;
+      --warn: #efc271; --warn-soft: #33270f;
+      --app: #6fa3e0; --app-soft: #172739; --mcp: #e6ae55; --mcp-bar: #d99a3a; --mcp-soft: #33260f;
+      --select: #24483a; --placeholder: #93a19a;
       color-scheme: dark;
     }
   }
   * { box-sizing: border-box; }
-  /* `hidden` debe ganar siempre, también a reglas como .examples { display: flex } */
+  /* `hidden` gana siempre, también a reglas con display propio */
   [hidden] { display: none !important; }
-  body {
-    margin: 0; background: var(--bg); color: var(--text);
-    font: 16px/1.55 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  html { -webkit-text-size-adjust: 100%; }
+  body { margin: 0; background: var(--ground); color: var(--ink); font: 16px/1.5 var(--sans); caret-color: var(--link); }
+  ::selection { background: var(--select); color: var(--ink); }
+  a { color: var(--link); text-decoration-thickness: 1px; text-underline-offset: 2px; }
+  a:hover { text-decoration-thickness: 2px; }
+  :focus-visible { outline: 2px solid var(--link); outline-offset: 2px; border-radius: 3px; }
+  .vh { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+  code, pre { font-family: var(--mono); }
+  p, dd, li { text-wrap: pretty; }
+
+  /* --- Franja superior: la tapa del cuaderno, con autor y enlaces ------------------------- */
+  .shell { background: var(--shell); color: var(--shell-ink); }
+  .shell-in { max-width: 1280px; margin: 0 auto; padding: 14px 24px; display: flex; flex-wrap: wrap; gap: 6px 24px; align-items: baseline; }
+  .shell h1 { font: 700 1.4rem/1.2 var(--serif); margin: 0; }
+  .by { color: var(--shell-muted); font-size: 0.9rem; }
+  .by a { color: var(--shell-ink); }
+  .shell nav { margin-left: auto; display: flex; flex-wrap: wrap; gap: 4px 20px; font-size: 0.9rem; }
+  .shell nav a { color: var(--shell-ink); text-decoration: none; border-bottom: 1px solid var(--shell-line); padding: 2px 0; }
+  .shell nav a:hover { border-bottom-color: var(--shell-ink); }
+  .shell :focus-visible { outline-color: var(--shell-ink); }
+
+  /* --- Disposición: pregunta y pruebas a la izquierda, la entrada a la derecha ------------ */
+  .layout { max-width: 1280px; margin: 0 auto; padding: 28px 24px 40px; display: grid; grid-template-columns: minmax(280px, 360px) minmax(0, 1fr); gap: 28px 40px; align-items: start; }
+  .side { display: flex; flex-direction: column; gap: 0; }
+  .evidence { margin-top: 32px; }
+
+  .lead { font: 400 1.15rem/1.45 var(--serif); margin: 0 0 18px; max-width: 34ch; text-wrap: pretty; }
+
+  /* Modo: control segmentado hecho con radios (se usa con teclado como un radiogroup) */
+  .tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 3px; border: 1px solid var(--rule); border-radius: 6px; background: var(--paper); padding: 3px; margin: 0 0 10px; min-width: 0; }
+  .tabs label { position: relative; display: block; cursor: pointer; text-align: center; border-radius: 4px; padding: 8px 6px; min-height: 44px; font-weight: 600; font-size: 0.92rem; color: var(--muted); }
+  .tabs small { display: block; font-weight: 400; font-size: 0.76rem; }
+  .tabs input { position: absolute; opacity: 0; inset: 0; margin: 0; cursor: pointer; }
+  .tabs label:has(input:checked) { background: var(--shell); color: var(--shell-ink); }
+  .tabs label:has(input:checked) small { color: var(--shell-muted); }
+  .tabs label:has(input:focus-visible) { outline: 2px solid var(--link); outline-offset: 2px; }
+  .tabs label:not(:has(input:checked)):hover { color: var(--ink); }
+
+  textarea { display: block; width: 100%; min-height: 104px; font: 1rem/1.45 var(--sans); color: var(--ink); background: var(--paper); border: 1px solid var(--rule); border-radius: 4px; padding: 10px 12px; resize: vertical; }
+  textarea::placeholder { color: var(--placeholder); opacity: 1; }
+  textarea:focus-visible { outline-offset: 0; }
+  .field-note { font-size: 0.85rem; color: var(--muted); margin: 8px 0 0; }
+  .field-note.lang { color: var(--warn); }
+  .opts { display: flex; align-items: center; gap: 8px; margin-top: 10px; font-size: 0.9rem; color: var(--muted); }
+  select { font: inherit; color: var(--ink); background: var(--paper); border: 1px solid var(--rule); border-radius: 4px; padding: 6px 8px; min-height: 36px; }
+  .submit-row { display: flex; align-items: center; gap: 12px; margin-top: 12px; }
+  .kbd { color: var(--muted); font-size: 0.8rem; }
+  .btn { margin-left: auto; font: 600 0.95rem var(--sans); color: var(--shell-ink); background: var(--shell); border: 0; border-radius: 4px; padding: 0 20px; min-height: 44px; cursor: pointer; transition: background-color 150ms ease-out; }
+  .btn:hover:not(:disabled) { background: #0f2b20; }
+  .btn:disabled { cursor: not-allowed; opacity: 0.62; }
+  .btn.busy:disabled { cursor: progress; }
+  @media (prefers-color-scheme: dark) {
+    .btn { background: #2f6b4f; color: #f2f7f4; }
+    .btn:hover:not(:disabled) { background: #377a5b; }
+    .tabs label:has(input:checked) { background: #2f6b4f; color: #f2f7f4; }
+    .tabs label:has(input:checked) small { color: #cfe3d7; }
   }
-  main { max-width: 760px; margin: 0 auto; padding: 40px 16px 64px; }
-  h1 { font-size: 1.6rem; margin: 0 0 4px; letter-spacing: -0.01em; }
-  .lead { color: var(--muted); margin: 0 0 24px; }
-  form { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 16px; }
-  textarea {
-    width: 100%; min-height: 84px; resize: vertical; padding: 10px 12px; font: inherit;
-    color: inherit; background: var(--bg); border: 1px solid var(--border); border-radius: 8px;
+  .link-btn { font: inherit; color: var(--link); background: none; border: 0; padding: 0; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
+
+  /* Avisos junto al botón (límites, errores) */
+  .status { margin: 12px 0 0; padding: 10px 12px; border-radius: 3px; font-size: 0.9rem; }
+  .status:empty { display: none; }
+  .status.error { background: var(--bad-soft); color: var(--bad); }
+  .status.limit { background: var(--warn-soft); color: var(--warn); }
+  .status.info { background: var(--ok-soft); color: var(--ok); }
+  .status .link-btn { color: inherit; font-weight: 600; }
+  .status.sr { position: absolute; width: 1px; height: 1px; padding: 0; margin: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+  .ex-h { font: 600 0.85rem var(--sans); color: var(--muted); margin: 22px 0 4px; }
+  ul.examples { margin: 0; padding: 0; list-style: none; border-top: 1px solid var(--rule); }
+  ul.examples li { border-bottom: 1px solid var(--rule); }
+  ul.examples button { display: block; width: 100%; text-align: left; font: 0.92rem/1.4 var(--sans); color: var(--ink); background: none; border: 0; padding: 11px 0; min-height: 44px; cursor: pointer; }
+  ul.examples button:hover { color: var(--link); }
+
+  /* Pruebas medidas */
+  .evidence { border-top: 2px solid var(--ink); padding: 12px 0 0; }
+  .evidence h2 { font: 600 1.08rem/1.3 var(--serif); margin: 0 0 10px; }
+  .evidence dl { margin: 0; max-width: 34ch; display: grid; grid-template-columns: 3.4rem 1fr; gap: 8px 12px; }
+  .evidence dt { font: 600 1.12rem/1.3 var(--serif); font-variant-numeric: lining-nums tabular-nums; }
+  .evidence dd { margin: 0; color: var(--muted); font-size: 0.88rem; line-height: 1.35; padding-top: 2px; }
+  .evidence .links { margin: 14px 0 0; font-size: 0.88rem; display: flex; flex-wrap: wrap; gap: 4px 16px; }
+  details.how { margin-top: 14px; border-top: 1px solid var(--rule); padding-top: 10px; font-size: 0.9rem; }
+  details.how summary { cursor: pointer; font-weight: 600; min-height: 32px; display: flex; align-items: center; }
+  details.how ol { margin: 6px 0 0; padding-left: 1.3rem; }
+  details.how li { margin-bottom: 6px; }
+
+  /* --- La entrada del cuaderno --------------------------------------------------------- */
+  .entry { background: var(--paper); border: 1px solid var(--rule); border-radius: 2px; box-shadow: 0 1px 2px #15212b0d, 0 8px 24px -12px #15212b1f; padding: 26px 34px 32px; scroll-margin-top: 12px; }
+  .entry:focus { outline: none; }
+  .entry:focus-visible { outline: 2px solid var(--link); }
+  .entry-meta { display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: center; font-size: 0.84rem; color: var(--muted); margin-bottom: 12px; }
+  .entry-meta b { font-weight: 600; color: var(--ink); }
+  .entry h2.q { font: 600 1.6rem/1.25 var(--serif); margin: 0 0 18px; max-width: 44ch; text-wrap: balance; overflow-wrap: anywhere; }
+  .answer { font: 400 1.1rem/1.62 var(--serif); max-width: 68ch; overflow-wrap: break-word; font-variant-numeric: oldstyle-nums proportional-nums; }
+  .answer p, .answer ul, .answer ol { margin: 0 0 0.75em; }
+  .answer ul, .answer ol { padding-left: 1.3em; }
+  .answer strong { font-weight: 600; }
+  .refs-inline { font: 600 0.68em/1 var(--sans); vertical-align: 0.5em; margin-left: 1px; white-space: nowrap; }
+  .refs-inline a { text-decoration: none; padding: 0 1px; }
+  .refs-inline a:hover { text-decoration: underline; }
+  .refs-inline a.unverified { color: var(--bad); }
+
+  .witness { display: flex; gap: 10px; align-items: flex-start; margin: 18px 0 0; padding: 10px 14px; border-radius: 3px; font-size: 0.9rem; max-width: 68ch; }
+  .witness svg { flex: none; margin-top: 1px; }
+  .witness.ok { background: var(--ok-soft); color: var(--ok); }
+  .witness.bad { background: var(--bad-soft); color: var(--bad); }
+  .witness.none { background: var(--ground); color: var(--muted); }
+  .witness b { font-weight: 700; }
+
+  .entry h3 { font: 600 1.15rem/1.3 var(--serif); margin: 32px 0 2px; }
+  .entry .sub { color: var(--muted); font-size: 0.86rem; margin: 0 0 12px; max-width: 68ch; }
+  .entry .sub b { color: var(--ink); }
+
+  /* Métodos: la trayectoria, con la frontera MCP como línea discontinua */
+  .lanes { display: grid; grid-template-columns: 1.8rem minmax(0, 1fr) minmax(0, 1fr); }
+  .lane-h { font: 600 0.8rem/1.3 var(--sans); padding: 0 12px 8px; color: var(--ink); }
+  .lane-h span { display: block; font-weight: 400; color: var(--muted); }
+  .lane-h.app::before, .lane-h.mcp::before { content: ""; display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 6px; vertical-align: 0; }
+  .lane-h.app::before { background: var(--app); }
+  .lane-h.mcp::before { background: var(--mcp-bar); }
+  .lane-h.mcp, .cell.mcp-side { border-left: 2px dashed var(--mcp-bar); }
+  .lane-n { font: 600 0.9rem var(--serif); color: var(--muted); padding-top: 13px; font-variant-numeric: lining-nums tabular-nums; border-top: 1px solid var(--rule); }
+  .lane-n.cont { border-top-style: dotted; }
+  .cell { padding: 7px 12px 9px; border-top: 1px solid var(--rule); min-width: 0; }
+  .cell.cont { border-top-style: dotted; }
+  .call { border-radius: 3px; padding: 7px 10px 8px; }
+  .call.app { background: var(--app-soft); }
+  .call.mcp { background: var(--mcp-soft); }
+  .call.error { box-shadow: inset 0 0 0 1px var(--bad); }
+  .call code { font-size: 0.8rem; line-height: 1.4; overflow-wrap: anywhere; }
+  .call code b { font-weight: 700; }
+  .call .where { display: none; font-size: 0.75rem; font-weight: 600; color: var(--mcp); }
+  .bar { display: flex; align-items: center; gap: 8px; margin-top: 7px; font-size: 0.76rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .bar .track { flex: 1 1 0; max-width: 62%; min-width: 48px; }
+  .bar .label { flex: none; }
+  .bar i { display: block; height: 6px; border-radius: 3px; transform-origin: left center; }
+  .call.app .bar i { background: var(--app); }
+  .call.mcp .bar i { background: var(--mcp-bar); }
+  .flag { font-weight: 600; }
+  .flag.err { color: var(--bad); }
+  .flag.warn { color: var(--warn); }
+  .call details { margin-top: 4px; font-size: 0.78rem; }
+  .call summary { cursor: pointer; color: var(--muted); min-height: 24px; display: inline-flex; align-items: center; }
+  .call pre { margin: 4px 0 0; padding: 8px; background: var(--paper); border-radius: 2px; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 180px; overflow: auto; font-size: 0.76rem; scrollbar-color: var(--rule) transparent; }
+  .totals { margin: 12px 0 0; color: var(--muted); font-size: 0.84rem; font-variant-numeric: tabular-nums; }
+  .methods-rag { font-size: 0.95rem; max-width: 68ch; margin: 0; }
+
+  /* Referencias numeradas, estilo revista */
+  ol.refs { margin: 0; padding-left: 1.7rem; font: 0.98rem/1.45 var(--serif); max-width: 72ch; }
+  ol.refs li { margin-bottom: 9px; padding-left: 4px; scroll-margin-top: 16px; border-radius: 4px; }
+  ol.refs li::marker { font-weight: 600; color: var(--muted); font-variant-numeric: lining-nums; }
+  ol.refs li:target { background: var(--select); box-shadow: 0 0 0 4px var(--select); }
+  ol.refs .src { font: 0.8rem var(--sans); white-space: nowrap; }
+  ol.refs .note { font: 0.8rem var(--sans); color: var(--muted); }
+  ol.refs .note.bad { color: var(--bad); font-weight: 600; }
+  details.more-src { margin-top: 12px; font-size: 0.9rem; }
+  details.more-src summary { cursor: pointer; color: var(--muted); min-height: 32px; display: flex; align-items: center; }
+  details.more-src ol { margin-top: 6px; color: var(--muted); }
+
+  /* Espera */
+  .pending { color: var(--muted); font-size: 0.95rem; max-width: 60ch; }
+  .pending p { margin: 0 0 6px; }
+  .pending .elapsed { font-variant-numeric: tabular-nums; }
+
+  .next { margin: 28px 0 0; padding-top: 14px; border-top: 1px solid var(--rule); font-size: 0.92rem; color: var(--muted); }
+  footer.foot { grid-column: 1 / -1; color: var(--muted); font-size: 0.86rem; border-top: 1px solid var(--rule); padding-top: 16px; max-width: 90ch; }
+  footer.foot p { margin: 0 0 6px; }
+
+  /* El único movimiento: las barras de latencia se dibujan al aparecer la trayectoria */
+  @media (prefers-reduced-motion: no-preference) {
+    .drawn .bar i { animation: draw 700ms cubic-bezier(0.16, 1, 0.3, 1) both; animation-delay: calc(var(--i, 0) * 70ms + 120ms); }
   }
-  textarea:focus, select:focus, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
-  .row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-top: 12px; }
-  label { color: var(--muted); font-size: 0.9rem; }
-  select { font: inherit; color: inherit; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 6px 8px; }
-  button[type=submit] {
-    margin-left: auto; font: inherit; font-weight: 600; color: #fff; background: var(--accent);
-    border: 0; border-radius: 8px; padding: 8px 18px; cursor: pointer;
+  @keyframes draw { from { transform: scaleX(0.04); } to { transform: scaleX(1); } }
+
+  @media (max-width: 900px) {
+    .layout { display: flex; flex-direction: column; padding: 18px 16px 32px; gap: 22px; }
+    .side { display: contents; }
+    .ask { order: 1; } .entry-wrap { order: 2; width: 100%; } .examples-box { order: 3; } .evidence { order: 4; } footer.foot { order: 5; }
+    .ex-h { margin-top: 0; }
+    .shell-in { padding: 12px 16px; }
+    .shell nav { margin-left: 0; width: 100%; gap: 4px 18px; }
+    .lead { max-width: none; }
+    .entry { padding: 20px 18px 24px; }
+    .entry h2.q { font-size: 1.35rem; }
+    .answer { font-size: 1.05rem; }
   }
-  @media (prefers-color-scheme: dark) { button[type=submit] { color: #0d1f18; } }
-  button[disabled] { opacity: 0.6; cursor: progress; }
-  .examples { display: flex; flex-wrap: wrap; gap: 8px; margin: 14px 0 0; }
-  .examples button {
-    font: inherit; font-size: 0.85rem; color: var(--accent); background: var(--accent-soft);
-    border: 0; border-radius: 999px; padding: 4px 12px; cursor: pointer; text-align: left;
+  @media (max-width: 600px) {
+    .lanes { grid-template-columns: 1.4rem minmax(0, 1fr); }
+    .lane-h, .cell.empty { display: none; }
+    .cell.mcp-side.empty { border-left: 0; }
+    .call.mcp .where { display: block; }
+    .bar { flex-wrap: wrap; gap: 4px 8px; }
+    .bar .track { flex-basis: 100%; max-width: 100%; }
   }
-  .notice { margin-top: 20px; padding: 12px 14px; border-radius: 8px; }
-  .notice.wait { background: var(--warn-bg); color: var(--warn); }
-  .notice.error { background: var(--err-bg); color: var(--err); }
-  section { margin-top: 28px; }
-  h2 { font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin: 0 0 10px; }
-  .answer { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 16px 18px; white-space: pre-wrap; }
-  .answer a { color: var(--accent); font-size: 0.85em; text-decoration: none; font-weight: 600; }
-  .meta { color: var(--muted); font-size: 0.85rem; margin-top: 8px; }
-  ol.sources { list-style: none; padding: 0; margin: 0; display: grid; gap: 8px; }
-  ol.sources li { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 10px 14px; }
-  ol.sources li.cited { border-color: var(--accent); }
-  ol.sources li:target { box-shadow: 0 0 0 2px var(--accent); }
-  ol.sources a { color: var(--text); font-weight: 600; text-decoration: none; }
-  ol.sources a:hover { text-decoration: underline; }
-  .src-meta { color: var(--muted); font-size: 0.85rem; }
-  .tag { font-size: 0.75rem; color: var(--accent); font-weight: 600; margin-left: 6px; }
-  .modes { display: inline-flex; border: 1px solid var(--border); border-radius: 999px; padding: 3px; margin: 0 0 14px; background: var(--surface); }
-  .modes label { cursor: pointer; padding: 5px 14px; border-radius: 999px; font-size: 0.9rem; color: var(--muted); }
-  .modes input { position: absolute; opacity: 0; pointer-events: none; }
-  .modes input:checked + span { color: var(--accent); font-weight: 600; }
-  .modes label:has(input:checked) { background: var(--accent-soft); }
-  .modes label:has(input:focus-visible) { outline: 2px solid var(--accent); }
-  .hint { color: var(--muted); font-size: 0.85rem; margin: 8px 0 0; }
-  ol.steps { list-style: none; padding: 0; margin: 0; display: grid; gap: 8px; }
-  ol.steps li { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 10px 14px; }
-  ol.steps li.error { border-color: var(--err); }
-  .step-head { display: flex; flex-wrap: wrap; gap: 8px; align-items: baseline; }
-  .step-n { color: var(--muted); font-size: 0.8rem; font-variant-numeric: tabular-nums; }
-  code { font: 0.85rem/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; overflow-wrap: anywhere; }
-  .step-tool { font-weight: 600; }
-  .step-args { color: var(--muted); }
-  .step-meta { color: var(--muted); font-size: 0.8rem; margin-left: auto; }
-  .tag.err { color: var(--err); }
-  .tag.warn { color: var(--warn); }
-  details.preview { margin-top: 6px; }
-  details.preview summary { cursor: pointer; color: var(--muted); font-size: 0.8rem; }
-  details.preview pre { margin: 6px 0 0; white-space: pre-wrap; max-height: 160px; overflow: auto; }
-  footer { margin-top: 48px; color: var(--muted); font-size: 0.85rem; }
-  footer a { color: inherit; }
 </style>
 </head>
 <body>
-<main>
-  <h1>AMR Research Agent</h1>
-  <p class="lead">Questions about antimicrobial resistance, answered only from ~3,000 recent PubMed
-    abstracts with every claim cited (hybrid search with pgvector + Postgres full-text and an LLM on
-    Groq). In agent mode, the model also queries NCBI's gene catalog and protein databases through
-    an MCP server.</p>
+<header class="shell">
+  <div class="shell-in">
+    <h1>AMR Research Agent</h1>
+    <span class="by">by <a href="https://github.com/pabloestepaa">Pablo Estepa</a> · <a href="https://www.linkedin.com/in/pabloestepa/">LinkedIn</a></span>
+    <nav aria-label="Project">
+      <a href="https://github.com/pabloestepaa/amr-research-agent">Source code</a>
+      <a href="https://github.com/pabloestepaa/amr-research-agent/blob/main/evals/RESULTS.md">Evals</a>
+      <a href="https://pypi.org/project/amr-mcp/">amr-mcp on PyPI</a>
+      <a href="/docs">API docs</a>
+    </nav>
+  </div>
+</header>
 
-  <form id="ask">
-    <div class="modes" role="radiogroup" aria-label="Mode">
-      <label><input type="radio" name="kind" value="ask" checked><span>Literature (RAG)</span></label>
-      <label><input type="radio" name="kind" value="agent"><span>Agent (tools)</span></label>
-    </div>
-    <textarea id="question" name="question" minlength="3" maxlength="500" required
-      placeholder="e.g. Which genes confer colistin resistance in E. coli?"></textarea>
-    <div class="row">
-      <span id="search-mode">
-        <label for="mode">Search</label>
-        <select id="mode" name="mode">
-          <option value="hybrid" selected>hybrid</option>
-          <option value="vector">vector</option>
-          <option value="keyword">keyword</option>
-        </select>
-      </span>
-      <button type="submit" id="submit">Ask</button>
-    </div>
-    <p class="hint" id="agent-hint" hidden>The agent decides which tools to call (literature search,
-      NCBI gene catalog, species that carry a protein, PubMed metadata) and shows every step. It uses
-      more of the free LLM quota, so it is limited to a few questions per minute.</p>
-    <div class="examples" id="examples-ask" aria-label="Example questions">
-      <button type="button">Which genes confer colistin resistance in E. coli?</button>
-      <button type="button">How does blaNDM-1 spread between bacteria?</button>
-      <button type="button">Are ESBL-producing E. coli found in food animals?</button>
-    </div>
-    <div class="examples" id="examples-agent" aria-label="Example agent questions" hidden>
-      <button type="button">What drug class does mcr-1 confer resistance to, and in which species is it most often found?</button>
-      <button type="button">Which carbapenemase gene families are in the NCBI catalog, and what does recent literature say about KPC?</button>
-      <button type="button">¿En qué especies se ha secuenciado más blaNDM-1?</button>
-    </div>
-  </form>
+<div class="layout">
+  <div class="side">
+    <section class="ask" aria-label="Ask a question">
+      <p class="lead">Ask about antimicrobial resistance. Answers come from ~3,000 recent PubMed abstracts
+        and NCBI's gene catalog, and every citation is checked against what was actually retrieved.</p>
 
-  <div id="notice" class="notice" hidden></div>
+      <form id="ask">
+        <fieldset class="tabs">
+          <legend class="vh">Mode</legend>
+          <label><input type="radio" name="kind" value="ask" checked>Literature<small>cited answer</small></label>
+          <label><input type="radio" name="kind" value="agent">Agent<small>calls tools via MCP</small></label>
+        </fieldset>
+        <label for="question" class="vh">Your question</label>
+        <textarea id="question" name="question" maxlength="500" autocomplete="off"
+          placeholder="e.g. Which genes confer colistin resistance in E. coli?" aria-describedby="lang-note mode-note"></textarea>
+        <p class="field-note lang" id="lang-note" hidden>The search index is English-only, so English questions find more. The answer will still be in your language.</p>
+        <div class="opts" id="search-opts">
+          <label for="mode">Search by</label>
+          <select id="mode" name="mode">
+            <option value="hybrid" selected>keywords + meaning (hybrid)</option>
+            <option value="vector">meaning only (vector)</option>
+            <option value="keyword">exact keywords (full-text)</option>
+          </select>
+        </div>
+        <p class="field-note" id="mode-note" hidden>The agent takes 15–60 s and about 12,000 LLM tokens per question, so it allows one question per minute.</p>
+        <div class="submit-row">
+          <span class="kbd" id="kbd" aria-hidden="true"></span>
+          <button type="submit" class="btn" id="submit">Search the literature</button>
+        </div>
+        <div class="status" id="status" role="status" aria-live="polite"></div>
+      </form>
 
-  <section id="answer-section" hidden>
-    <h2>Answer</h2>
-    <div id="answer" class="answer"></div>
-    <div id="meta" class="meta"></div>
-  </section>
+    </section>
 
-  <section id="steps-section" hidden>
-    <h2>How the agent worked</h2>
-    <ol id="steps" class="steps"></ol>
-  </section>
+    <section class="examples-box" aria-labelledby="ex-h">
+      <p class="ex-h" id="ex-h">Or try one</p>
+      <ul class="examples" id="examples-ask" aria-labelledby="ex-h">
+        <li><button type="button">Which genes confer colistin resistance in E. coli?</button></li>
+        <li><button type="button">How does blaNDM-1 spread between bacteria?</button></li>
+        <li><button type="button">Are ESBL-producing E. coli found in food animals?</button></li>
+      </ul>
+      <ul class="examples" id="examples-agent" aria-labelledby="ex-h" hidden>
+        <li><button type="button">What drug class does mcr-1 confer resistance to, and in which species is it most often found?</button></li>
+        <li><button type="button">Which carbapenemase gene families are in the NCBI catalog, and what does recent literature say about KPC?</button></li>
+        <li><button type="button">¿En qué especies se ha secuenciado más blaNDM-1?</button></li>
+      </ul>
+    </section>
 
-  <section id="sources-section" hidden>
-    <h2>Retrieved abstracts</h2>
-    <ol id="sources" class="sources"></ol>
-  </section>
+    <section class="evidence" aria-labelledby="ev-h">
+      <h2 id="ev-h">Measured, not demoed</h2>
+      <dl>
+        <dt>0</dt><dd>invented PMIDs in 64 evaluated answers (42 literature, 22 agent)</dd>
+        <dt>0.97</dt><dd>recall@10 of the hybrid search on 36 questions</dd>
+        <dt>0.96</dt><dd>of claims supported by the cited abstract, scored by an LLM judge</dd>
+        <dt>19/22</dt><dd>agent tasks fully correct: right tools, right arguments, right facts</dd>
+      </dl>
+      <p class="links">
+        <a href="https://github.com/pabloestepaa/amr-research-agent/blob/main/evals/RESULTS.md">All eval results</a>
+        <a href="https://github.com/pabloestepaa/amr-research-agent/blob/main/docs/decisions.md">Design decisions</a>
+      </p>
+      <details class="how">
+        <summary>How it works</summary>
+        <ol>
+          <li>Your question is searched two ways over ~3,000 PubMed abstracts (2022–2026): Postgres
+            full-text for exact terms and pgvector embeddings for meaning, merged with reciprocal rank fusion.</li>
+          <li>An LLM (gpt-oss-120b on Groq) answers only from the abstracts it was given and cites them by PMID.</li>
+          <li>Every cited PMID is checked against what was retrieved. Anything else is flagged, never trusted.</li>
+          <li>In agent mode the model runs a loop of up to 5 rounds and chooses its tools: the same
+            literature search, or NCBI's gene catalog, protein records and PubMed through
+            <a href="https://pypi.org/project/amr-mcp/">amr-mcp</a>, an MCP server I wrote.</li>
+        </ol>
+      </details>
+    </section>
+  </div>
 
-  <footer>
-    Answers come only from the indexed abstracts (and, in agent mode, NCBI databases) and can still
-    be wrong: check the cited papers.
-    Free hosting: the first request after a while can take up to a minute.
-    · <a href="/docs">API docs</a>
-    · <a href="https://github.com/pabloestepaa/amr-research-agent">Source code</a>
+  <main class="entry-wrap">
+    <article class="entry" id="entry" tabindex="-1" aria-labelledby="entry-q">
+      <div class="entry-meta" id="entry-meta"></div>
+      <h2 class="q" id="entry-q"></h2>
+      <div id="entry-body"></div>
+    </article>
+  </main>
+
+  <footer class="foot">
+    <p>A research tool, not clinical advice. Answers come only from the indexed abstracts and NCBI's
+      databases and can still be wrong: check the cited papers.</p>
+    <p>Runs on free tiers (Render, Neon, Groq): after a quiet spell the first question can take up to a
+      minute, and the LLM quota is shared by every visitor.</p>
   </footer>
-</main>
+</div>
+
+<!-- Ejecución real del agente, grabada en local el 2026-11-06 con `POST /agent`: así la página
+     enseña el mecanismo sin gastar cuota. -->
+<script type="application/json" id="recorded">{"question":"What drug class does mcr-1 confer resistance to, and what does recent literature report about colistin resistance in poultry?","recorded_on":"6 Nov 2026","response":{"answer":"The mcr‑1 gene encodes a phosphoethanolamine‑lipid A transferase that confers resistance to colistin, a member of the polymyxin (colistin) drug class [PMID:26603172].\n\nRecent studies show that colistin resistance is widespread in poultry. A 2025 survey of commercial chickens reported phenotypic colistin resistance in 78.6 % of isolates and detected mcr‑1 in 42 % of the samples, highlighting the high burden of colistin‑resistant E. coli in poultry production [PMID:40956559].","citations":[{"pmid":"26603172","url":"https://pubmed.ncbi.nlm.nih.gov/26603172/","title":"Emergence of plasmid-mediated colistin resistance mechanism MCR-1 in animals and human beings in China: a microbiological and molecular biological study.","journal":"The Lancet. Infectious diseases","year":2016},{"pmid":"40956559","url":"https://pubmed.ncbi.nlm.nih.gov/40956559/","title":"Molecular detection and prevalence of colistin-resistant Escherichia coli in poultry and humans: a one health perspective.","journal":"Brazilian journal of microbiology : [publication of the Brazilian Society for Microbiology]","year":2025}],"invalid_citations":[],"steps":[{"step":1,"tool":"search_amr_genes","arguments":{"drug_class":"polymyxin","query":"mcr-1"},"is_error":false,"truncated":false,"result_chars":45,"pmids":[],"latency_ms":16.0,"preview":"{\"total_matches\":0,\"returned\":0,\"results\":[]}"},{"step":2,"tool":"search_amr_genes","arguments":{"query":"mcr-1"},"is_error":false,"truncated":false,"result_chars":5535,"pmids":["26603172","27401575","29091227","30053115","32908612","33822965","34091039"],"latency_ms":11.9,"preview":"{\"total_matches\":46,\"returned\":25,\"results\":[{\"allele\":\"mcr-1.1\",\"gene_family\":\"mcr-1\",\"product_name\":\"phosphoethanolamine--lipid A transferase MCR-1.1\",\"type\":\"AMR\",\"class\":\"COLISTIN\",\"subclass\":\"COLISTIN\",\"refseq_protein_accession\":\"WP_049589868.1\",\"pubmed_reference\":\"26603172\"},{\"allele\":\"mcr-1.1"},{"step":3,"tool":"get_pubmed_references","arguments":{"pmids":["26603172"]},"is_error":false,"truncated":false,"result_chars":422,"pmids":["26603172"],"latency_ms":227.7,"preview":"{\"articles\":[{\"pmid\":\"26603172\",\"title\":\"Emergence of plasmid-mediated colistin resistance mechanism MCR-1 in animals and human beings in China: a microbiological and molecular biological study.\",\"journal\":\"The Lancet. Infectious diseases\",\"pubdate\":\"2016 Feb\",\"authors\":[\"Liu YY\",\"Wang Y\",\"Walsh TR\""},{"step":4,"tool":"search_literature","arguments":{"k":5,"query":"colistin resistance poultry 2023"},"is_error":false,"truncated":true,"result_chars":5334,"pmids":["40298502","40956559","41644657","42119341","42840664"],"latency_ms":23.2,"preview":"{\"results\":[{\"pmid\":\"40956559\",\"title\":\"Molecular detection and prevalence of colistin-resistant Escherichia coli in poultry and humans: a one health perspective.\",\"journal\":\"Brazilian journal of microbiology : [publication of the Brazilian Society for Microbiology]\",\"year\":2025,\"abstract\":\"Multidru"}],"stop_reason":"max_steps","usage":{"model":"openai/gpt-oss-120b","llm_calls":5,"prompt_tokens":11579,"completion_tokens":711},"latency_ms":{"llm":4588.2,"tools":279.6,"total":4868.5}}}</script>
 
 <script>
+"use strict";
 const $ = (id) => document.getElementById(id);
-const form = $("ask"), question = $("question"), submit = $("submit"), notice = $("notice");
+const form = $("ask"), question = $("question"), submit = $("submit"), statusBox = $("status");
+const entry = $("entry");
+const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
+const NO_EVIDENCE = "I could not find evidence for this in the indexed literature.";
+const BUTTON = { ask: "Search the literature", agent: "Ask the agent" };
 
 function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
+const fmt = (n) => Number(n).toLocaleString("en-US");
+const seconds = (ms) => (ms / 1000).toFixed(1) + " s";
+const plural = (n, one, many) => `${fmt(n)} ${n === 1 ? one : many}`;
 
-function showNotice(text, kind) {
-  notice.textContent = text;
-  notice.className = "notice " + kind;
-  notice.hidden = !text;
+// gpt-oss escribe espacios finos (U+202F) y guiones que no cortan (U+2011): se ven como espacios
+// perdidos y rompen las búsquedas de genes. Se normalizan antes de nada.
+const normalize = (t) => String(t).replace(/[    ]/g, " ").replace(/[‐‑]/g, "-");
+
+// Convención científica: especies y genes en cursiva.
+const GENERA = "Escherichia|Klebsiella|Acinetobacter|Pseudomonas|Salmonella|Enterobacter|Enterococcus|Staphylococcus|Streptococcus|Proteus|Serratia|Citrobacter|Shigella|Campylobacter|Neisseria|Mycobacterium|Clostridioides|Helicobacter|Vibrio|Morganella|Providencia|Burkholderia|Stenotrophomonas|Haemophilus|Listeria|Bacteroides";
+const EPITHETS = "coli|pneumoniae|baumannii|aeruginosa|aureus|faecium|faecalis|enterica|cloacae|hormaechei|mirabilis|marcescens|fragilis|jejuni|gonorrhoeae|tuberculosis|difficile|pylori|cholerae|freundii|sonnei|flexneri|typhimurium|epidermidis|maltophilia|influenzae|monocytogenes|aerogenes|oxytoca|morganii|stuartii|cepacia";
+// Género y especie ("Klebsiella pneumoniae", "E. coli") o el género solo ("Acinetobacter-derived").
+const SPECIES = new RegExp(`\\b(?:(?:${GENERA})(?: (?:${EPITHETS}))?|[EKAPSB]\\. (?:${EPITHETS}))\\b`, "g");
+// Genes: familias de resistencia (blaNDM-1, mcr-1.1, vanA...) y la forma general "eptA", "pmrB".
+const GENES = /\b(?:bla[A-Z][A-Za-z]*(?:-\d+)?|mcr-\d+(?:\.\d+)?|qnr[A-Z]\d*|tet\([A-Z]\d*\)|erm\([A-Z]\)|[a-z]{3}[A-Z]\d*)(?![A-Za-z\d])/g;
+function italicize(html) {
+  // Solo en el texto, nunca dentro de etiquetas (que aquí solo son <strong>/<em>).
+  return html.split(/(<[^>]+>)/).map((part) => part.startsWith("<") ? part
+    : part.replace(SPECIES, "<i>$&</i>").replace(GENES, "<i>$&</i>")).join("");
 }
 
-// El texto se escapa ANTES de darle formato: la respuesta del LLM nunca se inserta como HTML
-// tal cual. Después solo se reconocen tres cosas: citas, **negrita** y *cursiva* (el modelo
-// escribe Markdown aunque no se le pida).
-// En modo RAG la cita salta a la fuente de la lista; en modo agente no hay lista de abstracts
-// (los PMIDs pueden venir de varias herramientas), así que enlaza directamente a PubMed.
-function renderAnswer(text, toPubmed) {
-  return escapeHtml(text)
+// El texto se escapa ANTES de darle formato: la respuesta del LLM nunca se inserta como HTML tal
+// cual. Después se reconocen párrafos, listas, **negrita**, *cursiva* y las citas, que se numeran
+// por orden de aparición como en un artículo.
+function renderAnswer(text, refNo, unverified) {
+  const inline = (s) => italicize(escapeHtml(s)
     .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
-    .replace(/(^|[^*])\*([^*\n]+?)\*/g, "$1<em>$2</em>")
-    .replace(/\[PMID:(\d+)\]/g, (_, pmid) => toPubmed
-      ? `<a href="https://pubmed.ncbi.nlm.nih.gov/${pmid}/" target="_blank" rel="noopener" title="Open in PubMed">[PMID:${pmid}]</a>`
-      : `<a href="#src-${pmid}" title="Jump to source">[PMID:${pmid}]</a>`);
-}
-
-function renderSteps(steps) {
-  $("steps").innerHTML = steps.map((s) => {
-    // Como una llamada a función: get_amr_gene(name="mcr-1")
-    const args = s.arguments
-      ? "(" + Object.entries(s.arguments).map(([k, v]) => `${k}=${JSON.stringify(v)}`).join(", ") + ")"
-      : "(invalid arguments)";
-    const tags = [
-      s.is_error ? '<span class="tag err">error</span>' : "",
-      s.truncated ? '<span class="tag warn">trimmed</span>' : "",
-    ].join("");
-    return `<li class="${s.is_error ? "error" : ""}">
-      <div class="step-head">
-        <span class="step-n">step ${s.step}</span>
-        <code><span class="step-tool">${escapeHtml(s.tool)}</span><span class="step-args">${escapeHtml(args)}</span></code>
-        ${tags}
-        <span class="step-meta">${Math.round(s.latency_ms)} ms · ${s.result_chars.toLocaleString()} chars</span>
-      </div>
-      <details class="preview"><summary>Result preview</summary><pre><code>${escapeHtml(s.preview)}</code></pre></details>
-    </li>`;
+    .replace(/(^|[^*])\*([^*\n]+?)\*/g, "$1<em>$2</em>"))
+    .replace(/\s*((?:\[PMID:\d+\]\s*)+)/g, (_, group) => {
+      const links = [...group.matchAll(/\[PMID:(\d+)\]/g)].map(([, pmid]) => {
+        const n = refNo.get(pmid);
+        return unverified.has(pmid)
+          ? `<a class="unverified" href="#ref-${n}" title="Unverified: no search or tool returned PMID ${pmid}">${n}?</a>`
+          : `<a href="#ref-${n}" title="Reference ${n}: PMID ${pmid}">${n}</a>`;
+      });
+      return `<sup class="refs-inline">${links.join(",")}</sup> `;
+    })
+    .replace(/ (?=[.,;:)])/g, "");
+  return text.split(/\n{2,}/).map((block) => {
+    const lines = block.split("\n").filter((l) => l.trim());
+    if (!lines.length) return "";
+    if (lines.every((l) => /^\s*[-*•]\s+/.test(l)))
+      return "<ul>" + lines.map((l) => `<li>${inline(l.replace(/^\s*[-*•]\s+/, ""))}</li>`).join("") + "</ul>";
+    if (lines.every((l) => /^\s*\d+[.)]\s+/.test(l)))
+      return "<ol>" + lines.map((l) => `<li>${inline(l.replace(/^\s*\d+[.)]\s+/, ""))}</li>`).join("") + "</ol>";
+    return `<p>${lines.map(inline).join("<br>")}</p>`;
   }).join("");
-  $("steps-section").hidden = steps.length === 0;
 }
 
+const CHECK = '<svg width="18" height="18" viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="8.6" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M6 10.3l2.7 2.7L14.2 7.4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+const CROSS = '<svg width="18" height="18" viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="8.6" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M10 5.6v5.6M10 13.8v.4" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/></svg>';
+
+function renderWitness(kind, nValid, unverified) {
+  const by = kind === "agent" ? "a search or tool" : "the search";
+  const total = nValid + unverified.length;
+  if (total === 0) return "";
+  if (!unverified.length)
+    return `<p class="witness ok">${CHECK}<span><b>${nValid} of ${total} citations verified.</b> Each PMID was returned by ${by} in this run, not taken from the model's memory.</span></p>`;
+  return `<p class="witness bad">${CROSS}<span><b>${nValid} of ${total} citations verified.</b> ${unverified.map((p) => "PMID " + escapeHtml(p)).join(", ")} ${unverified.length === 1 ? "was" : "were"} not returned by ${by}, so the claim${unverified.length === 1 ? "" : "s"} citing ${unverified.length === 1 ? "it" : "them"} can't be trusted.</span></p>`;
+}
+
+function reference(meta, pmid) {
+  const url = `https://pubmed.ncbi.nlm.nih.gov/${encodeURIComponent(pmid)}/`;
+  const link = `<a class="src" href="${url}" target="_blank" rel="noopener">PMID ${escapeHtml(pmid)}</a>`;
+  if (!meta || !meta.title) return null;
+  const title = italicize(escapeHtml(normalize(meta.title).replace(/\.$/, "")));
+  // PubMed añade a veces la sociedad editora: "Braz J Microbiol : [publication of the ...]".
+  const name = meta.journal ? normalize(meta.journal).replace(/\s*:\s*\[.*\]\s*$/, "").replace(/\.$/, "") : "";
+  const journal = name ? ` <i>${escapeHtml(name)}</i>` : "";
+  return `${title}.${journal}${meta.year ? " " + meta.year : ""}. ${link}`;
+}
+
+function renderReferences(order, metaFor, unverified, noteFor) {
+  if (!order.length) return "";
+  const items = order.map((pmid, i) => {
+    const url = `https://pubmed.ncbi.nlm.nih.gov/${encodeURIComponent(pmid)}/`;
+    let body = reference(metaFor(pmid), pmid);
+    if (!body) body = `<a class="src" href="${url}" target="_blank" rel="noopener">PMID ${escapeHtml(pmid)}</a> <span class="note">${escapeHtml(noteFor(pmid))}</span>`;
+    if (unverified.has(pmid)) body += ' <span class="note bad">Unverified: no search or tool returned this PMID.</span>';
+    return `<li id="ref-${i + 1}">${body}</li>`;
+  });
+  return `<h3>References</h3><ol class="refs">${items.join("")}</ol>`;
+}
+
+// Un resultado sin nada dentro ({"total_matches":0,...} o listas vacías) se marca: el agente
+// tuvo que reformular, y eso también es parte de lo que hizo.
+function isEmpty(s) {
+  if (s.is_error || s.result_chars > 400) return false;
+  try {
+    const data = JSON.parse(s.preview);
+    if (data.total_matches === 0) return true;
+    const lists = Object.values(data).filter(Array.isArray);
+    return lists.length > 0 && lists.every((l) => l.length === 0);
+  } catch { return false; }
+}
+
+// Métodos del agente: cada llamada en el carril donde se ejecutó, con la barra = latencia.
+function renderLanes(steps) {
+  if (!steps.length) return '<p class="sub">The agent answered without calling any tools.</p>';
+  const max = Math.max(...steps.map((s) => s.latency_ms), 1);
+  let prev = null;
+  const rows = steps.map((s, i) => {
+    const mcp = s.tool !== "search_literature";
+    const args = s.arguments
+      ? Object.entries(s.arguments).filter(([, v]) => v !== null).map(([k, v]) => `${k}=${JSON.stringify(v)}`).join(", ")
+      : "invalid arguments";
+    const what = s.tool === "search_literature" && !s.is_error ? plural(s.pmids.length, "abstract", "abstracts") : `${fmt(s.result_chars)} chars`;
+    const flags = [s.is_error ? '<span class="flag err">error</span>' : "", isEmpty(s) ? '<span class="flag warn">no matches</span>' : "",
+      s.truncated ? '<span class="flag warn">trimmed to fit</span>' : ""].join(" ");
+    const width = Math.max(3, Math.round((s.latency_ms / max) * 100));
+    const call = `<div class="call ${mcp ? "mcp" : "app"}${s.is_error ? " error" : ""}" style="--i:${i}">
+      <span class="where">via amr-mcp</span>
+      <code><b>${escapeHtml(s.tool)}</b>(${escapeHtml(args)})</code>
+      <div class="bar"><span class="track"><i style="width:${width}%"></i></span><span class="label">${fmt(Math.round(s.latency_ms))} ms · ${what} ${flags}</span></div>
+      <details><summary>Result</summary><pre>${escapeHtml(s.preview)}${s.result_chars > s.preview.length ? "…" : ""}</pre></details>
+    </div>`;
+    const cont = s.step === prev ? " cont" : "";
+    const n = s.step === prev ? "" : s.step;
+    prev = s.step;
+    return `<div class="lane-n${cont}">${n}</div>`
+      + (mcp ? `<div class="cell empty${cont}"></div><div class="cell mcp-side${cont}">${call}</div>`
+             : `<div class="cell${cont}">${call}</div><div class="cell empty mcp-side${cont}"></div>`);
+  });
+  return `<div class="lanes" role="list" aria-label="Tool calls in order">
+      <div class="lane-h" aria-hidden="true"></div>
+      <div class="lane-h app">In this app<span>hybrid search on Postgres</span></div>
+      <div class="lane-h mcp">amr-mcp, over MCP<span>NCBI gene catalog, proteins, PubMed</span></div>
+      ${rows.join("")}
+    </div>`;
+}
+
+const STOP = {
+  max_steps: "It reached the 5-round limit, so the last round was a final answer without tools.",
+  token_budget: "It reached the 12,000-token budget, so the last round was a final answer without tools.",
+};
+
+// --- Una entrada completa ------------------------------------------------------------------
+function renderEntry(e) {
+  const { kind, q, body, recorded } = e;
+  const answer = normalize(body.answer || "");
+  const refOrder = [...new Set([...answer.matchAll(/\[PMID:(\d+)\]/g)].map((m) => m[1]))];
+  const refNo = new Map(refOrder.map((p, i) => [p, i + 1]));
+  const unverified = new Set(body.invalid_citations || []);
+  const validCount = refOrder.filter((p) => !unverified.has(p)).length;
+
+  const meta = [];
+  meta.push(recorded ? `<b>Recorded run</b>, ${escapeHtml(recorded)}` : "<b>Your question</b>");
+  meta.push(kind === "agent" ? "agent mode" : "literature mode");
+  if (recorded) meta.push("no quota spent");
+  if (body.usage) meta.push(`${escapeHtml(body.usage.model)} on Groq`);
+  $("entry-meta").innerHTML = `<span>${meta.join(" · ")}</span>`;
+  $("entry-q").innerHTML = italicize(escapeHtml(normalize(q)));
+
+  const parts = [`<div class="answer">${renderAnswer(answer, refNo, unverified)}</div>`];
+  if (answer.trim() === NO_EVIDENCE)
+    parts.push(`<p class="witness none">${CHECK}<span>No citations: what was found doesn't answer this, so it says so instead of guessing.</span></p>`);
+  else parts.push(renderWitness(kind, validCount, [...unverified]));
+
+  const lat = body.latency_ms || {};
+  if (kind === "agent") {
+    const steps = body.steps || [];
+    const rounds = new Set(steps.map((s) => s.step)).size;
+    const u = body.usage;
+    parts.push(`<h3>Methods</h3><p class="sub"><b>Fig. 1.</b> ${steps.length ? `${plural(steps.length, "tool call", "tool calls")} over ${plural(rounds, "round", "rounds")}, each in the lane where it ran. Bar length is latency.` : ""}</p>`);
+    parts.push(renderLanes(steps));
+    const totals = [`Total ${seconds(lat.total || 0)}`];
+    if (lat.llm) totals.push(`LLM ${seconds(lat.llm)}, tools ${seconds(lat.tools || 0)}`);
+    totals.push(`${plural(u.llm_calls, "LLM call", "LLM calls")} (one per round, plus the final answer)`, `${fmt(u.prompt_tokens + u.completion_tokens)} tokens`);
+    parts.push(`<p class="totals">${totals.join(" · ")}${STOP[body.stop_reason] ? ". " + STOP[body.stop_reason] : ""}</p>`);
+    const cites = new Map((body.citations || []).map((c) => [c.pmid, c]));
+    const fromTool = (pmid) => {
+      const s = steps.find((x) => x.pmids.includes(pmid));
+      return s ? `Returned by ${s.tool}, which gives the PMID without a title.` : "";
+    };
+    parts.push(renderReferences(refOrder, (p) => cites.get(p), unverified, fromTool));
+  } else {
+    const sources = body.sources || [];
+    const mode = { hybrid: "keywords + meaning (hybrid)", vector: "meaning (vector)", keyword: "exact keywords (full-text)" }[e.mode] || e.mode;
+    const gen = lat.generation ? `; ${escapeHtml(body.usage ? body.usage.model : "the LLM")} wrote the answer from them in ${seconds(lat.generation)}` : "";
+    const tokens = body.usage ? ` · ${fmt(body.usage.prompt_tokens + body.usage.completion_tokens)} tokens` : "";
+    parts.push(`<h3>Methods</h3><p class="methods-rag">Searched ~3,000 abstracts by ${mode} and kept the top ${sources.length} in ${fmt(Math.round(lat.retrieval || 0))} ms${gen}${tokens}.</p>`);
+    const bySrc = new Map(sources.map((s) => [s.pmid, s]));
+    parts.push(renderReferences(refOrder, (p) => bySrc.get(p), unverified, () => ""));
+    const rest = sources.filter((s) => !refNo.has(s.pmid));
+    if (rest.length)
+      parts.push(`<details class="more-src"><summary>${rest.length === sources.length ? "Retrieved" : "Also retrieved"}, not cited (${rest.length})</summary><ol class="refs">${rest.map((s) => `<li>${reference(s, s.pmid)}</li>`).join("")}</ol></details>`);
+  }
+  if (recorded)
+    parts.push(`<p class="next">This run was recorded. <button type="button" class="link-btn" data-act="agent">Ask the agent your own question</button> (one per minute), or <button type="button" class="link-btn" data-act="literature">search the literature</button>.</p>`);
+  const bodyEl = $("entry-body");
+  bodyEl.innerHTML = parts.join("");
+  entry.classList.remove("drawn");
+  void entry.offsetWidth;  // reinicia la animación de las barras
+  entry.classList.add("drawn");
+}
+
+// --- Envío, espera y límites ---------------------------------------------------------------
 const isAgent = () => form.elements.kind.value === "agent";
+const kindNow = () => (isAgent() ? "agent" : "ask");
+let current = null;             // la entrada que se ve (para restaurarla si algo falla)
+let busy = false;
+const cooldown = { ask: 0, agent: 0 };  // hasta cuándo (ms) no tiene sentido preguntar
+let ticker = null;
+
+function setStatus(html, kind) {
+  statusBox.className = "status " + (kind || "");
+  statusBox.innerHTML = html || "";
+}
+
+function syncButton() {
+  const kind = kindNow();
+  const left = Math.ceil((cooldown[kind] - Date.now()) / 1000);
+  if (busy) { submit.disabled = true; return; }
+  if (left > 0) {
+    submit.disabled = true;
+    submit.textContent = `Next question in ${left} s`;
+    return;
+  }
+  submit.disabled = false;
+  submit.textContent = BUTTON[kind];
+  if (statusBox.dataset.until && Date.now() >= Number(statusBox.dataset.until)) {
+    delete statusBox.dataset.until;
+    setStatus("", "");
+  }
+}
+function startTicker() {
+  if (ticker) return;
+  ticker = setInterval(() => {
+    syncButton();
+    if (!busy && cooldown.ask <= Date.now() && cooldown.agent <= Date.now()) { clearInterval(ticker); ticker = null; }
+  }, 500);
+}
 
 function syncMode() {
   const agent = isAgent();
-  $("search-mode").hidden = agent;
-  $("agent-hint").hidden = !agent;
+  $("search-opts").hidden = agent;
+  $("mode-note").hidden = !agent;
   $("examples-ask").hidden = agent;
   $("examples-agent").hidden = !agent;
+  question.placeholder = agent
+    ? "e.g. In which species is blaKPC-2 most often found?"
+    : "e.g. Which genes confer colistin resistance in E. coli?";
+  syncLang();
+  syncButton();
 }
 
-function renderSources(sources, cited) {
-  $("sources").innerHTML = sources.map((s) => {
-    const isCited = cited.has(s.pmid);
-    const meta = [s.journal, s.year, "PMID " + s.pmid].filter(Boolean).map(escapeHtml).join(" · ");
-    return `<li id="src-${escapeHtml(s.pmid)}" class="${isCited ? "cited" : ""}">
-      <a href="${escapeHtml(s.url)}" target="_blank" rel="noopener">${escapeHtml(s.title)}</a>
-      ${isCited ? '<span class="tag">cited</span>' : ""}
-      <div class="src-meta">${meta}</div></li>`;
-  }).join("");
-  $("sources-section").hidden = sources.length === 0;
+const SPANISH = /[¿¡ñáéíóú]|\b(qué|cuál|cómo|dónde|genes? de|resistencia|especies?|bacterias?)\b/i;
+function syncLang() { $("lang-note").hidden = isAgent() || !SPANISH.test(question.value); }
+
+function showPending(kind, q) {
+  $("entry-meta").innerHTML = `<span><b>Your question</b> · ${kind === "agent" ? "agent mode" : "literature mode"} · working</span>`;
+  $("entry-q").innerHTML = italicize(escapeHtml(normalize(q)));
+  const what = kind === "agent"
+    ? "The agent is choosing tools and reading their results. This usually takes 15–60 s."
+    : "Searching the abstracts and writing a cited answer. This usually takes a few seconds.";
+  $("entry-body").innerHTML = `<div class="pending"><p>${what}</p><p class="elapsed" id="elapsed">0 s elapsed</p><p id="slow" hidden></p></div>`;
+  entry.setAttribute("aria-busy", "true");
+  const t0 = Date.now();
+  return setInterval(() => {
+    const s = Math.round((Date.now() - t0) / 1000);
+    const el = $("elapsed");
+    if (el) el.textContent = `${s} s elapsed`;
+    const slow = $("slow");
+    if (slow && s >= (kind === "agent" ? 70 : 12)) {
+      slow.hidden = false;
+      slow.textContent = "Taking longer than usual: the free database or the server may be waking up after a quiet spell. It can take up to a minute more.";
+    }
+  }, 1000);
+}
+
+function bringIntoView() {
+  const r = entry.getBoundingClientRect();
+  if (r.top < 0 || r.top > innerHeight * 0.6) entry.scrollIntoView({ behavior: reduceMotion ? "auto" : "smooth", block: "start" });
 }
 
 async function ask(event) {
   event.preventDefault();
+  const kind = kindNow();
   const q = question.value.trim();
-  if (q.length < 3) return;
-  const agent = isAgent();
-  submit.disabled = true;
-  submit.textContent = agent ? "Working…" : "Thinking…";
-  $("answer-section").hidden = true;
-  $("sources-section").hidden = true;
-  $("steps-section").hidden = true;
-  // Si tarda, casi siempre es el arranque en frío de Render o de Neon: lo decimos.
-  const slow = setTimeout(() => showNotice("Waking up the free-tier server and database, this can take up to a minute…", "wait"), 4000);
-  showNotice("", "wait");
+  if (busy || Date.now() < cooldown[kind]) return;
+  if (q.length < 3) {
+    setStatus("Write a question of at least 3 characters.", "error");
+    question.focus();
+    return;
+  }
+  busy = true;
+  submit.classList.add("busy");
+  submit.textContent = kind === "agent" ? "Working…" : "Searching…";
+  syncButton();
+  setStatus("", "");
+  const mode = $("mode").value;
+  const started = Date.now();
+  const timer = showPending(kind, q);
+  bringIntoView();
   try {
-    const resp = await fetch(agent ? "/agent" : "/ask", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(agent ? { question: q } : { question: q, mode: $("mode").value }),
-    });
+    let resp;
+    try {
+      resp = await fetch(kind === "agent" ? "/agent" : "/ask", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(kind === "agent" ? { question: q } : { question: q, mode }),
+      });
+    } catch {
+      throw { html: "Couldn't reach the server. If it was asleep it may still be starting: try again in a moment.", cls: "error" };
+    }
     const body = await resp.json().catch(() => ({}));
-    if (!resp.ok) {
-      const detail = typeof body.detail === "string" ? body.detail : "Invalid question.";
-      throw new Error(resp.status >= 500 && !body.detail ? "Server error, please try again." : detail);
-    }
-    showNotice("", "wait");
-    $("answer").innerHTML = renderAnswer(body.answer, agent);
-    const lat = body.latency_ms || {};
-    const parts = [];
-    if (agent) {
-      parts.push(`${body.steps.length} tool call(s)`, `total ${(lat.total / 1000).toFixed(1)} s`);
-      parts.push(`${body.usage.model}, ${body.usage.llm_calls} LLM calls, ${body.usage.prompt_tokens + body.usage.completion_tokens} tokens`);
-      if (body.stop_reason !== "answer") parts.push(`stopped early (${body.stop_reason.replace("_", " ")})`);
-    } else {
-      parts.push(`retrieval ${Math.round(lat.retrieval || 0)} ms`);
-      if (lat.generation) parts.push(`generation ${(lat.generation / 1000).toFixed(1)} s`);
-      if (body.usage) parts.push(`${body.usage.model}, ${body.usage.prompt_tokens + body.usage.completion_tokens} tokens`);
-    }
-    if (body.invalid_citations.length) parts.push(`${body.invalid_citations.length} citation(s) to papers no tool returned`);
-    $("meta").textContent = parts.join(" · ");
-    $("answer-section").hidden = false;
-    if (agent) renderSteps(body.steps);
-    else renderSources(body.sources, new Set(body.citations.map((c) => c.pmid)));
+    if (!resp.ok) throw problem(resp, body, kind);
+    current = { kind, q, body, mode, recorded: null };
+    renderEntry(current);
+    if (kind === "agent") cooldown.agent = started + 60_000;  // la API permite 1 por minuto
+    setStatus("Answer ready.", "sr");
+    entry.focus({ preventScroll: true });
+    bringIntoView();
   } catch (err) {
-    showNotice(err.message || "Network error, please try again.", "error");
+    if (current) renderEntry(current);
+    setStatus(err.html || escapeHtml(String(err.message || err)), err.cls || "error");
+    if (err.until) statusBox.dataset.until = err.until;
   } finally {
-    clearTimeout(slow);
-    submit.disabled = false;
-    submit.textContent = "Ask";
+    clearInterval(timer);
+    entry.removeAttribute("aria-busy");
+    busy = false;
+    submit.classList.remove("busy");
+    syncButton();
+    startTicker();
   }
 }
 
+// Traduce cada respuesta de error de la API a un aviso con salida.
+function problem(resp, body, kind) {
+  const detail = typeof body.detail === "string" ? body.detail : "";
+  const wait = Number(resp.headers.get("Retry-After")) || 60;
+  if (resp.status === 429 && /daily/i.test(detail))
+    return { html: `The demo's daily question budget is used up (the free LLM quota is shared). It resets within a day. Meanwhile, <button type="button" class="link-btn" data-act="recorded">see the recorded agent run</button>.`, cls: "limit" };
+  if (resp.status === 429) {
+    cooldown[kind] = Date.now() + wait * 1000;
+    return { html: kind === "agent"
+      ? "The agent allows one question per minute from each visitor, to stay inside the free LLM quota. The button counts down until you can ask again."
+      : "That's five questions in a minute. The button counts down until you can ask again.", cls: "limit", until: cooldown[kind] };
+  }
+  if (resp.status === 503 && /rate limit/i.test(detail)) {
+    cooldown[kind] = Date.now() + 60_000;
+    return { html: `The free LLM quota for this minute is used up (it's shared by every visitor). Try again in a minute${kind === "agent" ? ', or <button type="button" class="link-btn" data-act="literature">switch to Literature mode</button>, which needs far fewer tokens' : ""}.`, cls: "limit", until: cooldown[kind] };
+  }
+  if (resp.status === 503 && kind === "agent")
+    return { html: 'The agent isn\'t available right now. <button type="button" class="link-btn" data-act="literature">Switch to Literature mode</button>, which still works.', cls: "error" };
+  if (resp.status === 422) return { html: "Questions need between 3 and 500 characters.", cls: "error" };
+  if (resp.status === 502) return { html: "The LLM provider returned an error. Please try again.", cls: "error" };
+  return { html: escapeHtml(detail || `The server answered with an error (${resp.status}). Please try again.`), cls: "error" };
+}
+
+function onAct(e) {
+  const act = e.target.closest("[data-act]")?.dataset.act;
+  if (act === "agent") {
+    form.querySelector('input[value="agent"]').checked = true;
+    syncMode();
+    question.focus();
+    question.scrollIntoView({ behavior: reduceMotion ? "auto" : "smooth", block: "center" });
+    return;
+  }
+  if (act === "literature") {
+    form.querySelector('input[value="ask"]').checked = true;
+    syncMode();
+    setStatus("", "");
+    const target = question.value.trim() ? submit : question;
+    target.focus({ preventScroll: true });
+    target.scrollIntoView({ behavior: reduceMotion ? "auto" : "smooth", block: "center" });
+  } else if (act === "recorded" && RECORDED) {
+    current = RECORDED;
+    renderEntry(current);
+    bringIntoView();
+  }
+}
+statusBox.addEventListener("click", onAct);
+entry.addEventListener("click", onAct);
+
 form.addEventListener("submit", ask);
 form.querySelectorAll('input[name="kind"]').forEach((r) => r.addEventListener("change", syncMode));
-syncMode();  // por si el navegador recuerda la opción elegida al recargar
+question.addEventListener("input", syncLang);
 question.addEventListener("keydown", (e) => {
-  if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) form.requestSubmit();
+  if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); form.requestSubmit(); }
 });
-document.querySelectorAll(".examples button").forEach((b) =>
-  b.addEventListener("click", () => { question.value = b.textContent; form.requestSubmit(); }));
+// Los ejemplos rellenan la pregunta y dejan el foco en el botón: un clic más, pero nadie gasta
+// cuota sin querer y se puede editar antes de enviar.
+document.querySelectorAll("ul.examples button").forEach((b) => b.addEventListener("click", () => {
+  question.value = b.textContent;
+  syncLang();
+  if (!submit.disabled) submit.focus(); else question.focus();
+}));
+$("kbd").textContent = /Mac|iPhone|iPad/.test(navigator.platform) ? "⌘ Return to send" : "Ctrl + Enter to send";
+
+let RECORDED = null;
+try {
+  const rec = JSON.parse($("recorded").textContent);
+  RECORDED = { kind: "agent", q: rec.question, body: rec.response, recorded: rec.recorded_on };
+} catch { /* sin grabación: la entrada queda vacía hasta la primera pregunta */ }
+if (RECORDED) { current = RECORDED; renderEntry(current); }
+else $("entry-q").textContent = "Ask a question to see a cited answer here.";
+syncMode();  // por si el navegador recuerda el modo al recargar
 </script>
 </body>
 </html>

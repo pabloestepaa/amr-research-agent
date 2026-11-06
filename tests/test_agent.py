@@ -85,6 +85,21 @@ async def test_chains_tools_and_feeds_results_back_to_the_model():
     assert result.usage.llm_calls == 3 and result.usage.prompt_tokens == 300
 
 
+async def test_citations_carry_the_title_a_tool_returned():
+    llm = ScriptedLLM(
+        tool_turn(("get_amr_gene", {"name": "mcr-1.1"})),
+        tool_turn(("search_literature", {"query": "colistin resistance"})),
+        text_turn("Colistin [PMID:26603172]; poultry [PMID:111]."),
+    )
+    async with toolset(hits=[make_hit("111", "Colistin resistance in poultry")]) as tools:
+        result = await Agent(llm, tools).run("What does mcr-1 do?")
+
+    by_pmid = {c.pmid: c for c in result.citations}
+    assert by_pmid["26603172"].title is None  # el catálogo solo da el PMID
+    assert by_pmid["111"].title == "Colistin resistance in poultry"
+    assert by_pmid["111"].year == 2024
+
+
 async def test_parallel_tool_calls_all_get_a_reply():
     llm = ScriptedLLM(
         tool_turn(("search_literature", {"query": "colistin resistance"}),
