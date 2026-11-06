@@ -24,6 +24,7 @@ from amr_agent.tools import (
     amr_mcp_server,
     bounds_to_description,
     drop_keys,
+    drop_seen_abstracts,
     find_pmids,
     shrink,
 )
@@ -66,6 +67,18 @@ async def test_search_literature_clamps_k_instead_of_failing():
                                                    {"query": "colistin", "k": 10})
     assert not result.is_error
     assert retriever.calls[-1][1] == 6
+
+
+async def test_drop_seen_abstracts_keeps_errors_and_unseen_results_intact():
+    retriever = FakeRetriever([make_hit("1"), make_hit("2")])
+    args = {"query": "colistin", "k": 2}
+    result = await LiteratureTools(retriever).call("search_literature", args)
+    assert drop_seen_abstracts(result, {"9"}) is result  # nada repetido: no se toca
+    error = ToolResult("ERROR: boom", is_error=True)
+    assert drop_seen_abstracts(error, {"1"}) is error
+    partial = json.loads(drop_seen_abstracts(result, {"1"}).content)
+    assert [r["pmid"] for r in partial["results"]] == ["2"]
+    assert drop_seen_abstracts(result, {"1"}).pmids == result.pmids
 
 
 def test_shrink_leaves_small_results_untouched():

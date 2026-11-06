@@ -184,7 +184,8 @@ def test_strip_tool_markup_leaves_normal_text_alone():
 
 
 async def test_limits_tool_calls_per_step():
-    calls = [("get_amr_gene", {"name": "blaKPC-2"})] * 3
+    # Argumentos distintos: tres llamadas iguales serían "repetidas", que se prueba aparte.
+    calls = [("get_amr_gene", {"name": n}) for n in ("blaKPC-2", "blaKPC-3", "mcr-1.1")]
     llm = ScriptedLLM(tool_turn(*calls), text_turn("ok"))
     async with toolset() as tools:
         result = await Agent(llm, tools, max_calls_per_step=2).run("KPC?")
@@ -196,3 +197,34 @@ async def test_empty_final_text_becomes_the_abstention_message():
     async with toolset() as tools:
         result = await Agent(llm, tools).run("?")
     assert result.answer == NO_EVIDENCE
+
+
+async def test_an_identical_call_is_not_run_again():
+    lit = ("search_literature", {"query": "colistin poultry", "k": 2})
+    llm = ScriptedLLM(tool_turn(lit), tool_turn(lit), text_turn("ok"))
+    hits = [make_hit("1"), make_hit("2")]
+    retriever = FakeRetriever(hits)
+    tools = Toolset([LiteratureTools(retriever)])
+    result = await Agent(llm, tools).run("?")
+    assert len(retriever.calls) == 1  # la segunda no llega a buscar
+    assert [s.is_error for s in result.steps] == [False, True]
+    repeated = llm.calls[2]["messages"][-1]["content"]
+    assert repeated.startswith("ERROR: you already called search_literature")
+    assert "step 1" in repeated
+
+
+async def test_rephrased_searches_only_show_new_abstracts():
+    # La misma búsqueda reformulada: el buscador devuelve casi lo mismo cada vez.
+    llm = ScriptedLLM(tool_turn(("search_literature", {"query": "AI-2 pathway", "k": 2})),
+                      tool_turn(("search_literature", {"query": "Lsr AI-2 pathway", "k": 3})),
+                      tool_turn(("search_literature", {"query": "AI-2 Lsr", "k": 3})),
+                      text_turn("Answer [PMID:3]."))
+    tools = Toolset([LiteratureTools(FakeRetriever([make_hit(p) for p in "123"]))])
+    result = await Agent(llm, tools, max_steps=5).run("?")
+    second = json.loads(llm.calls[2]["messages"][-1]["content"])
+    assert [r["pmid"] for r in second["results"]] == ["3"]
+    assert second["note"] == "Already shown above, so omitted here: PMIDs 1, 2."
+    third = json.loads(llm.calls[3]["messages"][-1]["content"])
+    assert third["results"] == [] and third["note"].startswith("No new abstracts")
+    assert result.citations[0].pmid == "3" and not result.invalid_citations
+    assert [s.pmids for s in result.steps][-1] == ["1", "2", "3"]  # siguen siendo citables

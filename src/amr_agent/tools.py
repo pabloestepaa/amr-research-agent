@@ -10,7 +10,7 @@ import os
 import re
 import sys
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any, Protocol
 
 from mcp import Client
@@ -211,6 +211,33 @@ class LiteratureTools:
         content, truncated = shrink({"results": results})
         return ToolResult(content=content, pmids=frozenset(h.pmid for h in hits),
                           truncated=truncated)
+
+
+def drop_seen_abstracts(result: ToolResult, seen: set[str]) -> ToolResult:
+    """Quita de un resultado de `search_literature` los abstracts ya mostrados en esta pregunta.
+
+    En la primera eval completa, el agente reformulaba la misma búsqueda hasta 4 veces y casi
+    siempre recibía los mismos abstracts (en lit-01, la 4.ª búsqueda no trajo ninguno nuevo):
+    ~5.000 caracteres repetidos por vuelta y ninguna señal de que no avanzaba. Ahora solo ve los
+    nuevos, y una nota que le dice cuándo dejar de buscar. Los PMIDs siguen contando como citas
+    válidas: ya los vio antes.
+    """
+    if result.is_error or not (result.pmids & seen):
+        return result
+    try:
+        data = json.loads(result.content)
+    except ValueError:
+        return result
+    rows = data.get("results") or []
+    fresh = [r for r in rows if r.get("pmid") not in seen]
+    repeated = ", ".join(sorted(r["pmid"] for r in rows if r.get("pmid") in seen))
+    if fresh:
+        note = f"Already shown above, so omitted here: PMIDs {repeated}."
+    else:
+        note = (f"No new abstracts: every result (PMIDs {repeated}) was already shown above. "
+                "Rephrasing the query is not finding new evidence: answer with what you have, "
+                "or use another tool.")
+    return replace(result, content=_dumps({"results": fresh, "note": note}))
 
 
 # --- Herramientas remotas: el servidor MCP amr-mcp ------------------------------------------

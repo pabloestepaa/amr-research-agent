@@ -18,7 +18,7 @@ from pydantic import BaseModel
 
 from amr_agent.llm import ChatLLM, ChatTurn, ToolCall
 from amr_agent.rag import NO_EVIDENCE, extract_citations, normalize_citations
-from amr_agent.tools import ToolBox, ToolResult
+from amr_agent.tools import SEARCH_LITERATURE, ToolBox, ToolResult, drop_seen_abstracts
 
 ROLE = "You are a research assistant specialised in antimicrobial resistance (AMR)."
 
@@ -33,7 +33,8 @@ Answer the user's question with the tools below. Do not answer from memory.
 
 Tools:
 - search_literature: findings from recent PubMed abstracts (mechanisms, epidemiology, clinical
-  evidence). Query it in English, whatever the language of the question.
+  evidence). Query it in English, whatever the language of the question. It only lists abstracts
+  you have not seen yet: when a search finds nothing new, stop searching.
 - search_amr_genes / get_amr_gene: what a gene is, from the NCBI Reference Gene Catalog (drug
   class, gene family, alleles, RefSeq protein accession).
 - get_protein_hosts: species in which a protein has been sequenced. It needs the RefSeq protein
@@ -68,6 +69,20 @@ def strip_tool_markup(text: str) -> str:
     # Quitar la llamada deja huecos: "carbapenemase  [PMID:1]" o "resistance ."
     cleaned = re.sub(r"[ \t]{2,}", " ", cleaned)
     return re.sub(r"[ \t]+([.,;:)])", r"\1", cleaned)
+
+
+def call_key(call: ToolCall) -> str | None:
+    # sort_keys: {"a":1,"b":2} y {"b":2,"a":1} son la misma llamada.
+    if call.arguments is None:
+        return None
+    return f"{call.name} {json.dumps(call.arguments, sort_keys=True, ensure_ascii=False)}"
+
+
+async def _repeated(call: ToolCall, step: int) -> ToolResult:
+    # No se vuelve a ejecutar: costaría tiempo (NCBI) y tokens para obtener lo mismo.
+    return ToolResult(f"ERROR: you already called {call.name} with these arguments in step "
+                      f"{step}; its result is above. Use it, or try different arguments or "
+                      "another tool.", is_error=True)
 
 
 StopReason = Literal["answer", "max_steps", "token_budget"]
@@ -130,6 +145,8 @@ class Agent:
         ]
         steps: list[ToolStep] = []
         evidence: list[tuple[ToolCall, ToolResult]] = []  # para la vuelta final
+        called: dict[str, int] = {}  # llamada (herramienta + argumentos) -> paso en que se hizo
+        shown_abstracts: set[str] = set()  # PMIDs que search_literature ya mostró
         seen_pmids: set[str] = set()
         turns: list[ChatTurn] = []
         llm_ms = tools_ms = 0.0
@@ -151,11 +168,23 @@ class Agent:
 
             messages.append(turn.as_message())
             t_tools = time.perf_counter()
+            pending = []
+            for i, call in enumerate(turn.tool_calls):
+                key = call_key(call)
+                if key is not None and key in called:  # misma herramienta, mismos argumentos
+                    pending.append(_repeated(call, called[key]))
+                else:
+                    if key is not None:
+                        called[key] = step
+                    pending.append(self._call(call, i))
             # Si pide varias herramientas a la vez, son independientes: en paralelo.
-            results = await asyncio.gather(*(self._call(c, i) for i, c in
-                                             enumerate(turn.tool_calls)))
+            results = await asyncio.gather(*pending)
             tools_ms += (time.perf_counter() - t_tools) * 1000
             for call, result in zip(turn.tool_calls, results, strict=True):
+                if call.name == SEARCH_LITERATURE.name:
+                    pmids = result.pmids
+                    result = drop_seen_abstracts(result, shown_abstracts)
+                    shown_abstracts.update(pmids)
                 # La API exige un mensaje `tool` por cada llamada, también las fallidas.
                 messages.append({"role": "tool", "tool_call_id": call.id,
                                  "content": result.content})

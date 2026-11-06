@@ -278,3 +278,23 @@ the literature instead of the catalog and `get_protein_hosts`. The system prompt
 `get_protein_hosts`, not only what it does.
 **Lesson.** Before tuning the agent on a failing task, read the failure. One of the three was a
 bug in the evaluator.
+
+## 30. No repeated tool calls, no re-read abstracts, no silently ignored arguments (2026-11-06)
+**Context.** In the first full agent eval, 5 of 22 tasks hit the step limit. The agent rarely
+repeated a call word for word: it rephrased the same literature search up to four times, and the
+retriever returned mostly the same abstracts (`lit-01`: 5, then 3, 2 and 0 new ones). Each
+rephrasing re-sent ~5,000 characters the model had already read and gave it no sign that it was
+going in circles. Separately, the model invented arguments in 3 tasks (`name`, `gene_family`,
+`gene_class` on `search_amr_genes`), which the MCP SDK drops silently: `gene_family: "blaNDM"`
+returned 10,261 unrelated entries.
+**Decision.**
+- A call identical to an earlier one in the same question (same tool, same arguments) is not
+  run again; the model gets an error pointing to the step where its result already is.
+- `search_literature` results only list abstracts not yet shown in this question, with a note
+  naming the omitted PMIDs; when nothing is new, the note tells the model to stop searching.
+  Novelty is measured on the results, not on how similar the queries look: two different
+  queries can return the same abstracts, and two similar ones can find new evidence.
+- `amr-mcp` 0.1.4 rejects undeclared arguments with an error that lists the valid ones (an
+  undeclared argument set to `null` is dropped: it means "no filter"). This is a runtime check,
+  not `additionalProperties: false` in the schema, for the same reason as decision 29: Groq would
+  turn a schema violation into a 400 for the whole request.
