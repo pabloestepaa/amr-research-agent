@@ -13,6 +13,13 @@ and retrieval, answers and agent trajectories are all measured by evals.
 [`/docs`](https://amr-research-agent.onrender.com/docs)
 <sub>Free tier: after 15 minutes idle, the first request takes 30–60 s while the server wakes up.</sub>
 
+<p align="center">
+  <a href="https://amr-research-agent.onrender.com">
+    <img src="docs/img/demo-agent.png" width="720"
+      alt="Agent mode of the demo: the answer about mcr-1 with PMID citations, and the three tool calls it made (search_amr_genes, get_protein_hosts, search_literature)">
+  </a>
+</p>
+
 - **Hybrid retrieval** (Postgres full-text + pgvector, fused with Reciprocal Rank Fusion):
   recall@10 of **0.97** on a 36-question golden set, against 0.86 for vector search alone.
 - **Agent with a hand-written tool-calling loop** (no framework): it chains catalog lookups, NCBI
@@ -54,6 +61,12 @@ An example from the agent evals (task `multi-01`), which needs two different sou
 
 The demo page at `/` lets you switch between the two modes and shows the agent's trajectory step
 by step.
+
+<details>
+<summary>Screenshot of the RAG mode</summary>
+<p align="center"><img src="docs/img/demo-ask.png" width="720"
+  alt="RAG mode of the demo: an answer about how blaNDM-1 spreads, citing four PMIDs, above the five retrieved abstracts with the cited ones marked"></p>
+</details>
 
 ## Architecture
 
