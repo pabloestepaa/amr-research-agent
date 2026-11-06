@@ -6,6 +6,7 @@ con el catálogo de ejemplo. Lo único falso es el modelo, que sigue un guion.
 
 import json
 from contextlib import asynccontextmanager
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -13,7 +14,7 @@ from amr_mcp import server as amr_server
 from amr_mcp.catalog import Catalog
 from mcp import Client
 
-from amr_agent.agent import FINAL_NUDGE, Agent
+from amr_agent.agent import FINAL_NUDGE, FINAL_SYSTEM_PROMPT, Agent, strip_tool_markup
 from amr_agent.rag import NO_EVIDENCE
 from amr_agent.tools import MCP_TOOLS, LiteratureTools, McpTools, ToolResult, Toolset, ToolSpec
 from tests.fakes import FakeRetriever, ScriptedLLM, make_hit, text_turn, tool_turn
@@ -128,14 +129,21 @@ async def test_tool_errors_reach_the_model_and_the_trajectory():
 
 
 async def test_forces_a_final_answer_at_the_step_limit():
-    # Un modelo que seguiría pidiendo herramientas: con max_steps=3, la 3.ª llamada ya no las
-    # permite (tool_choice="none") y lleva la instrucción de responder.
+    # Un modelo que seguiría pidiendo herramientas: con max_steps=3, la 3.ª llamada es una
+    # conversación nueva SIN herramientas, con la pregunta y los resultados como texto. Con
+    # tool_choice="none" y el historial, gpt-oss seguía intentando llamarlas (Groq daba 400).
     kpc = tool_turn(("get_amr_gene", {"name": "blaKPC-2"}))
     llm = ScriptedLLM(kpc, kpc, text_turn("Final answer."))
     async with toolset() as tools:
         result = await Agent(llm, tools, max_steps=3).run("KPC?")
-    assert [c["tool_choice"] for c in llm.calls] == ["auto", "auto", "none"]
-    assert llm.calls[-1]["messages"][-1] == {"role": "user", "content": FINAL_NUDGE}
+    assert [bool(c["tools"]) for c in llm.calls] == [True, True, False]
+    final = llm.calls[-1]["messages"]
+    assert [m["role"] for m in final] == ["system", "user"]  # ni llamadas ni mensajes `tool`
+    assert final[0]["content"] == FINAL_SYSTEM_PROMPT
+    user = final[1]["content"]
+    assert user.startswith("Question: KPC?") and user.endswith(FINAL_NUDGE)
+    assert '[1] get_amr_gene {"name": "blaKPC-2"}' in user and "[2] get_amr_gene" in user
+    assert "blaKPC-2" in user.split("[1] get_amr_gene", 1)[1]  # el resultado, no solo la llamada
     assert result.stop_reason == "max_steps"
     assert result.answer == "Final answer."
     assert len(result.steps) == 2
@@ -146,8 +154,33 @@ async def test_stops_calling_tools_when_the_token_budget_is_spent():
                       text_turn("Short answer."))
     async with toolset() as tools:
         result = await Agent(llm, tools, token_budget=4000).run("KPC?")
-    assert [c["tool_choice"] for c in llm.calls] == ["auto", "none"]
+    assert [bool(c["tools"]) for c in llm.calls] == [True, False]
     assert result.stop_reason == "token_budget"
+
+
+async def test_final_answer_ignores_tool_calls_and_strips_leaked_tool_markup():
+    # Lo visto con gpt-oss en la vuelta final: una llamada escrita dentro del texto.
+    leaked = ("NDM-1 is a carbapenemase "
+              '【to=functions.search_amr_genes <|constrain|>json {"query":"blaNDM-1"}】 '
+              "[PMID:111].")
+    final = replace(tool_turn(("get_amr_gene", {"name": "x"})), text=leaked)
+    kpc = tool_turn(("get_amr_gene", {"name": "blaKPC-2"}))
+    llm = ScriptedLLM(kpc, final)
+    async with toolset() as tools:
+        result = await Agent(llm, tools, max_steps=2).run("NDM?")
+    assert len(llm.calls) == 2  # no ejecuta lo que pida en la vuelta final
+    assert result.answer == "NDM-1 is a carbapenemase [PMID:111]."
+
+
+def test_strip_tool_markup_removes_tool_names_used_as_citations():
+    # host-02: "...Salmonella enterica.【get_amr_gene】【get_protein_hosts】"
+    text = "E. coli 82 % [PMID:1]【get_amr_gene】【get_protein_hosts】 and more【PMID:2】."
+    assert strip_tool_markup(text) == "E. coli 82 % [PMID:1] and more【PMID:2】."
+
+
+def test_strip_tool_markup_leaves_normal_text_alone():
+    text = "Resistance to colistin [PMID:1]; see <b>table</b> (2024) ."
+    assert strip_tool_markup(text) == text
 
 
 async def test_limits_tool_calls_per_step():

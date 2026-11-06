@@ -210,8 +210,9 @@ embedding model (decision 4). Two Spanish tasks in the agent evals check it.
 
 ## 24. Limits that end in an answer, not an error (2026-11-05)
 **Decision.** At most 5 steps, a 12,000-token budget per question and 4 tool calls per step. When a
-limit is reached, the agent makes one last call with `tool_choice="none"` and an instruction to
-answer with what it has; `stop_reason` records why it stopped. `/agent` has its own, stricter
+limit is reached, the agent makes one last call without tools and an instruction to answer with
+what it has (first done with `tool_choice="none"`, which `gpt-oss` ignored: see decision 28);
+`stop_reason` records why it stopped. `/agent` has its own, stricter
 quota: 2 questions per minute per IP and 15 per day, since each one costs 3–4 times an `/ask`.
 
 ## 25. gpt-oss-120b for the agent, not gpt-oss-20b (2026-11-05)
@@ -244,3 +245,36 @@ outage or a catalog update cannot change the result; only successful responses a
 **Cost.** About 130,000 tokens per full run, most of Groq's daily budget, so it runs by hand
 (`amr-eval-agent`, `agent-evals.yml`) and supports `--only` and `--resume`. The agent loop itself
 is tested on every push with a scripted LLM against the real tools (`amr-mcp` in-process).
+
+## 28. The forced final answer is a fresh conversation without tools (2026-11-06)
+**Context.** The first full run of the trajectory evals crashed on task 6. At the step limit the
+agent re-sent the whole conversation with `tool_choice="none"` and a "now answer" message, but
+`gpt-oss-120b`, still seeing the tool schemas and its own tool calls, kept trying to call a tool.
+Sometimes Groq rejected the request (`400 Tool choice is none, but model called a tool`); other
+times the call leaked into the answer as text (`【to=functions.search_amr_genes ...】`) and the
+citations came out as `(PMID x)`, which the citation check does not recognise.
+**Decision.** The last turn is a new two-message conversation with no tools at all: a system
+prompt with the same rules and a user message holding the question and every tool result as plain
+text. A model with no tools in sight has nothing to call. Any leaked tool-call markup is still
+stripped from the answer as a safety net. The eval runner now records a crashed task as a failure
+(with the error, counted in `agent_errors`) and moves on, instead of losing the whole run; a
+`--resume` retries those tasks.
+**Why it matters.** Unit tests with a scripted LLM could not have caught this: it is a behaviour
+of one model behind one provider, and only running the real agent over many tasks exposed it.
+
+## 29. Validate tool arguments on our side, compare facts without typography (2026-11-06)
+**Context.** The first full agent eval scored 19/22, and two of the three failures were not the
+agent's fault. In `lit-02` the model asked `search_literature` for `k=10`; the schema said
+`maximum: 6`, so Groq rejected the whole request with a 400 before our code saw it, and `/agent`
+would have answered 502. In `host-02` the answer was right, but `gpt-oss` writes "Escherichia coli"
+with a narrow no-break space (U+202F), so a plain substring check did not find it.
+**Decision.** Numeric bounds (`minimum`, `maximum`...) are moved from the JSON Schema sent to the
+model into each argument's description (`ToolSpec.to_openai`). The model still sees the range,
+but an out-of-range value now reaches us: `search_literature` clamps `k`, and `amr-mcp` returns a
+tool error the model can read and correct, which is recoverable, unlike a 400. The trajectory
+scorer compares facts after Unicode normalisation (NFKC, unified hyphens, collapsed spaces).
+The third failure, `host-03`, was a real one: asked which species carry blaNDM-1, the model searched
+the literature instead of the catalog and `get_protein_hosts`. The system prompt now says when to use
+`get_protein_hosts`, not only what it does.
+**Lesson.** Before tuning the agent on a failing task, read the failure. One of the three was a
+bug in the evaluator.

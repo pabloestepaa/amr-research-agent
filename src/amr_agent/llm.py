@@ -151,13 +151,11 @@ class OpenAICompatibleLLM:
 
     async def chat(self, messages: list[dict[str, Any]], tools: list[dict[str, Any]],
                    *, tool_choice: ToolChoice = "auto") -> ChatTurn:
-        # tool_choice="none" sigue enviando los esquemas (el historial contiene llamadas a esas
-        # herramientas) pero prohíbe usarlas: el agente lo usa para forzar la respuesta final.
+        # Sin herramientas no enviamos `tools` ni `tool_choice`: es una conversación normal. Así
+        # pide el agente la respuesta final (ver `Agent._final_messages`).
         start = time.perf_counter()
-        resp = await self._create(
-            model=self.model, temperature=0.0, messages=messages, tools=tools,
-            tool_choice=tool_choice,
-        )
+        extra = {"tools": tools, "tool_choice": tool_choice} if tools else {}
+        resp = await self._create(model=self.model, temperature=0.0, messages=messages, **extra)
         msg = resp.choices[0].message
         usage = resp.usage
         return ChatTurn(

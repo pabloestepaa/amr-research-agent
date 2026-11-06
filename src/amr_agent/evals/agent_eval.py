@@ -20,6 +20,9 @@ la eval no dependa de que NCBI esté disponible ni de la versión del catálogo.
 import argparse
 import asyncio
 import json
+import re
+import time
+import unicodedata
 from itertools import chain
 
 from amr_agent.agent import AgentAnswer
@@ -34,16 +37,31 @@ from amr_agent.evals.dataset import (
 )
 from amr_agent.evals.metrics import mean
 
+HYPHENS_RE = re.compile(r"[‐-―−]")
+
+
+def normalize_text(text: str) -> str:
+    """Para comparar hechos sin que la tipografía cuente.
+
+    gpt-oss separa "Escherichia coli" con un espacio fino (U+202F) y escribe "blaNDM-1" con un
+    guion no separable (U+2011):
+    la respuesta es correcta pero "escherichia coli" no aparecía en ella (falso negativo en
+    host-02). NFKC convierte los espacios especiales en espacios normales; los guiones los
+    unificamos a mano porque NFKC no los toca.
+    """
+    text = HYPHENS_RE.sub("-", unicodedata.normalize("NFKC", text))
+    return re.sub(r"\s+", " ", text).lower()
+
 
 def _alternatives(text: str) -> list[str]:
-    return [a.strip().lower() for a in text.split("|") if a.strip()]
+    return [normalize_text(a.strip()) for a in text.split("|") if a.strip()]
 
 
 def score_task(task: AgentTask, result: AgentAnswer) -> dict:
     """Compara la trayectoria y la respuesta con lo esperado. Sin red ni LLM: se puede testear."""
     steps = result.steps
     called = {s.tool for s in steps}
-    answer = result.answer.lower()
+    answer = normalize_text(result.answer)
 
     tools_hit = [bool(called & set(g.split("|"))) for g in task.expect_tools]
 
@@ -99,18 +117,38 @@ def score_task(task: AgentTask, result: AgentAnswer) -> dict:
     }
 
 
+def failed_row(task: AgentTask, exc: Exception, latency_ms: float) -> dict:
+    """Una tarea en la que el agente lanzó una excepción (p. ej. un 400 del proveedor).
+
+    Cuenta como fallo: en la API sería un 502 para el usuario. Las comprobaciones quedan en None
+    (no se pudieron hacer) y el coste en 0, porque no lo conocemos; `summarize` las excluye de
+    las medias de coste y latencia.
+    """
+    return {
+        "id": task.id, "category": task.category, "question": task.question,
+        "answer": "", "success": False, "error": f"{type(exc).__name__}: {exc}"[:500],
+        "tools_ok": None, "tool_recall": None, "args_ok": None, "answer_ok": None,
+        "literature_hit": None, "abstained": None, "should_abstain": task.should_abstain,
+        "citations_valid": None, "invalid_citations": [], "trajectory": [],
+        "n_tool_calls": 0, "extra_calls": 0, "error_calls": 0, "llm_calls": 0, "tokens": 0,
+        "stop_reason": "error", "latency_ms": round(latency_ms, 1),
+    }
+
+
 def summarize(rows: list[dict]) -> dict:
     def rate(key: str, subset: list[dict] | None = None) -> float | None:
         values = [r[key] for r in (rows if subset is None else subset) if r[key] is not None]
         return round(sum(1 for v in values if v) / len(values), 4) if values else None
 
+    ran = [r for r in rows if not r.get("error")]  # las que terminaron: coste y latencia
+
     def avg(key: str) -> float | None:
-        return round(mean([float(r[key]) for r in rows]), 2) if rows else None
+        return round(mean([float(r[key]) for r in ran]), 2) if ran else None
 
     in_scope = [r for r in rows if not r["should_abstain"]]
     out_scope = [r for r in rows if r["should_abstain"]]
-    total_calls = sum(r["n_tool_calls"] for r in rows)
-    latencies = sorted(r["latency_ms"] for r in rows)
+    total_calls = sum(r["n_tool_calls"] for r in ran)
+    latencies = sorted(r["latency_ms"] for r in ran)
     categories = sorted({r["category"] for r in rows})
     return {
         "task_success": rate("success"),
@@ -121,9 +159,10 @@ def summarize(rows: list[dict]) -> dict:
         "abstention_accuracy": rate("abstained", out_scope),
         "false_abstention_rate": rate("abstained", in_scope),
         "citation_validity": rate("citations_valid"),
+        "agent_errors": len(rows) - len(ran),
         "mean_tool_calls": avg("n_tool_calls"),
         "mean_extra_calls": avg("extra_calls"),
-        "error_call_rate": (round(sum(r["error_calls"] for r in rows) / total_calls, 4)
+        "error_call_rate": (round(sum(r["error_calls"] for r in ran) / total_calls, 4)
                             if total_calls else None),
         "early_stop_rate": (round(sum(1 for r in rows if r["stop_reason"] != "answer")
                                   / len(rows), 4) if rows else None),
@@ -158,7 +197,8 @@ async def run(database_url: str, tasks: list[AgentTask], cassette_mode: str,
     llm = OpenAICompatibleLLM(s.llm_base_url, s.llm_api_key, s.llm_model, 60, max_retries=10)
     pool = make_pool(database_url, max_size=2)
     await pool.open()
-    rows = list(done or [])
+    # Al reanudar, las tareas que acabaron en error se repiten (el error pudo ser pasajero).
+    rows = [r for r in done or [] if not r.get("error")]
     finished = {r["id"] for r in rows}
     complete = True
     cassette = None
@@ -174,6 +214,7 @@ async def run(database_url: str, tasks: list[AgentTask], cassette_mode: str,
                     continue
                 # Capturamos aquí dentro: fuera del `async with` la excepción saldría envuelta
                 # en un ExceptionGroup de anyio y `except openai.RateLimitError` no la vería.
+                t0 = time.perf_counter()
                 try:
                     result = await agent.run(task.question)
                 except openai.RateLimitError as exc:
@@ -182,6 +223,11 @@ async def run(database_url: str, tasks: list[AgentTask], cassette_mode: str,
                     print(f"Daily token limit reached at {task.id}; saving partial results")
                     complete = False
                     break
+                except Exception as exc:  # noqa: BLE001 - un fallo del agente es un resultado
+                    row = failed_row(task, exc, (time.perf_counter() - t0) * 1000)
+                    rows.append(row)
+                    print(f"[{n}/{len(tasks)}] {task.id} ERROR {row['error']}", flush=True)
+                    continue
                 row = score_task(task, result)
                 rows.append(row)
                 print(f"[{n}/{len(tasks)}] {task.id} success={row['success']} "

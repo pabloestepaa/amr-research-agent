@@ -5,7 +5,7 @@ import json
 import pytest
 
 from amr_agent.agent import AgentAnswer, AgentUsage, ToolStep
-from amr_agent.evals.agent_eval import score_task, summarize
+from amr_agent.evals.agent_eval import failed_row, normalize_text, score_task, summarize
 from amr_agent.evals.cassette import CassetteTools, cassette_key
 from amr_agent.evals.dataset import AgentTask, load_agent_golden
 from amr_agent.evals.report import agent_table
@@ -116,6 +116,34 @@ def test_summarize_rates_and_categories():
     table = agent_table(report)
     assert "| Task success (every check below passed) | 0.67 |" in table
     assert "- `host-01`: 1:get_amr_gene" in table  # la tarea fallida, con su trayectoria
+
+
+def test_typography_does_not_hide_a_correct_fact():
+    # host-02: la respuesta era correcta, pero gpt-oss separó "Escherichia coli" con un espacio
+    # fino (U+202F) y la comparación no lo encontraba.
+    text = "The top host is **Escherichia\u202fcoli** (82\u202f%), via bla\u2011KPC\u20112."
+    task = HOST_TASK.model_copy(update={"answer_contains": ["Escherichia coli", "blaKPC-2|KPC-2"]})
+    row = score_task(task, answer(text, GOOD_HOST_STEPS))
+    assert row["answer_ok"] is True
+    assert normalize_text("A\u00a0B\u2212C  D") == "a b-c d"
+
+
+def test_a_crashed_task_counts_as_failed_but_not_in_the_cost_averages():
+    # Un 400 del proveedor en una tarea no debe tumbar la ejecución ni perder las demás.
+    ok = score_task(HOST_TASK, answer("K. pneumoniae", GOOD_HOST_STEPS))
+    crashed = failed_row(HOST_TASK, ValueError("Tool choice is none, but model called a tool"),
+                         latency_ms=50_000)
+    s = summarize([ok, crashed])
+    assert s["task_success"] == 0.5
+    assert s["agent_errors"] == 1
+    assert s["tool_selection"] == 1.0  # la que no terminó no se pudo comprobar
+    assert s["mean_tokens"] == ok["tokens"] and s["latency_ms_p50"] == ok["latency_ms"]
+    assert s["early_stop_rate"] == 0.5
+
+    report = {"model": "m", "n_tasks": 2, "max_steps": 5, "token_budget": 12000,
+              "cassette_mode": "replay", "cassette_hits": 0, "cassette_misses": 0,
+              "summary": s, "per_task": [ok, crashed]}
+    assert "- `host-01`: error: ValueError: Tool choice is none" in agent_table(report)
 
 
 # --- grabación de respuestas -----------------------------------------------------------------

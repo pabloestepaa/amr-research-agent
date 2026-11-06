@@ -48,7 +48,34 @@ class ToolSpec:
     def to_openai(self) -> dict[str, Any]:
         """Formato `tools` de la API de OpenAI (y de Groq, que la imita)."""
         return {"type": "function", "function": {
-            "name": self.name, "description": self.description, "parameters": self.parameters}}
+            "name": self.name, "description": self.description,
+            "parameters": bounds_to_description(self.parameters)}}
+
+
+BOUNDS = ("minimum", "maximum", "exclusiveMinimum", "exclusiveMaximum")
+
+
+def bounds_to_description(schema: dict[str, Any]) -> dict[str, Any]:
+    """Pasa los límites numéricos de cada argumento del esquema a su descripción.
+
+    Groq valida los argumentos contra el esquema y, si el modelo se sale (pidió k=10 con un
+    máximo de 6 en la eval lit-02), devuelve un 400 que tumba la petición entera. Sin los
+    límites en el esquema, el valor llega a nuestro lado: `search_literature` lo recorta y
+    amr-mcp devuelve un error que el modelo lee y puede corregir. El modelo sigue viendo el
+    rango, ahora en la descripción.
+    """
+    props = schema.get("properties")
+    if not props:
+        return schema
+    relaxed = {}
+    for name, prop in props.items():
+        limits = {k: prop[k] for k in BOUNDS if k in prop}
+        if limits:
+            prop = {k: v for k, v in prop.items() if k not in BOUNDS}
+            rng = ", ".join(f"{k} {v}" for k, v in limits.items())
+            prop["description"] = f"{prop.get('description', '')} ({rng})".strip()
+        relaxed[name] = prop
+    return {**schema, "properties": relaxed}
 
 
 @dataclass(frozen=True)

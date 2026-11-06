@@ -4,6 +4,7 @@ El SDK de OpenAI 3.x usa httpx2 (no httpx), así que respx no lo intercepta: le 
 httpx2 con un MockTransport que devuelve las respuestas que queremos, en orden.
 """
 
+import json
 import time
 
 import httpx2 as httpx
@@ -77,6 +78,17 @@ async def test_client_errors_are_not_retried():
     with pytest.raises(openai.BadRequestError):
         await server.llm().complete("sys", "user")
     assert server.call_count == 1
+
+
+async def test_chat_without_tools_sends_neither_tools_nor_tool_choice():
+    # Así pide el agente la respuesta final: una conversación normal, sin herramientas.
+    bodies = []
+    server = Server(ok("answer"))
+    handle = server.handle
+    server.handle = lambda request: (bodies.append(json.loads(request.content)), handle(request))[1]
+    turn = await server.llm().chat([{"role": "user", "content": "q"}], [], tool_choice="none")
+    assert turn.text == "answer"
+    assert "tools" not in bodies[0] and "tool_choice" not in bodies[0]
 
 
 async def test_chat_parses_tool_calls_and_keeps_raw_arguments():

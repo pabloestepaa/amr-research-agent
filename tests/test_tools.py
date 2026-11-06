@@ -15,12 +15,14 @@ from mcp import Client
 
 from amr_agent.tools import (
     MCP_TOOLS,
+    SEARCH_LITERATURE,
     LiteratureTools,
     McpTools,
     ToolResult,
     Toolset,
     ToolSpec,
     amr_mcp_server,
+    bounds_to_description,
     drop_keys,
     find_pmids,
     shrink,
@@ -44,6 +46,27 @@ async def amr_tools():
 
 
 # --- Utilidades ------------------------------------------------------------------------------
+
+def test_numeric_bounds_go_to_the_description_not_the_schema():
+    # Groq valida el esquema y responde 400 si el modelo se sale del rango (k=10 en lit-02):
+    # el rango pasa a la descripción y la validación queda de nuestro lado.
+    sent = SEARCH_LITERATURE.to_openai()["function"]["parameters"]["properties"]["k"]
+    assert "maximum" not in sent and "minimum" not in sent
+    assert sent["description"] == "Number of abstracts to return (minimum 1, maximum 6)"
+    assert sent["type"] == "integer" and sent["default"] == 4
+    assert "maximum" in SEARCH_LITERATURE.parameters["properties"]["k"]  # el original intacto
+    schema = {"type": "object", "properties": {"q": {"type": "string"}}}
+    assert bounds_to_description(schema) == schema
+    assert bounds_to_description({"type": "object"}) == {"type": "object"}
+
+
+async def test_search_literature_clamps_k_instead_of_failing():
+    retriever = FakeRetriever([make_hit(str(i)) for i in range(10)])
+    result = await LiteratureTools(retriever).call("search_literature",
+                                                   {"query": "colistin", "k": 10})
+    assert not result.is_error
+    assert retriever.calls[-1][1] == 6
+
 
 def test_shrink_leaves_small_results_untouched():
     text, truncated = shrink({"a": [1, 2, 3]}, max_chars=100)
