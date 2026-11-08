@@ -304,3 +304,31 @@ returned 10,261 unrelated entries.
   undeclared argument set to `null` is dropped: it means "no filter"). This is a runtime check,
   not `additionalProperties: false` in the schema, for the same reason as decision 29: Groq would
   turn a schema violation into a 400 for the whole request.
+
+## 31. Route by question type in the prompt, cap literature searches at two (2026-11-08)
+**Context.** The second full agent eval scored 17/22. The fixes of decision 29 worked, but five
+other tasks failed on the model's side: twice it answered "what drug class does gene X confer
+resistance to?" from the literature instead of the gene catalog, once it wrote the Python code it
+was asked for instead of refusing, and twice it kept searching the literature until the step
+limit. Decision 30 made rephrased searches show only new abstracts, but `gpt-oss` kept
+rephrasing anyway. Replaying the literature queries of both runs against the eval database
+showed where the relevant abstract first appeared: in the first search in 9 of 12 cases, in the
+second in 2, in the third once (a question in Spanish), and the fourth search never found it.
+In `lit-02` the agent found the right abstract in its first search, spent two more searches on
+another compound, and in the final turn said it had no evidence.
+**Decision.**
+- The system prompt says which tool fits each kind of question: gene identity and drug class go
+  to the catalog, species to `get_protein_hosts`, findings of studies to `search_literature`.
+- The rules say the agent only answers AMR research questions and refuses anything else (code,
+  general knowledge) without calling tools. The final turn shares these rules.
+- At most two `search_literature` calls per question, enforced in the loop: a third one gets an
+  error asking the model to answer with what it has. A repeated identical call does not count,
+  since it is not run. The limit is also in the prompt, but the prompt alone did not stop the
+  model in decision 30.
+**Trade-off.** Two searches cover 11 of the 12 hits observed; the Spanish question that needed a
+third search may now miss its abstract. The limit is a constructor argument
+(`max_literature_searches`) if a deployment wants more.
+**Result.** Re-running only the five failed tasks: 4 of 5 pass, none reaches the step limit, and
+`lit-02` answers correctly after its third search is blocked. `multi-01` still fails: its query
+adds "2023 2024", which pushes the relevant abstract out of the top 5. A full re-run is needed to
+check that the other 17 tasks did not get worse.

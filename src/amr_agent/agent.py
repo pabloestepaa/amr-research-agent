@@ -29,6 +29,9 @@ from amr_agent.tools import (
 ROLE = "You are a research assistant specialised in antimicrobial resistance (AMR)."
 
 RULES = f"""Rules:
+- You only answer questions about antimicrobial resistance research. For anything else (writing
+  code, general knowledge, news, weather...) do not call any tool and reply exactly:
+  "{NO_EVIDENCE}"
 - Cite claims from articles as [PMID:12345678], only with PMIDs returned by the tools.
 - Attribute database facts in the text, e.g. "according to the NCBI Reference Gene Catalog".
 - If the tools return nothing relevant, reply exactly: "{NO_EVIDENCE}"
@@ -37,10 +40,18 @@ RULES = f"""Rules:
 SYSTEM_PROMPT = f"""{ROLE}
 Answer the user's question with the tools below. Do not answer from memory.
 
+Which tool:
+- What a gene is, its drug class or the antibiotics it confers resistance to: the gene catalog
+  (get_amr_gene, or search_amr_genes), not the literature.
+- Which species carry a gene: get_amr_gene, then get_protein_hosts.
+- Findings of studies (mechanisms, prevalence, treatments, experiments): search_literature.
+
 Tools:
 - search_literature: findings from recent PubMed abstracts (mechanisms, epidemiology, clinical
-  evidence). Query it in English, whatever the language of the question. It only lists abstracts
-  you have not seen yet: when a search finds nothing new, stop searching.
+  evidence). Query it in English, whatever the language of the question. At most
+  {{max_searches}} searches per question, and one is usually enough: search again only if the
+  results do not answer the question, with different terms. It only lists abstracts you have
+  not seen yet.
 - search_amr_genes / get_amr_gene: what a gene is, from the NCBI Reference Gene Catalog (drug
   class, gene family, alleles, RefSeq protein accession).
 - get_protein_hosts: species in which a protein has been sequenced. It needs the RefSeq protein
@@ -82,6 +93,11 @@ def call_key(call: ToolCall) -> str | None:
     if call.arguments is None:
         return None
     return f"{call.name} {json.dumps(call.arguments, sort_keys=True, ensure_ascii=False)}"
+
+
+async def _search_limit(max_searches: int) -> ToolResult:
+    return ToolResult(f"ERROR: at most {max_searches} search_literature calls per question. "
+                      "Answer with the abstracts above, or use another tool.", is_error=True)
 
 
 async def _repeated(call: ToolCall, step: int) -> ToolResult:
@@ -144,7 +160,8 @@ class AgentAnswer(BaseModel):
 
 class Agent:
     def __init__(self, llm: ChatLLM, tools: ToolBox, *, max_steps: int = 5,
-                 token_budget: int = 12_000, max_calls_per_step: int = 4) -> None:
+                 token_budget: int = 12_000, max_calls_per_step: int = 4,
+                 max_literature_searches: int = 2) -> None:
         # Dos frenos para no agotar la cuota de Groq (8.000 tokens/min) con una sola pregunta:
         # un máximo de vueltas y un presupuesto de tokens. Al llegar a cualquiera de los dos,
         # se pide la respuesta final sin herramientas en vez de cortar sin responder.
@@ -153,18 +170,24 @@ class Agent:
         self.max_steps = max_steps
         self.token_budget = token_budget
         self.max_calls_per_step = max_calls_per_step
+        # En dos ejecuciones de las evals, el abstract relevante salió en la 1.ª o 2.ª búsqueda
+        # en 11 de 12 casos; la 3.ª y la 4.ª casi nunca aportaban y llevaban al límite de pasos
+        # (decisión 31). gpt-oss no deja de buscar aunque se lo pida el prompt: lo cortamos aquí.
+        self.max_literature_searches = max_literature_searches
 
     async def run(self, question: str) -> AgentAnswer:
         t0 = time.perf_counter()
         schemas = [s.to_openai() for s in self._tools.specs()]
         messages: list[dict[str, Any]] = [
-            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "system",
+             "content": SYSTEM_PROMPT.format(max_searches=self.max_literature_searches)},
             {"role": "user", "content": question},
         ]
         steps: list[ToolStep] = []
         evidence: list[tuple[ToolCall, ToolResult]] = []  # para la vuelta final
         called: dict[str, int] = {}  # llamada (herramienta + argumentos) -> paso en que se hizo
         shown_abstracts: set[str] = set()  # PMIDs que search_literature ya mostró
+        searches = 0  # búsquedas de literatura ejecutadas (las repetidas no cuentan)
         seen_pmids: set[str] = set()
         papers: dict[str, Paper] = {}  # PMID -> título, revista y año, para las referencias
         turns: list[ChatTurn] = []
@@ -192,7 +215,12 @@ class Agent:
                 key = call_key(call)
                 if key is not None and key in called:  # misma herramienta, mismos argumentos
                     pending.append(_repeated(call, called[key]))
+                elif (call.name == SEARCH_LITERATURE.name
+                      and searches >= self.max_literature_searches):
+                    pending.append(_search_limit(self.max_literature_searches))
                 else:
+                    if call.name == SEARCH_LITERATURE.name:
+                        searches += 1
                     if key is not None:
                         called[key] = step
                     pending.append(self._call(call, i))

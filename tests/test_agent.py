@@ -235,7 +235,7 @@ async def test_rephrased_searches_only_show_new_abstracts():
                       tool_turn(("search_literature", {"query": "AI-2 Lsr", "k": 3})),
                       text_turn("Answer [PMID:3]."))
     tools = Toolset([LiteratureTools(FakeRetriever([make_hit(p) for p in "123"]))])
-    result = await Agent(llm, tools, max_steps=5).run("?")
+    result = await Agent(llm, tools, max_steps=5, max_literature_searches=3).run("?")
     second = json.loads(llm.calls[2]["messages"][-1]["content"])
     assert [r["pmid"] for r in second["results"]] == ["3"]
     assert second["note"] == "Already shown above, so omitted here: PMIDs 1, 2."
@@ -243,3 +243,38 @@ async def test_rephrased_searches_only_show_new_abstracts():
     assert third["results"] == [] and third["note"].startswith("No new abstracts")
     assert result.citations[0].pmid == "3" and not result.invalid_citations
     assert [s.pmids for s in result.steps][-1] == ["1", "2", "3"]  # siguen siendo citables
+
+
+async def test_literature_searches_are_capped_per_question():
+    # gpt-oss seguía reformulando la búsqueda hasta el límite de pasos (decisión 31).
+    llm = ScriptedLLM(tool_turn(("search_literature", {"query": "AI-2 pathway"})),
+                      tool_turn(("search_literature", {"query": "Lsr AI-2"}),
+                                ("search_literature", {"query": "Lsr system"})),
+                      text_turn("Answer [PMID:1]."))
+    retriever = FakeRetriever([make_hit("1")])
+    result = await Agent(llm, Toolset([LiteratureTools(retriever)]),
+                         max_literature_searches=2).run("?")
+    assert len(retriever.calls) == 2  # la tercera no llega al buscador
+    assert [s.is_error for s in result.steps] == [False, False, True]
+    blocked = llm.calls[2]["messages"][-1]["content"]
+    assert blocked.startswith("ERROR: at most 2 search_literature calls per question")
+    assert result.stop_reason == "answer" and result.citations[0].pmid == "1"
+
+
+async def test_a_repeated_search_does_not_use_up_the_limit():
+    lit = ("search_literature", {"query": "colistin poultry"})
+    llm = ScriptedLLM(tool_turn(lit), tool_turn(lit),
+                      tool_turn(("search_literature", {"query": "mcr-1 chickens"})),
+                      text_turn("ok"))
+    retriever = FakeRetriever([make_hit("1")])
+    await Agent(llm, Toolset([LiteratureTools(retriever)]), max_literature_searches=2).run("?")
+    assert len(retriever.calls) == 2
+
+
+async def test_the_prompt_states_the_search_limit_and_the_scope():
+    llm = ScriptedLLM(text_turn(NO_EVIDENCE))
+    await Agent(llm, Toolset([LiteratureTools(FakeRetriever([]))]),
+                max_literature_searches=3).run("Write a sorting function")
+    system = llm.calls[0]["messages"][0]["content"]
+    assert "At most\n  3 searches per question" in system
+    assert "writing\n  code" in system and "{" not in system
