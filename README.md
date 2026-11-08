@@ -139,9 +139,15 @@ but also 6 of 36 in-scope questions wrongly refused. This run predates the keywo
 below, which retrieves the relevant abstract more often; a re-run is pending.
 
 **Agent** (22 tasks over catalog, species, references, literature, multi-tool and out-of-scope
-questions): 19/22 tasks fully correct, right tools 0.94, right arguments 0.93, no hallucinated
-PMIDs, all out-of-scope questions refused, ~6,000 tokens per task. The three failures led to the
-fixes below; the run that measures them is pending.
+questions): 17/22 tasks fully correct in the latest run, right tools 0.89, right arguments 0.87,
+expected facts in every answer that should have them, no hallucinated PMIDs, no crashes, ~6,100
+tokens per task. The previous run scored 19/22; its three failures led to the fixes below, and
+those three tasks now pass. Five others failed this time, all on the model's side: twice it
+answered a catalog question from the literature instead of the gene catalog, once it wrote Python
+code for an out-of-scope request, once it retrieved the right abstract and still said it had no
+evidence, and once its search missed the relevant abstract. Groq is not deterministic even at
+temperature 0, so a 22-task run moves by a few tasks between runs. Repeated literature searches
+are the main weakness left: 5 of 22 tasks reach the step limit.
 
 ### What the evals caught
 
