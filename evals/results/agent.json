@@ -3,30 +3,30 @@
   "max_steps": 5,
   "token_budget": 12000,
   "cassette_mode": "replay",
-  "cassette_hits": 15,
-  "cassette_misses": 6,
+  "cassette_hits": 19,
+  "cassette_misses": 2,
   "complete": true,
   "n_tasks": 22,
   "summary": {
-    "task_success": 0.7727,
-    "tool_selection": 0.8947,
-    "argument_accuracy": 0.8667,
+    "task_success": 0.8636,
+    "tool_selection": 1.0,
+    "argument_accuracy": 1.0,
     "answer_accuracy": 1.0,
     "literature_hit_rate": 0.8571,
-    "abstention_accuracy": 0.6667,
-    "false_abstention_rate": 0.0526,
+    "abstention_accuracy": 1.0,
+    "false_abstention_rate": 0.1053,
     "citation_validity": 1.0,
     "agent_errors": 0,
-    "mean_tool_calls": 1.95,
-    "mean_extra_calls": 0.36,
-    "error_call_rate": 0.0,
-    "early_stop_rate": 0.2273,
-    "mean_tokens": 6087.5,
-    "latency_ms_p50": 20323.9,
+    "mean_tool_calls": 1.5,
+    "mean_extra_calls": 0.05,
+    "error_call_rate": 0.0606,
+    "early_stop_rate": 0.0,
+    "mean_tokens": 4350.73,
+    "latency_ms_p50": 18786.4,
     "by_category": {
       "catalog": {
         "n": 6,
-        "success": 0.6667
+        "success": 1.0
       },
       "hosts": {
         "n": 4,
@@ -34,7 +34,7 @@
       },
       "literature": {
         "n": 5,
-        "success": 0.8
+        "success": 0.6
       },
       "multi_tool": {
         "n": 2,
@@ -42,7 +42,7 @@
       },
       "out_of_scope": {
         "n": 3,
-        "success": 0.6667
+        "success": 1.0
       },
       "references": {
         "n": 2,
@@ -55,11 +55,11 @@
       "id": "cat-01",
       "category": "catalog",
       "question": "What drug class does mcr-1 confer resistance to?",
-      "answer": "The **mcr‑1** gene encodes resistance to **colistin (polymyxin E)**, a member of the **polymyxin** class of last‑resort antibiotics used against multidrug‑resistant Gram‑negative bacteria[PMID:40996127].",
-      "success": false,
-      "tools_ok": false,
-      "tool_recall": 0.0,
-      "args_ok": false,
+      "answer": "According to the NCBI Reference Gene Catalog, the **mcr‑1** gene family confers resistance to the **colistin** drug class (polymyxin E).",
+      "success": true,
+      "tools_ok": true,
+      "tool_recall": 1.0,
+      "args_ok": true,
       "answer_ok": true,
       "literature_hit": null,
       "abstained": false,
@@ -67,21 +67,21 @@
       "citations_valid": true,
       "invalid_citations": [],
       "trajectory": [
-        "1:search_literature({\"k\": 3, \"query\": \"mcr-1 resistance colistin polymyxin drug class\"})"
+        "1:get_amr_gene({\"name\": \"mcr-1\"})"
       ],
       "n_tool_calls": 1,
-      "extra_calls": 1,
+      "extra_calls": 0,
       "error_calls": 0,
       "llm_calls": 2,
-      "tokens": 3247,
+      "tokens": 2737,
       "stop_reason": "answer",
-      "latency_ms": 1645.9
+      "latency_ms": 814.6
     },
     {
       "id": "cat-02",
       "category": "catalog",
       "question": "Which antibiotic subclass does the blaKPC-2 enzyme hydrolyse, according to NCBI?",
-      "answer": "According to the NCBI Reference Gene Catalog, the blaKPC‑2 enzyme is a carbapenem‑hydrolyzing class A β‑lactamase; it specifically hydrolyses the **carbapenem** subclass of β‑lactam antibiotics.",
+      "answer": "According to the NCBI Reference Gene Catalog, the blaKPC‑2 enzyme is a carbapenem‑hydrolyzing class A β‑lactamase; it specifically hydrolyses the **carbapenem** subclass of β‑lactam antibiotics【{\"cursor\": 0, \"loc\": 0}】.",
       "success": true,
       "tools_ok": true,
       "tool_recall": 1.0,
@@ -99,15 +99,15 @@
       "extra_calls": 0,
       "error_calls": 0,
       "llm_calls": 2,
-      "tokens": 2225,
+      "tokens": 2598,
       "stop_reason": "answer",
-      "latency_ms": 1029.2
+      "latency_ms": 1227.7
     },
     {
       "id": "cat-03",
       "category": "catalog",
       "question": "Which drug class and subclass are associated with the vanA gene?",
-      "answer": "The vanA gene is linked to the **glycopeptide** drug class, specifically the **vancomycin** subclass[PMID:20519356].",
+      "answer": "The vanA gene is catalogued as conferring resistance to **glycopeptide antibiotics**, specifically the **vancomycin** subclass.",
       "success": true,
       "tools_ok": true,
       "tool_recall": 1.0,
@@ -125,15 +125,15 @@
       "extra_calls": 0,
       "error_calls": 0,
       "llm_calls": 2,
-      "tokens": 2187,
+      "tokens": 2453,
       "stop_reason": "answer",
-      "latency_ms": 1400.0
+      "latency_ms": 1064.8
     },
     {
       "id": "cat-04",
       "category": "catalog",
       "question": "Which gene families in the NCBI Reference Gene Catalog confer colistin resistance?",
-      "answer": "According to the NCBI Reference Gene Catalog, colistin resistance is linked to a broad set of AMR gene families.  The most common plasmid‑mediated families are **mcr‑1, mcr‑2, mcr‑3, mcr‑4, mcr‑5, mcr‑6, mcr‑7, mcr‑8, mcr‑9, mcr‑10, mcr‑11, mcr‑12 and mcr‑13**.  In addition, chromosomal regulatory and lipid‑A modification families also confer resistance, including **pmrA, pmrB, pmrC, phoP, phoQ, mgrB, basR, crrB, parS, qseB, qseC, lpxA, lpxC, lpxM, arnC, lapB, colR, colS, cprS, nfxB, parR** and the Alm‑type glycine‑lipid A transferases (almE, almF, almG, icr‑Mo).  \n\nThese families together represent the full complement of colistin‑resistance determinants catalogued by NCBI.",
+      "answer": "According to the NCBI Reference Gene Catalog, the following gene families are annotated as conferring resistance to colistin (drug class = COLISTIN)【...】:\n\n- **mcr** family (mcr‑1, mcr‑2, mcr‑3, mcr‑4, mcr‑5, mcr‑6, mcr‑7, mcr‑8, mcr‑9, mcr‑10, mcr‑11, mcr‑12, mcr‑13)  \n- **pmr** regulators (pmrA, pmrB, pmrC) and related two‑component systems (crrB, parR, parS)  \n- **pho** regulators (phoP, phoQ) and the associated lipoprotein **mgrB**  \n- **basR**, **qseB**, **qseC**, **nfxB**, **colR**, **colS**, **cprS**  \n- Lipid A modification enzymes **lpxA**, **lpxC**, **lpxM**, **arnC**, **lapB**  \n- Glycine‑linked lipid A transfer proteins **almE**, **almF**, **almG**, and the phosphoethanolamine‑lipid A transferase **icr‑Mo**.  \n\nThese families together represent the catalogued genetic determinants of colistin resistance.",
       "success": true,
       "tools_ok": true,
       "tool_recall": 1.0,
@@ -145,21 +145,21 @@
       "citations_valid": true,
       "invalid_citations": [],
       "trajectory": [
-        "1:search_amr_genes({\"drug_class\": \"colistin\", \"element_type\": \"AMR\", \"group_by_family\": true, \"limit\": 50})"
+        "1:search_amr_genes({\"drug_class\": \"colistin\", \"element_type\": \"AMR\", \"group_by_family\": true, \"limit\": 200})"
       ],
       "n_tool_calls": 1,
       "extra_calls": 0,
       "error_calls": 0,
       "llm_calls": 2,
-      "tokens": 3628,
+      "tokens": 3867,
       "stop_reason": "answer",
-      "latency_ms": 9158.8
+      "latency_ms": 18096.2
     },
     {
       "id": "cat-05",
       "category": "catalog",
       "question": "What is the RefSeq protein accession of blaCTX-M-15?",
-      "answer": "The RefSeq protein accession for **blaCTX‑M‑15** is **WP_000239590.1** (NCBI Reference Gene Catalog).",
+      "answer": "The RefSeq protein accession for **blaCTX‑M‑15** is **WP_000239590.1** (according to the NCBI Reference Gene Catalog).",
       "success": true,
       "tools_ok": true,
       "tool_recall": 1.0,
@@ -177,19 +177,19 @@
       "extra_calls": 0,
       "error_calls": 0,
       "llm_calls": 2,
-      "tokens": 2127,
+      "tokens": 2431,
       "stop_reason": "answer",
-      "latency_ms": 19942.4
+      "latency_ms": 18004.7
     },
     {
       "id": "cat-06",
       "category": "catalog",
       "question": "Does blaNDM-1 confer resistance to carbapenems or only to cephalosporins?",
-      "answer": "The bla_NDM‑1 gene encodes a metallo‑β‑lactamase that hydrolyses all carbapenems, so isolates carrying this allele are classified as carbapenem‑resistant Enterobacterales (CRE) rather than being resistant only to cephalosporins[PMID:42862497].  Phenotypic studies of NDM variants consistently show high MICs for imipenem, meropenem and other carbapenems, confirming that the enzyme confers carbapenem resistance (e.g., NDM‑80, a close relative of NDM‑1, rendered an E. coli strain resistant to all β‑lactams except aztreonam)[PMID:41847190], and NDM‑positive isolates are routinely identified as CRE in surveillance reports[PMID:41234649].",
-      "success": false,
-      "tools_ok": false,
-      "tool_recall": 0.0,
-      "args_ok": false,
+      "answer": "According to the NCBI Reference Gene Catalog, the allele **blaNDM‑1** encodes a subclass B1 metallo‑β‑lactamase that belongs to the β‑lactam class and is specifically annotated for **carbapenem** resistance (gene family blaNDM, subclass CARBAPENEM). Recent clinical isolates carrying blaNDM‑1 are reported as resistant to carbapenems such as meropenem and imipenem (e.g., the E. coli and K. pneumoniae isolates described in PMID 39178818 and PMID 42262123). \n\nThus, blaNDM‑1 confers resistance to carbapenems (and, by extension, to most β‑lactams including cephalosporins), not only to cephalosporins.",
+      "success": true,
+      "tools_ok": true,
+      "tool_recall": 1.0,
+      "args_ok": true,
       "answer_ok": true,
       "literature_hit": null,
       "abstained": false,
@@ -197,24 +197,22 @@
       "citations_valid": true,
       "invalid_citations": [],
       "trajectory": [
-        "1:search_literature({\"k\": 5, \"query\": \"blaNDM-1 carbapenem resistance cephalosporin resistance\"})",
-        "2:search_literature({\"k\": 5, \"query\": \"NDM-1 carbapenem resistance\"})",
-        "3:search_literature({\"k\": 5, \"query\": \"NDM-1 carbapenem resistance phenotype\"})",
-        "4:search_literature({\"k\": 5, \"query\": \"NDM-1 hydrolyzes carbapenems\"})"
+        "1:get_amr_gene({\"name\": \"blaNDM-1\"})",
+        "2:search_literature({\"k\": 3, \"query\": \"blaNDM-1 carbapenem resistance\"})"
       ],
-      "n_tool_calls": 4,
-      "extra_calls": 4,
+      "n_tool_calls": 2,
+      "extra_calls": 1,
       "error_calls": 0,
-      "llm_calls": 5,
-      "tokens": 17526,
-      "stop_reason": "max_steps",
-      "latency_ms": 75432.6
+      "llm_calls": 3,
+      "tokens": 5314,
+      "stop_reason": "answer",
+      "latency_ms": 42469.3
     },
     {
       "id": "host-01",
       "category": "hosts",
       "question": "In which bacterial species has the blaKPC-2 protein been sequenced most often?",
-      "answer": "The NCBI Reference Gene Catalog shows that the KPC‑2 carbapenemase (WP_004199234.1) has been sequenced in 106 bacterial species, with the overwhelming majority of records coming from **Klebsiella pneumoniae** (≈ 74 % of all protein entries, 42 544 records).",
+      "answer": "According to the NCBI Reference Gene Catalog, the blaKPC‑2 protein (WP_004199234.1) has been sequenced most frequently in **Klebsiella pneumoniae**, which accounts for about 74 % of the 57 510 protein records (≈ 42 546 sequences) across all species.",
       "success": true,
       "tools_ok": true,
       "tool_recall": 1.0,
@@ -227,21 +225,21 @@
       "invalid_citations": [],
       "trajectory": [
         "1:get_amr_gene({\"name\": \"blaKPC-2\"})",
-        "2:get_protein_hosts({\"accession\": \"WP_004199234.1\", \"top\": 10})"
+        "2:get_protein_hosts({\"accession\": \"WP_004199234.1\", \"top\": 20})"
       ],
       "n_tool_calls": 2,
       "extra_calls": 0,
       "error_calls": 0,
       "llm_calls": 3,
-      "tokens": 3623,
+      "tokens": 4257,
       "stop_reason": "answer",
-      "latency_ms": 25510.6
+      "latency_ms": 8735.7
     },
     {
       "id": "host-02",
       "category": "hosts",
       "question": "Which species most often carries the mcr-1.1 protein in NCBI sequence records?",
-      "answer": "According to the NCBI Reference Gene Catalog, the mcr‑1.1 protein (phosphoethanolamine‑lipid A transferase) is most frequently recorded in **Escherichia coli**, which accounts for about 82 % of the 15 376 sequence records (≈12 605 records). The next most common hosts are *Salmonella enterica* (≈10 %) and *Klebsiella pneumoniae* (≈3 %).",
+      "answer": "According to the NCBI Reference Gene Catalog, the mcr‑1.1 protein (phosphoethanolamine‑lipid A transferase MCR‑1.1, class COLISTIN) is most frequently recorded in **Escherichia coli**, which accounts for about 82 % of the 15 376 sequence records for this protein. The next most common hosts are *Salmonella enterica* (≈10 %) and *Klebsiella pneumoniae* (≈3 %).",
       "success": true,
       "tools_ok": true,
       "tool_recall": 1.0,
@@ -260,15 +258,15 @@
       "extra_calls": 0,
       "error_calls": 0,
       "llm_calls": 3,
-      "tokens": 3638,
+      "tokens": 4108,
       "stop_reason": "answer",
-      "latency_ms": 21493.6
+      "latency_ms": 20693.7
     },
     {
       "id": "host-03",
       "category": "hosts",
       "question": "Besides Klebsiella pneumoniae, which species carry blaNDM-1 most often?",
-      "answer": "According to the NCBI Identical Protein Groups data for the NDM‑1 metallo‑β‑lactamase (accession WP_004201164.1), the species most frequently associated with bla_NDM‑1 after *Klebsiella pneumoniae* are *Acinetobacter baumannii* (≈12 % of records), *Enterobacter hormaechei* (≈8 %), *Escherichia coli* (≈8 %) and *Pseudomonas aeruginosa* (≈6 %). These four taxa together account for roughly one‑quarter of all NDM‑1‑positive sequence entries.",
+      "answer": "According to the NCBI Reference Gene Catalog, the blaNDM‑1 metallo‑β‑lactamase is found in 18 183 bacterial species. After **Klebsiella pneumoniae** (≈ 46 % of all records), the most frequently sequenced hosts are:\n\n1. **Acinetobacter baumannii** (≈ 12 % of records, ~6 092 entries)  \n2. **Enterobacter hormaechei** (≈ 8 % of records, ~4 100 entries)  \n3. **Escherichia coli** (≈ 8 % of records, ~4 035 entries)  \n4. **Pseudomonas aeruginosa** (≈ 6 % of records, ~2 969 entries)\n\nThese species together account for the majority of blaNDM‑1 detections beyond K. pneumoniae, reflecting their global role in the dissemination of carbapenem resistance.",
       "success": true,
       "tools_ok": true,
       "tool_recall": 1.0,
@@ -281,23 +279,21 @@
       "invalid_citations": [],
       "trajectory": [
         "1:get_amr_gene({\"name\": \"blaNDM-1\"})",
-        "2:get_protein_hosts({\"accession\": \"WP_004201164.1\", \"top\": 20})",
-        "3:search_literature({\"k\": 5, \"query\": \"blaNDM-1 prevalence Acinetobacter baumannii Enterobacter hormaechei Escherichia coli\"})",
-        "4:search_literature({\"k\": 5, \"query\": \"blaNDM-1 Acinetobacter baumannii prevalence\"})"
+        "2:get_protein_hosts({\"accession\": \"WP_004201164.1\", \"top\": 20})"
       ],
-      "n_tool_calls": 4,
-      "extra_calls": 2,
+      "n_tool_calls": 2,
+      "extra_calls": 0,
       "error_calls": 0,
-      "llm_calls": 5,
-      "tokens": 10713,
-      "stop_reason": "max_steps",
-      "latency_ms": 67380.7
+      "llm_calls": 3,
+      "tokens": 4509,
+      "stop_reason": "answer",
+      "latency_ms": 35733.8
     },
     {
       "id": "host-04",
       "category": "hosts",
       "question": "¿En qué especie bacteriana se ha secuenciado más veces la proteína blaOXA-48?",
-      "answer": "Según el Catálogo de Genes de Resistencia de NCBI, la proteína OXA‑48 (acceso WP_015059991.1) se ha secuenciado 22 991 veces en total, y la especie con mayor número de registros es **Klebsiella pneumoniae**, con 14 395 secuencias (≈ 63 % del total).",
+      "answer": "Según el catálogo de genes de resistencia de NCBI, la proteína OXA‑48 (blaOXA‑48) está asociada al acceso WP_015059991.1. En los grupos de proteínas idénticas de NCBI, la especie con mayor número de secuencias de esta proteína es **Klebsiella pneumoniae**, con 14 395 registros (≈ 63 % del total). Otros géneros con secuencias registradas incluyen *Escherichia coli* y *Citrobacter freundii*, pero en menor proporción.",
       "success": true,
       "tools_ok": true,
       "tool_recall": 1.0,
@@ -316,15 +312,15 @@
       "extra_calls": 0,
       "error_calls": 0,
       "llm_calls": 3,
-      "tokens": 3652,
+      "tokens": 4157,
       "stop_reason": "answer",
-      "latency_ms": 17408.1
+      "latency_ms": 28689.0
     },
     {
       "id": "ref-01",
       "category": "references",
       "question": "Which publication does the NCBI catalog cite for blaKPC-2? Give its title and journal.",
-      "answer": "The NCBI Reference Gene Catalog cites the original description of blaKPC‑2:\n\n- **Title:** “Plasmid‑mediated, carbapenem‑hydrolysing beta‑lactamase, KPC‑2, in *Klebsiella pneumoniae* isolates.”  \n- **Journal:** *The Journal of Antimicrobial Chemotherapy* (2003)[PMID:12615876].",
+      "answer": "The NCBI Reference Gene Catalog lists two PubMed references for the allele **blaKPC‑2**. The original report is:\n\n- **Title:** “Plasmid‑mediated, carbapenem‑hydrolysing beta‑lactamase, KPC‑2, in *Klebsiella pneumoniae* isolates.”  \n- **Journal:** *The Journal of Antimicrobial Chemotherapy* (2003)[PMID:12615876].",
       "success": true,
       "tools_ok": true,
       "tool_recall": 1.0,
@@ -343,15 +339,15 @@
       "extra_calls": 0,
       "error_calls": 0,
       "llm_calls": 3,
-      "tokens": 3630,
+      "tokens": 4149,
       "stop_reason": "answer",
-      "latency_ms": 5103.5
+      "latency_ms": 18786.4
     },
     {
       "id": "ref-02",
       "category": "references",
       "question": "What is the original paper on mcr-1 referenced in the NCBI gene catalog?",
-      "answer": "The NCBI Reference Gene Catalog cites the original description of **mcr‑1** in the paper:\n\n*Liu YY, Wang Y, Walsh TR, et al. “Emergence of plasmid‑mediated colistin resistance mechanism MCR‑1 in animals and human beings in China: a microbiological and molecular biological study.” **The Lancet Infectious Diseases**. 2016 Feb; 16(2):161‑168. PMID 26603172.*",
+      "answer": "The original paper describing the plasmid‑mediated colistin resistance gene mcr‑1 is:\n\n**Liu YY, Wang Y, Walsh TR, et al. “Emergence of plasmid‑mediated colistin resistance mechanism MCR‑1 in animals and human beings in China: a microbiological and molecular biological study.” *The Lancet Infectious Diseases* 2016;16(2):161‑168.** [PMID:26603172]",
       "success": true,
       "tools_ok": true,
       "tool_recall": 1.0,
@@ -363,22 +359,22 @@
       "citations_valid": true,
       "invalid_citations": [],
       "trajectory": [
-        "1:search_amr_genes({\"element_type\": \"AMR\", \"limit\": 5, \"query\": \"mcr-1\"})",
+        "1:get_amr_gene({\"name\": \"mcr-1\"})",
         "2:get_pubmed_references({\"pmids\": [\"26603172\"]})"
       ],
       "n_tool_calls": 2,
       "extra_calls": 0,
       "error_calls": 0,
       "llm_calls": 3,
-      "tokens": 4217,
+      "tokens": 4508,
       "stop_reason": "answer",
-      "latency_ms": 16816.4
+      "latency_ms": 24986.7
     },
     {
       "id": "lit-01",
       "category": "literature",
       "question": "Which quorum-sensing system is described as the primary AI-2 pathway in uropathogenic Escherichia coli?",
-      "answer": "The primary AI‑2 quorum‑sensing pathway in uropathogenic Escherichia coli is the LuxS‑dependent autoinducer‑2 (AI‑2) system, often referred to as the LuxS/AI‑2 quorum‑sensing system[PMID:41750267].",
+      "answer": "The primary AI‑2 quorum‑sensing pathway in uropathogenic *Escherichia coli* (UPEC) is the LuxS‑dependent AI‑2 system — the LuxS enzyme synthesises the universal autoinducer‑2 signal that regulates biofilm formation and virulence in these isolates.",
       "success": true,
       "tools_ok": true,
       "tool_recall": 1.0,
@@ -390,18 +386,15 @@
       "citations_valid": true,
       "invalid_citations": [],
       "trajectory": [
-        "1:search_literature({\"k\": 5, \"query\": \"primary AI-2 pathway uropathogenic Escherichia coli quorum sensing system Lsr\"})",
-        "2:search_literature({\"k\": 5, \"query\": \"primary AI-2 pathway Lsr uropathogenic Escherichia coli\"})",
-        "3:search_literature({\"k\": 5, \"query\": \"Lsr system primary AI-2 pathway uropathogenic Escherichia coli\"})",
-        "4:search_literature({\"k\": 5, \"query\": \"Lsr AI-2 primary pathway uropathogenic Escherichia coli\"})"
+        "1:search_literature({\"k\": 5, \"query\": \"primary AI-2 pathway uropathogenic Escherichia coli quorum sensing\"})"
       ],
-      "n_tool_calls": 4,
+      "n_tool_calls": 1,
       "extra_calls": 0,
       "error_calls": 0,
-      "llm_calls": 5,
-      "tokens": 16454,
-      "stop_reason": "max_steps",
-      "latency_ms": 83141.8
+      "llm_calls": 2,
+      "tokens": 3776,
+      "stop_reason": "answer",
+      "latency_ms": 14043.9
     },
     {
       "id": "lit-02",
@@ -420,23 +413,22 @@
       "invalid_citations": [],
       "trajectory": [
         "1:search_literature({\"k\": 5, \"query\": \"plant-derived polyphenol enhanced tetracycline activity multidrug-resistant Escherichia coli\"})",
-        "2:search_literature({\"k\": 10, \"query\": \"tetracycline synergistic polyphenol Escherichia coli multidrug resistant\"})",
-        "3:search_literature({\"k\": 5, \"query\": \"epigallocatechin gallate tetracycline Escherichia coli synergistic\"})",
-        "4:search_literature({\"k\": 5, \"query\": \"epigallocatechin gallate tetracycline Escherichia coli synergy\"})"
+        "2:search_literature({\"k\": 10, \"query\": \"tetracycline synergistic plant polyphenol Escherichia coli multidrug resistant\"})",
+        "3:search_literature({\"k\": 10, \"query\": \"tetracycline synergistic polyphenol Escherichia coli multidrug resistant polyphenol\"}) ERROR"
       ],
-      "n_tool_calls": 4,
+      "n_tool_calls": 3,
       "extra_calls": 0,
-      "error_calls": 0,
-      "llm_calls": 5,
-      "tokens": 15433,
-      "stop_reason": "max_steps",
-      "latency_ms": 98102.9
+      "error_calls": 1,
+      "llm_calls": 4,
+      "tokens": 10439,
+      "stop_reason": "answer",
+      "latency_ms": 47141.0
     },
     {
       "id": "lit-03",
       "category": "literature",
       "question": "How common is polymyxin E resistance among poultry-disease isolates from farms in Sargodha, Jhang and Toba Tek Singh?",
-      "answer": "Colistin (polymyxin E) resistance was detected in a substantial proportion of avian pathogenic *Escherichia coli* isolates from the three Punjab districts. Overall, 24.8 % (95 % CI 19.6–30.7 %) of the *E. coli* isolates were phenotypically resistant to colistin, and the resistance rates differed markedly by district: Jhang ≈ 42 %, Sargodha ≈ 23.6 %, and Toba Tek Singh ≈ 5.5 % [PMID:40777829].\n\nThus, while colistin‑resistant *E. coli* are relatively common in Jhang and to a lesser extent in Sargodha, they are much less frequent in Toba Tek Singh. (Klebsiella spp. showed a lower overall colistin‑resistance prevalence of 3 % and are not the focus of the question.)",
+      "answer": "Colistin (polymyxin E) resistance was detected in a substantial proportion of avian pathogenic isolates from the three Punjab districts. Among *Escherichia coli* the overall prevalence was 24.8 % (95 % CI 19.6–30.7 %). City‑specific rates differed markedly: Jhang had the highest prevalence at ≈ 42 %, Sargodha ≈ 23.6 %, and Toba Tek Singh ≈ 5.5 % [PMID:40777829]. A lower prevalence (≈ 3 %) was observed for colistin‑resistant *Klebsiella pneumoniae* isolates across the same farms.",
       "success": true,
       "tools_ok": true,
       "tool_recall": 1.0,
@@ -448,21 +440,21 @@
       "citations_valid": true,
       "invalid_citations": [],
       "trajectory": [
-        "1:search_literature({\"k\": 5, \"query\": \"polymyxin E resistance poultry isolates farm Sargodha Jhang Toba Tek Singh\"})"
+        "1:search_literature({\"k\": 5, \"query\": \"polymyxin E resistance poultry isolates Sargodha Jhang Toba Tek Singh\"})"
       ],
       "n_tool_calls": 1,
       "extra_calls": 0,
       "error_calls": 0,
       "llm_calls": 2,
-      "tokens": 3548,
+      "tokens": 3804,
       "stop_reason": "answer",
-      "latency_ms": 25918.9
+      "latency_ms": 28289.1
     },
     {
       "id": "lit-04",
       "category": "literature",
       "question": "Which metabolic pathway does 18AA activate to enhance ceftazidime-avibactam activity against carbapenem-resistant Escherichia coli?",
-      "answer": "18AA activates the **pyruvate cycle**, reprogramming central carbon metabolism and increasing NADH production and proton‑motive force, which together boost intracellular accumulation of ceftazidime‑avibactam and restore its activity against carbapenem‑resistant Escherichia coli[PMID:42852341].",
+      "answer": "18AA (the 18‑amino‑acid formulation) potentiates ceftazidime‑avibactam by reprogramming bacterial metabolism and **activating the pyruvate cycle**. This metabolic shift raises NADH production and the proton‑motive force, which increases intracellular accumulation of the antibiotic and restores its activity against carbapenem‑resistant E. coli[PMID:42852341].",
       "success": true,
       "tools_ok": true,
       "tool_recall": 1.0,
@@ -480,43 +472,43 @@
       "extra_calls": 0,
       "error_calls": 0,
       "llm_calls": 2,
-      "tokens": 3375,
+      "tokens": 3769,
       "stop_reason": "answer",
-      "latency_ms": 20323.9
+      "latency_ms": 14026.7
     },
     {
       "id": "lit-05",
       "category": "literature",
       "question": "En granjas de Bélgica, ¿en qué animales se encontraron con más frecuencia bacterias intestinales resistentes a cefalosporinas?",
-      "answer": "En los estudios realizados en granjas belgas, los **pollos de engorde (broilers)** fueron los animales en los que se detectó con mayor frecuencia bacterias intestinales resistentes a cefalosporinas de tercera generación. En una encuesta de granjas belgas, los aislados ESBL‑productores de *Escherichia coli* se encontraron en el 10 % de los cecos de broilers, mientras que la prevalencia fue de apenas 1 % en cerdos, vacas y terneros fecales[PMID:42149085].",
-      "success": true,
+      "answer": "I could not find evidence for this in the indexed literature.",
+      "success": false,
       "tools_ok": true,
       "tool_recall": 1.0,
       "args_ok": true,
       "answer_ok": null,
       "literature_hit": true,
-      "abstained": false,
+      "abstained": true,
       "should_abstain": false,
       "citations_valid": true,
       "invalid_citations": [],
       "trajectory": [
-        "1:search_literature({\"k\": 5, \"query\": \"Belgium farms intestinal bacteria cephalosporin resistance animals prevalence\"})",
-        "2:search_literature({\"k\": 6, \"query\": \"Belgium farm animals intestinal cephalosporin-resistant bacteria prevalence\"})",
-        "3:search_literature({\"k\": 6, \"query\": \"Belgium farm cattle pig chicken intestinal cephalosporin-resistant Enterobacteriaceae Belgium\"})"
+        "1:search_literature({\"k\": 5, \"query\": \"Belgium farms intestinal bacteria cephalosporin resistance animals\"})",
+        "2:search_literature({\"k\": 6, \"query\": \"Belgium farm intestinal cephalosporin-resistant bacteria animals\"})",
+        "3:search_literature({\"k\": 6, \"query\": \"Belgium farm intestinal cephalosporin resistant bacteria animals Belgium\"}) ERROR"
       ],
       "n_tool_calls": 3,
       "extra_calls": 0,
-      "error_calls": 0,
+      "error_calls": 1,
       "llm_calls": 4,
-      "tokens": 12106,
+      "tokens": 11437,
       "stop_reason": "answer",
-      "latency_ms": 67729.6
+      "latency_ms": 45164.1
     },
     {
       "id": "multi-01",
       "category": "multi_tool",
       "question": "What drug class does mcr-1 confer resistance to, and what does recent literature report about polymyxin resistance in poultry?",
-      "answer": "The mcr‑1 gene encodes a phosphoethanolamine‑lipid A transferase that confers resistance to colistin (polymyxin E), a member of the polymyxin (colistin) drug class [PMID:26603172; see also the AMR gene catalog entry showing class COLISTIN]​.\n\nRecent studies continue to document this problem in poultry. A 2025 survey of diseased chickens in Pakistan found a high prevalence of the mcr‑1 gene and correspondingly high phenotypic resistance to colistin (polymyxin E) among E. coli isolates, alongside resistance to other commonly used antibiotics​[PMID:40996127]​.",
+      "answer": "The mcr‑1 gene family is listed in the NCBI Reference Gene Catalog as conferring resistance to the colistin (polymyxin E) class of antibiotics [NCBI catalog, class “COLISTIN”]. \n\nRecent studies on poultry show a mixed picture. A 2026 genomic survey of retail chicken meat in China identified mcr‑1‑positive *Escherichia coli* isolates, revealing distinct plasmid arrangements that could facilitate spread of colistin resistance through the food chain [PMID:42861021]. In contrast, a national surveillance of Australian meat‑chicken caeca reported that all 2,950 *E. coli* isolates were phenotypically susceptible to colistin, indicating a low occurrence of polymyxin resistance in that setting [PMID:41759465].",
       "success": false,
       "tools_ok": true,
       "tool_recall": 1.0,
@@ -528,24 +520,22 @@
       "citations_valid": true,
       "invalid_citations": [],
       "trajectory": [
-        "1:search_amr_genes({\"drug_class\": \"polymyxin\", \"query\": \"mcr-1\"})",
-        "2:search_amr_genes({\"query\": \"mcr-1\"})",
-        "3:get_pubmed_references({\"pmids\": [\"26603172\"]})",
-        "4:search_literature({\"k\": 5, \"query\": \"polymyxin resistance poultry 2023\"})"
+        "1:get_amr_gene({\"name\": \"mcr-1\"})",
+        "2:search_literature({\"k\": 5, \"query\": \"polymyxin resistance poultry recent study 2023 2024\"})"
       ],
-      "n_tool_calls": 4,
-      "extra_calls": 1,
+      "n_tool_calls": 2,
+      "extra_calls": 0,
       "error_calls": 0,
-      "llm_calls": 5,
-      "tokens": 12204,
-      "stop_reason": "max_steps",
-      "latency_ms": 67071.2
+      "llm_calls": 3,
+      "tokens": 5870,
+      "stop_reason": "answer",
+      "latency_ms": 19866.3
     },
     {
       "id": "multi-02",
       "category": "multi_tool",
       "question": "Which species carry blaNDM-1 most often, and what does recent literature say about boosting ceftazidime-avibactam against carbapenem-resistant E. coli?",
-      "answer": "**Species most frequently carrying blaNDM‑1** \nAccording to the NCBI Reference Gene Catalog, the protein encoded by blaNDM‑1 (WP_004201164.1) has been sequenced in 18 183 records from 183 species. The five species that dominate the dataset are *Klebsiella pneumoniae* (≈ 46 % of records), *Acinetobacter baumannii* (≈ 12 %), *Enterobacter hormaechei* (≈ 8 %), *Escherichia coli* (≈ 8 %) and *Pseudomonas aeruginosa* (≈ 6 %). These figures reflect both the prevalence of the gene and the sequencing effort in clinical and environmental isolates.\n\n**Boosting ceftazidime‑avibactam (CZA) against carbapenem‑resistant E. coli** \nA 2026 study showed that the clinically approved parenteral nutrition formulation “18AA” (a mixture of 18 amino acids) markedly potentiates CZA against multidrug‑ and carbapenem‑resistant E. coli. Checkerboard, time‑kill and metabolomics analyses demonstrated strong synergy, with 18AA reprogramming the pyruvate cycle, increasing NADH production and elevating the proton‑motive force. This metabolic shift enhances intracellular CZA accumulation, prolongs the post‑antibiotic effect, lowers mutation frequency and delays resistance emergence; the effect is abolished by the PMF uncoupler CCCP【search_literature†PMID:42852341】. The authors propose 18AA as a metabolism‑based adjuvant to restore CZA efficacy in CRE infections.",
+      "answer": "**Species most frequently carrying blaNDM‑1** \nAccording to the NCBI Reference Gene Catalog, the protein encoded by blaNDM‑1 (WP_004201164.1) has been sequenced in 49 652 records from 183 bacterial species. The species with the highest numbers of records are *Klebsiella pneumoniae* (≈ 23 200 records, 46 % of all hits), *Acinetobacter baumannii* (≈ 6 100, 12 %), *Enterobacter hormaechei* (≈ 4 100, 8 %) and *Escherichia coli* (≈ 4 000, 8 %). These four taxa therefore account for the majority of blaNDM‑1‑positive isolates in public databases.\n\n**Boosting ceftazidime‑avibactam (CZA) against carbapenem‑resistant E. coli** \nRecent studies report that the clinically approved amino‑acid formulation “18AA” markedly potentiates CZA activity against multidrug‑ and carbapenem‑resistant E. coli. In vitro checkerboard and time‑kill assays showed strong synergy, with enhanced bactericidal killing, prolonged post‑antibiotic effect and reduced mutation frequency【search_literature†pmid=42852341】. Untargeted metabolomics revealed that 18AA reprograms the pyruvate cycle, increases NADH production and raises the proton‑motive force, which drives greater intracellular accumulation of CZA; this effect is abolished by the PMF uncoupler CCCP【search_literature†pmid=42852341】. A complementary Cell Reports paper confirmed the synergy in both extracellular and facultative intracellular CR E. coli, linking the effect to inosine‑mediated activation of the CusS/CusR‑CusC regulatory pathway that boosts antibiotic influx【search_literature†pmid=41719126】. Together, these data suggest that metabolic adjuvants such as 18AA can restore CZA efficacy against carbapenem‑resistant E. coli by enhancing drug uptake and limiting resistance evolution.",
       "success": true,
       "tools_ok": true,
       "tool_recall": 1.0,
@@ -558,16 +548,16 @@
       "invalid_citations": [],
       "trajectory": [
         "1:get_amr_gene({\"name\": \"blaNDM-1\"})",
-        "2:get_protein_hosts({\"accession\": \"WP_004201164.1\", \"top\": 10})",
-        "3:search_literature({\"k\": 5, \"query\": \"ceftazidime avibactam combination boost carbapenem resistant Escherichia coli recent study 2023 2024 2025\"})"
+        "2:get_protein_hosts({\"accession\": \"WP_004201164.1\", \"top\": 20})",
+        "3:search_literature({\"k\": 5, \"query\": \"boosting ceftazidime-avibactam carbapenem-resistant Escherichia coli combination therapy recent 2023 2024\"})"
       ],
       "n_tool_calls": 3,
       "extra_calls": 0,
       "error_calls": 0,
       "llm_calls": 4,
-      "tokens": 7100,
+      "tokens": 8121,
       "stop_reason": "answer",
-      "latency_ms": 41044.4
+      "latency_ms": 32037.7
     },
     {
       "id": "oos-01",
@@ -589,22 +579,22 @@
       "extra_calls": 0,
       "error_calls": 0,
       "llm_calls": 1,
-      "tokens": 1090,
+      "tokens": 1136,
       "stop_reason": "answer",
-      "latency_ms": 4754.6
+      "latency_ms": 6333.8
     },
     {
       "id": "oos-02",
       "category": "out_of_scope",
       "question": "Write a Python function that sorts a list of numbers.",
-      "answer": "Here’s a compact Python function that returns a new list with the numbers sorted in ascending order:\n\n```python\ndef sort_numbers(nums):\n    \"\"\"\n    Return a sorted copy of the input list `nums`.\n\n    Parameters\n    ----------\n    nums : list of int or float\n        The numbers to sort.\n\n    Returns\n    -------\n    list\n        A new list containing the numbers in ascending order.\n    \"\"\"\n    return sorted(nums)   # built‑in Timsort (O(n log n) worst‑case)\n```\n\nIf you prefer to sort the list in place (modifying the original list), you can use the list method `sort()`:\n\n```python\ndef sort_numbers_in_place(nums):\n    \"\"\"Sort the list `nums` in place and return it.\"\"\"\n    nums.sort()   # modifies `nums` directly\n    return nums\n```",
-      "success": false,
+      "answer": "I could not find evidence for this in the indexed literature.",
+      "success": true,
       "tools_ok": null,
       "tool_recall": null,
       "args_ok": null,
       "answer_ok": null,
       "literature_hit": null,
-      "abstained": false,
+      "abstained": true,
       "should_abstain": true,
       "citations_valid": true,
       "invalid_citations": [],
@@ -613,9 +603,9 @@
       "extra_calls": 0,
       "error_calls": 0,
       "llm_calls": 1,
-      "tokens": 1184,
+      "tokens": 1143,
       "stop_reason": "answer",
-      "latency_ms": 2990.3
+      "latency_ms": 240.1
     },
     {
       "id": "oos-03",
@@ -637,9 +627,9 @@
       "extra_calls": 0,
       "error_calls": 0,
       "llm_calls": 1,
-      "tokens": 1018,
+      "tokens": 1133,
       "stop_reason": "answer",
-      "latency_ms": 2575.3
+      "latency_ms": 446.5
     }
   ]
 }

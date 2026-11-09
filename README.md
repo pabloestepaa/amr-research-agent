@@ -139,15 +139,15 @@ but also 6 of 36 in-scope questions wrongly refused. This run predates the keywo
 below, which retrieves the relevant abstract more often; a re-run is pending.
 
 **Agent** (22 tasks over catalog, species, references, literature, multi-tool and out-of-scope
-questions): 17/22 tasks fully correct in the latest run, right tools 0.89, right arguments 0.87,
-expected facts in every answer that should have them, no hallucinated PMIDs, no crashes, ~6,100
-tokens per task. The previous run scored 19/22; its three failures led to the fixes below, and
-those three tasks now pass. Five others failed this time, all on the model's side: twice it
-answered a catalog question from the literature instead of the gene catalog, once it wrote Python
-code for an out-of-scope request, once it retrieved the right abstract and still said it had no
-evidence, and once its search missed the relevant abstract. Groq is not deterministic even at
-temperature 0, so a 22-task run moves by a few tasks between runs. Repeated literature searches
-are the main weakness left: 5 of 22 tasks reach the step limit.
+questions): 19/22 tasks fully correct in the latest run, right tools and right arguments in
+every task, expected facts in every answer that should have them, all out-of-scope questions
+refused, no hallucinated PMIDs, no crashes, ~4,350 tokens per task. The three runs so far scored
+19, 17 and 19 out of 22: each one found failures that led to the fixes below, and Groq is not
+deterministic even at temperature 0, so a run moves by a few tasks. Two of the three failures
+left are refusals: the agent retrieved the right abstract and still said it had no evidence,
+because the abstract answers in other words (an ESBL-producing strain is resistant to
+cephalosporins; myricetin is a polyphenol). The third is a search that added "2023 2024" to its
+query and missed the relevant abstract.
 
 ### What the evals caught
 
@@ -165,6 +165,12 @@ Each of these problems looked fine by eye and only showed up in the numbers:
   The final turn is now a fresh conversation with no tools in it.
 - Groq returned a 400 for an out-of-range argument (`k=10` with a schema maximum of 6). Numeric
   bounds now go in the description and are enforced on our side, where an error is recoverable.
+- The agent kept rephrasing the same literature search until it hit the step limit (5 of 22
+  tasks), and answered gene questions from the literature instead of the gene catalog. Replaying
+  its queries showed the relevant abstract almost always came up in the first or second search,
+  so searches are now capped at two per question and the prompt says which tool fits each kind
+  of question. Step-limit hits went from 5 to 0, tool choice from 0.89 to 1.00, and tokens per
+  task fell by 29 %.
 - One failure was the evaluator's fault: a correct answer failed because `gpt-oss` writes
   "Escherichia coli" with a narrow no-break space. Facts are now compared after Unicode
   normalisation.

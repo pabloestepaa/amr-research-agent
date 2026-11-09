@@ -330,5 +330,11 @@ third search may now miss its abstract. The limit is a constructor argument
 (`max_literature_searches`) if a deployment wants more.
 **Result.** Re-running only the five failed tasks: 4 of 5 pass, none reaches the step limit, and
 `lit-02` answers correctly after its third search is blocked. `multi-01` still fails: its query
-adds "2023 2024", which pushes the relevant abstract out of the top 5. A full re-run is needed to
-check that the other 17 tasks did not get worse.
+adds "2023 2024", which pushes the relevant abstract out of the top 5. The full re-run
+(2026-11-09) scored 19/22: right tools and arguments in every task, no task at the step limit
+(5 before), 4,351 tokens per task (6,088 before) and every out-of-scope question refused. Two of
+the three failures are a new pattern: in `lit-02` and `lit-05` the first search found the
+relevant abstract, and the agent still said it had no evidence, because the abstract uses other
+terms than the question (ESBL-producing for cephalosporin-resistant; myricetin, a flavonoid,
+for polyphenol). The cap did not cause the refusals (`lit-02` also refused in the run without
+it), but it no longer gives the model more searches to talk itself out of them either.
