@@ -338,3 +338,33 @@ relevant abstract, and the agent still said it had no evidence, because the abst
 terms than the question (ESBL-producing for cephalosporin-resistant; myricetin, a flavonoid,
 for polyphenol). The cap did not cause the refusals (`lit-02` also refused in the run without
 it), but it no longer gives the model more searches to talk itself out of them either.
+
+## 32. Abstain only when no result is about the question (2026-11-09)
+**Context.** After decision 31, two of the three failures of the agent eval were refusals with
+the answer in hand: in `lit-02` and `lit-05` the first search returned the relevant abstract and
+the agent replied that it had no evidence. The abstracts use other terms than the questions (a
+specific compound for a broader class, an acronym for a description). The rule said "if the
+tools return nothing relevant, reply exactly: no evidence", and `gpt-oss` read "relevant" as
+"uses the words of the question".
+**Decision.** The rule now says that results often use other words (a broader or narrower term,
+a synonym, an acronym), that a result answering the question in other words should be used and
+the link between its terms and the question stated, that a partial answer is better than none if
+it says what is missing, and that the fixed no-evidence reply is only for when no result is about
+the question. The rule has no examples taken from the eval tasks, so that the eval still measures
+the behaviour and not the memorised cases. The out-of-scope rule (refuse code and general
+knowledge without calling tools) is unchanged.
+**Trade-off.** A looser rule can turn honest refusals into stretched answers. The out-of-scope
+tasks and the citation check watch for that: a stretched answer still has to cite PMIDs the tools
+returned.
+A first test of the new rule still refused `lit-05`. Its abstract never says "cephalosporin",
+only "ESBL-producing", and linking the two takes background knowledge the prompt forbade ("do not
+answer from memory"). So the rule also says that textbook knowledge may link terms, never supply
+the findings.
+**Result.** Partial runs only, since the full eval does not fit in the day's quota after the run
+of decision 31. With the first version of the rule, on the five literature, two multi-tool and
+three out-of-scope tasks: 8 of 10 pass, `lit-02` answers "myricetin" with the right citation, and
+the three out-of-scope questions are still refused. With the final version, on `lit-02`, `lit-05`
+and the out-of-scope tasks: 4 of 5. `lit-05` still refuses, although replaying its queries shows
+the abstract in the first search: in both runs the model searched twice more and refused after
+the cap. It stays as a known failure rather than adding an example close to the task.
+`multi-01` still adds "2023 2024" to its query and misses the abstract. A full run is pending.
