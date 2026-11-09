@@ -430,3 +430,22 @@ found the NEJM report, read it and answered 43% with a valid citation. It took 1
 minute. One question is not an evaluation: the literature mode needs its own eval set.
 **Open.** Fewer passages per call (5 by default, but the model asked for 10), and rejecting
 invented arguments in local tools as amr-mcp does (the model sent `top_k` instead of `k`).
+
+## 35. Reject invented arguments everywhere, cap read_paper at 8 passages (2026-11-09)
+**Context.** In the first real literature-mode question (decision 34) the model sent `top_k`
+instead of `k` to `search_papers`, which ignored it silently, and asked `read_paper` for its
+maximum of 10 passages twice. The question cost 16,400 tokens: each passage is ~1,200 characters
+and the whole history is re-sent in every later call to the model.
+**Decision.**
+- `Toolset` rejects arguments that the tool's schema does not declare, before calling the tool,
+  with the same message amr-mcp uses since decision 30 ("Unknown argument(s) for X: ... Valid
+  arguments: ..."), so the model can fix the call. Null values do not count, as in amr-mcp. In
+  the last full AMR eval no call used an undeclared argument, so the AMR agent is unaffected.
+- `read_paper` returns 5 passages by default and at most 8. On LitQA2 the passage with the
+  answer is in the top 5 for 0.82 of the questions, top 6 for 0.85, top 8 for 0.92 and top 10
+  for 0.93: 8 keeps almost all of it with ~20% less text than 10.
+**Not done: smaller passages.** Measured with chunks of 400, 600, 800 and 1,200 characters: the
+results are almost identical, because the real unit is the paragraph (scientific paragraphs are
+~1,200 characters and are never split). The characters returned are about k x 1,200 whatever the
+chunk size. Cutting the cost further would mean returning only the best sentences of each
+passage, which needs its own measurement.

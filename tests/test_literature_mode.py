@@ -151,3 +151,33 @@ def test_amr_mode_is_the_default_and_keeps_its_prompt():
     assert AMR_MODE.system_prompt is SYSTEM_PROMPT
     assert AMR_MODE.search_tool == "search_literature"
     assert Agent(ScriptedLLM(), Toolset([])).mode is AMR_MODE
+
+
+# --- Argumentos inventados (decisión 35) ----------------------------------------------------
+
+async def test_invented_arguments_are_rejected_before_reaching_the_tool():
+    http, calls = network([epmc_record("1")])
+    result = await Toolset([PaperSearchTools(http)]).call(
+        "search_papers", {"query": "CAR-T", "top_k": 10})
+    assert result.is_error and calls == []  # ni PubMed ni Europe PMC
+    assert result.content == ("ERROR: Unknown argument(s) for search_papers: top_k. "
+                              "Valid arguments: query, k, full_text_only.")
+
+
+async def test_null_optional_arguments_are_not_invented():
+    http, _ = network([epmc_record("1")])
+    result = await Toolset([PaperSearchTools(http)]).call(
+        "search_papers", {"query": "CAR-T", "k": None, "full_text_only": None})
+    assert not result.is_error
+
+
+async def test_read_paper_returns_at_most_eight_passages():
+    http, _ = network([])
+    many = XML.replace(b"</body>", b"".join(  # 12 secciones más dentro del cuerpo
+        b"<sec><title>S%d</title><p>tocilizumab dose detail number %d in this section</p></sec>"
+        % (i, i) for i in range(12)) + b"</body>")
+    tools = ReadPaperTools(httpx.AsyncClient(transport=httpx.MockTransport(
+        lambda r: httpx.Response(200, content=many))))
+    result = await tools.call("read_paper", {"paper_id": "PMC1", "question": "tocilizumab",
+                                             "k": 10})
+    assert len(json.loads(result.content)["passages"]) == 8

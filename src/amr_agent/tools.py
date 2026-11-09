@@ -269,8 +269,8 @@ READ_PAPER = ToolSpec(
             "paper_id": {"type": "string", "description": "PMID (e.g. 38578105) or PMCID "
                                                           "(e.g. PMC11237425)"},
             "question": {"type": "string", "description": "What to look for, in English"},
-            "k": {"type": "integer", "minimum": 1, "maximum": 10, "default": 5,
-                  "description": "Number of passages to return"},
+            "k": {"type": "integer", "minimum": 1, "maximum": 8, "default": 5,
+                  "description": "Number of passages to return; 5 is usually enough"},
         },
         "required": ["paper_id", "question"],
     },
@@ -336,7 +336,10 @@ class ReadPaperTools:
             return _error("'paper_id' must be a PMID (digits) or a PMCID (PMC followed by digits)")
         if len(question) < 3:
             return _error("'question' must have at least 3 characters")
-        k = max(1, min(int(arguments.get("k") or 5), 10))
+        # Máx. 8 (antes 10): el modelo pedía siempre el máximo y cada pasaje (~1.200 caracteres)
+        # se reenvía en todas las llamadas siguientes. En LitQA2, 8 encuentran el pasaje igual
+        # que 10 (0,92 frente a 0,93) con un 20 % menos de texto (decisión 35).
+        k = max(1, min(int(arguments.get("k") or 5), 8))
 
         pmcid = await self._pmcid(paper_id)
         article = await self._article(pmcid) if pmcid else None
@@ -549,6 +552,15 @@ class McpTools:
 
 # --- Composición -----------------------------------------------------------------------------
 
+def unknown_arguments(spec: ToolSpec, arguments: dict[str, Any]) -> list[str]:
+    """Argumentos que el esquema no declara. Los `null` no cuentan: los modelos a veces mandan
+    todos los opcionales a null, y amr-mcp también los descarta."""
+    props = spec.parameters.get("properties")
+    if props is None:  # esquema sin propiedades declaradas: no hay nada contra qué comprobar
+        return []
+    return [k for k, v in arguments.items() if v is not None and k not in props]
+
+
 @dataclass
 class Toolset:
     """Junta varios ToolBox, enruta cada llamada al suyo y nunca deja escapar una excepción."""
@@ -557,11 +569,13 @@ class Toolset:
 
     def __post_init__(self) -> None:
         self._route: dict[str, ToolBox] = {}
+        self._specs: dict[str, ToolSpec] = {}
         for box in self.boxes:
             for spec in box.specs():
                 if spec.name in self._route:
                     raise ValueError(f"duplicate tool name {spec.name!r}")
                 self._route[spec.name] = box
+                self._specs[spec.name] = spec
 
     def specs(self) -> list[ToolSpec]:
         return [s for box in self.boxes for s in box.specs()]
@@ -571,6 +585,13 @@ class Toolset:
         box = self._route.get(name)
         if box is None:
             result = _error(f"unknown tool {name!r}; available: {sorted(self._route)}")
+        elif unknown := unknown_arguments(self._specs[name], arguments):
+            # Sin esto, un argumento inventado se ignora en silencio: el modelo mandó `top_k` a
+            # search_papers y recibió 5 resultados creyendo haber pedido otro número (decisión
+            # 35). Mismo mensaje que amr-mcp, que ya los rechaza (decisión 30).
+            valid = ", ".join(self._specs[name].parameters.get("properties", {}))
+            result = _error(f"Unknown argument(s) for {name}: {', '.join(unknown)}. "
+                            f"Valid arguments: {valid}.")
         else:
             try:
                 result = await box.call(name, arguments)

@@ -130,4 +130,4 @@ async def test_read_paper_validates_arguments_without_calling_ncbi(args):
 
 def test_read_paper_schema_has_its_limits_in_the_description():
     k = READ_PAPER.to_openai()["function"]["parameters"]["properties"]["k"]
-    assert "maximum" not in k and "maximum 10" in k["description"]
+    assert "maximum" not in k and "maximum 8" in k["description"]
