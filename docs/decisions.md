@@ -368,3 +368,34 @@ and the out-of-scope tasks: 4 of 5. `lit-05` still refuses, although replaying i
 the abstract in the first search: in both runs the model searched twice more and refused after
 the cap. It stays as a known failure rather than adding an example close to the task.
 `multi-01` still adds "2023 2024" to its query and misses the abstract. A full run is pending.
+
+## 33. Read the full text with BM25 over passages, no embeddings (2026-11-09)
+**Context.** To make the project useful beyond AMR (a biotechnology student searching cell
+therapy papers), the agent has to find specific facts, and those are rarely in the abstract. In
+40 open-access cell therapy articles, 96% of the numbers in results paragraphs and tables did not
+appear in the abstract (a rough count, but the samples were the kind of fact people look for:
+"26% received tocilizumab", "the 5-year OS rate was 42.6%"). A full text is ~38 times an abstract
+and splits into ~50 passages of 1,200 characters.
+**Decision.** A `read_paper(paper_id, question, k)` tool. It accepts a PMID or a PMCID, fetches
+the JATS XML of PubMed Central with `efetch db=pmc` (Europe PMC's `fullTextXML` returned 500
+after 12-28 s when tested; NCBI answered in under a second), keeps paragraphs, figure captions
+and tables with their section path, joins consecutive blocks of the same section up to 1,200
+characters and ranks them with BM25 against the question, with IDF computed within the article.
+It returns 5 passages by default and up to 10. Section names are not used to pick results:
+Nature papers have no "Results" heading, each section is titled with its finding. The last 8
+articles read are kept in memory.
+**Measured** (scripts outside the repo; the datasets are not versioned):
+- LitQA2 (FutureHouse, CC BY-SA 4.0): 199 questions whose answer needs the full text, each with
+  the passage that contains it. 133 of 190 articles are open access in PMC; 131 questions were
+  scored. The passage is in the top 5 for 0.82 of them and in the top 10 for 0.93.
+- 24 cell therapy questions generated from open-access articles by `gpt-oss-20b`, asked to
+  paraphrase (word overlap with the passage 0.30, LitQA2 0.40), reviewed by Claude, not by a
+  domain expert: top 5 0.79, top 10 0.92.
+- The same questions with `bge-small` embeddings: top 5 0.77 (LitQA2) and 0.62 (paraphrased);
+  BM25 and embeddings fused with RRF: 0.86 and 0.88, both 0.92-0.95 in the top 10.
+**Trade-off.** The fusion finds the passage a little more often in the top 5, but embedding ~50
+passages takes ~9 s per article on a laptop, more on Render's shared CPU. With 10 passages BM25
+matches it. Embeddings stay an option for articles already read, if they are stored. Only open
+access articles in PMC can be read: 70% of LitQA2's.
+**Not yet wired into the agent:** a new tool changes how the AMR agent picks tools, and its evals
+would have to be re-run. That comes with the literature mode.

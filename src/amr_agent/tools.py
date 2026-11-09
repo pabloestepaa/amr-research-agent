@@ -1,4 +1,5 @@
-"""Herramientas del agente: la búsqueda en nuestra literatura y las del servidor MCP `amr-mcp`.
+"""Herramientas del agente: la búsqueda en nuestra literatura, la lectura del texto completo de
+un artículo y las del servidor MCP `amr-mcp`.
 
 El agente solo ve un `ToolBox`: una lista de esquemas (`specs`) y un método `call`. Le da igual
 si la herramienta es una función local o vive en otro proceso detrás del protocolo MCP.
@@ -10,12 +11,15 @@ import os
 import re
 import sys
 import time
+from collections import OrderedDict
 from dataclasses import dataclass, field, replace
 from typing import Any, Protocol
 
+import httpx
 from mcp import Client
 from mcp.client.stdio import StdioServerParameters
 
+from amr_agent.fulltext import Article, best_passages, parse_jats
 from amr_agent.retrieval import SearchBackend
 
 # Herramientas de amr-mcp que exponemos. Cuantas menos, mejor elige el modelo y menos tokens
@@ -246,6 +250,107 @@ class LiteratureTools:
         content, truncated = shrink({"results": results})
         return ToolResult(content=content, pmids=frozenset(h.pmid for h in hits),
                           truncated=truncated, papers=find_papers(results))
+
+
+# --- Herramienta local: leer el texto completo de un artículo -------------------------------
+
+READ_PAPER = ToolSpec(
+    name="read_paper",
+    description=(
+        "Read the full text of an open-access article in PubMed Central and return the passages "
+        "most relevant to a question, each with its section. Use it when the answer is a "
+        "specific detail (a dose, a response rate, a sample size, a method) that the abstract "
+        "does not give. Accepts a PMID or a PMCID; articles that are not open access have no "
+        "full text. Cite the passages with the article's PMID as [PMID:x]."
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "paper_id": {"type": "string", "description": "PMID (e.g. 38578105) or PMCID "
+                                                          "(e.g. PMC11237425)"},
+            "question": {"type": "string", "description": "What to look for, in English"},
+            "k": {"type": "integer", "minimum": 1, "maximum": 10, "default": 5,
+                  "description": "Number of passages to return"},
+        },
+        "required": ["paper_id", "question"],
+    },
+)
+
+EFETCH = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi"
+IDCONV = "https://pmc.ncbi.nlm.nih.gov/tools/idconv/api/v1/articles/"
+MAX_XML_BYTES = 20_000_000  # el artículo más grande de LitQA2 ocupaba ~1,5 MB
+PASSAGE_CHARS = 1300  # presupuesto por pasaje (los trozos son de ~1.200 caracteres)
+
+
+class ReadPaperTools:
+    """`read_paper`: descarga el JATS de PMC (NCBI) y devuelve los pasajes que mejor responden.
+
+    Europe PMC tiene el mismo XML (`fullTextXML`), pero al probarlo daba 500 tras 12-28 s;
+    `efetch db=pmc` respondía en menos de 1 s. Los últimos artículos leídos se guardan en memoria:
+    el agente suele preguntar dos cosas del mismo artículo.
+    """
+
+    def __init__(self, http: httpx.AsyncClient, api_key: str | None = None,
+                 email: str | None = None, cache_size: int = 8) -> None:
+        self._http = http  # lo crea y lo cierra quien construye la herramienta
+        self._params = {"tool": "amr-research-agent", **({"email": email} if email else {}),
+                        **({"api_key": api_key} if api_key else {})}
+        self._cache: OrderedDict[str, Article] = OrderedDict()
+        self._cache_size = cache_size
+
+    def specs(self) -> list[ToolSpec]:
+        return [READ_PAPER]
+
+    async def _pmcid(self, paper_id: str) -> str | None:
+        if re.fullmatch(r"PMC\d+", paper_id):
+            return paper_id
+        resp = await self._http.get(IDCONV, params={"format": "json", "ids": paper_id,
+                                                    **self._params})
+        resp.raise_for_status()
+        records = resp.json().get("records") or [{}]
+        return records[0].get("pmcid")
+
+    async def _article(self, pmcid: str) -> Article | None:
+        if pmcid in self._cache:
+            self._cache.move_to_end(pmcid)
+            return self._cache[pmcid]
+        resp = await self._http.get(EFETCH, params={
+            "db": "pmc", "retmode": "xml", "id": pmcid.removeprefix("PMC"), **self._params})
+        resp.raise_for_status()
+        # Sin <body> no hay texto completo: PMC solo da los metadatos si no es de acceso abierto.
+        if len(resp.content) > MAX_XML_BYTES or b"<body" not in resp.content:
+            return None
+        article = parse_jats(resp.content)
+        self._cache[pmcid] = article
+        if len(self._cache) > self._cache_size:
+            self._cache.popitem(last=False)
+        return article
+
+    async def call(self, name: str, arguments: dict[str, Any]) -> ToolResult:
+        if name != READ_PAPER.name:
+            return _error(f"unknown tool {name!r}")
+        paper_id = re.sub(r"^(PMID:?\s*)", "", str(arguments.get("paper_id") or "").strip(),
+                          flags=re.I).upper()
+        question = str(arguments.get("question") or "").strip()
+        if not re.fullmatch(r"PMC\d+|\d{5,9}", paper_id):
+            return _error("'paper_id' must be a PMID (digits) or a PMCID (PMC followed by digits)")
+        if len(question) < 3:
+            return _error("'question' must have at least 3 characters")
+        k = max(1, min(int(arguments.get("k") or 5), 10))
+
+        pmcid = await self._pmcid(paper_id)
+        article = await self._article(pmcid) if pmcid else None
+        if article is None:
+            return _error(f"no open-access full text in PubMed Central for {paper_id}; "
+                          "answer from the abstract instead")
+        pmid = article.pmid or (paper_id if paper_id.isdigit() else None)
+        passages = best_passages(article, question, k)
+        data = {"pmid": pmid, "pmcid": pmcid, "title": article.title,
+                "journal": article.journal, "year": article.year,
+                "passages": [{"section": p.section, "text": p.text} for p in passages]}
+        content, truncated = shrink(data, max(MAX_RESULT_CHARS, k * PASSAGE_CHARS))
+        return ToolResult(content=content, pmids=frozenset({pmid}) if pmid else frozenset(),
+                          truncated=truncated, papers=find_papers(data))
 
 
 def drop_seen_abstracts(result: ToolResult, seen: set[str]) -> ToolResult:

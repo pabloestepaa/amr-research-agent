@@ -1,0 +1,49 @@
+<?xml version="1.0" ?>
+<!-- Artículo inventado con la estructura del JATS que devuelve efetch db=pmc. -->
+<pmc-articleset>
+<article article-type="research-article">
+  <front>
+    <journal-meta>
+      <journal-title-group><journal-title>Journal of Invented Therapies</journal-title></journal-title-group>
+    </journal-meta>
+    <article-meta>
+      <article-id pub-id-type="pmid">11111111</article-id>
+      <article-id pub-id-type="pmc">9999999</article-id>
+      <title-group><article-title>A phase 1 trial of an invented CAR-T product in lymphoma</article-title></title-group>
+      <pub-date pub-type="epub"><year>2024</year></pub-date>
+      <abstract><p>We report safety and efficacy of an invented CAR-T product.</p></abstract>
+    </article-meta>
+  </front>
+  <body>
+    <p>Chimeric antigen receptor T cells have changed the treatment of relapsed lymphoma, but toxicity remains a concern.</p>
+    <sec>
+      <title>Results</title>
+      <sec>
+        <title>Safety</title>
+        <p>Cytokine release syndrome occurred in 43% of patients. For its management, 26% of patients received tocilizumab and 12% received corticosteroids.</p>
+        <p>Neurologic events of grade 3 or higher were observed in four patients, all of whom recovered within two weeks of onset.</p>
+      </sec>
+      <sec>
+        <title>Efficacy</title>
+        <p>The overall response rate was 82%, with complete responses in 54% of evaluable patients at the first assessment.
+          <table-wrap id="t1">
+            <label>Table 1</label>
+            <caption><p>Response by dose level</p></caption>
+            <table><tr><td>Dose level 2</td><td>Complete response 61%</td></tr></table>
+          </table-wrap>
+        </p>
+      </sec>
+    </sec>
+    <sec>
+      <title>Acknowledgements</title>
+      <p>We thank the patients and their families, and the invented foundation for funding this work.</p>
+    </sec>
+  </body>
+  <floats-group>
+    <fig id="f2">
+      <label>Figure 2</label>
+      <caption><p>Expansion of CAR-T cells in peripheral blood peaked at day 10 after infusion.</p></caption>
+    </fig>
+  </floats-group>
+</article>
+</pmc-articleset>
