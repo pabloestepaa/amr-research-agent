@@ -12,6 +12,7 @@ import asyncio
 import json
 import re
 import time
+from dataclasses import dataclass
 from typing import Any, Literal
 
 from pydantic import BaseModel
@@ -20,27 +21,50 @@ from amr_agent.llm import ChatLLM, ChatTurn, ToolCall
 from amr_agent.rag import NO_EVIDENCE, extract_citations, normalize_citations
 from amr_agent.tools import (
     SEARCH_LITERATURE,
+    SEARCH_PAPERS,
     Paper,
     ToolBox,
     ToolResult,
     drop_seen_abstracts,
 )
 
-ROLE = "You are a research assistant specialised in antimicrobial resistance (AMR)."
 
-RULES = f"""Rules:
-- You only answer questions about antimicrobial resistance research. For anything else (writing
+def _rules(scope: str, extra: str = "") -> str:
+    """Reglas comunes a los dos modos; cambia el ámbito (y AMR añade cómo citar el catálogo)."""
+    return f"""Rules:
+- {scope} For anything else (writing
   code, general knowledge, news, weather...) do not call any tool and reply exactly:
   "{NO_EVIDENCE}"
 - Cite claims from articles as [PMID:12345678], only with PMIDs returned by the tools.
-- Attribute database facts in the text, e.g. "according to the NCBI Reference Gene Catalog".
-- Results often use other words than the question: a broader or narrower term, a synonym, an
+{extra}- Results often use other words than the question: a broader or narrower term, a synonym, an
   acronym. If a result answers the question in other words, answer with it and say how its terms
   match the question. You may use textbook knowledge for that link, never for the findings
   themselves: those come from the results. If the results answer only part of it, answer that
   part and say what is missing.
 - Only if no tool result is about the question, reply exactly: "{NO_EVIDENCE}"
 - Answer in the language of the question. Be concise: at most two short paragraphs."""
+
+
+def _final_prompt(role: str, rules: str) -> str:
+    # Vuelta final (al llegar al límite de pasos o de tokens). No reenviamos la conversación con
+    # tool_choice="none": gpt-oss, viendo las herramientas y su historial, sigue intentando
+    # llamarlas (Groq responde 400 o la llamada se cuela en el texto; ver docs/decisions.md).
+    # En su lugar, una conversación nueva, sin herramientas, con los resultados como texto.
+    return f"""{role}
+The research is finished: answer the user's question using only the tool results provided.
+No tools are available now.
+
+{rules}"""
+
+
+# --- Modo AMR: catálogo de genes (amr-mcp) + nuestro índice de abstracts ---------------------
+
+ROLE = "You are a research assistant specialised in antimicrobial resistance (AMR)."
+
+RULES = _rules(
+    "You only answer questions about antimicrobial resistance research.",
+    '- Attribute database facts in the text, e.g. "according to the NCBI Reference Gene '
+    'Catalog".\n')
 
 SYSTEM_PROMPT = f"""{ROLE}
 Answer the user's question with the tools below. Do not answer from memory.
@@ -66,15 +90,56 @@ Tools:
 
 {RULES}"""
 
-# Vuelta final (al llegar al límite de pasos o de tokens). No reenviamos la conversación con
-# tool_choice="none": gpt-oss, viendo las herramientas y su historial, sigue intentando llamarlas
-# (Groq responde 400 o la llamada se cuela en el texto; ver docs/decisions.md). En su lugar, una
-# conversación nueva, sin herramientas, con los resultados ya obtenidos como texto.
-FINAL_SYSTEM_PROMPT = f"""{ROLE}
-The research is finished: answer the user's question using only the tool results provided.
-No tools are available now.
+FINAL_SYSTEM_PROMPT = _final_prompt(ROLE, RULES)
 
-{RULES}"""
+# --- Modo literatura: cualquier tema biomédico, búsqueda en vivo + texto completo -------------
+
+LITERATURE_ROLE = "You are a research assistant for the biomedical literature."
+
+LITERATURE_RULES = _rules(
+    "You only answer questions about biomedical and life-science research.")
+
+LITERATURE_SYSTEM_PROMPT = f"""{LITERATURE_ROLE}
+Answer the user's question with the tools below. Do not answer from memory.
+
+How to work:
+1. search_papers finds articles by title and abstract. Search for the study, not for the detail:
+   the trial or therapy name, the disease, the population (e.g. "ELARA tisagenlecleucel
+   follicular lymphoma"), because details such as doses or rates are usually only in the full
+   text. Query in English, as keywords, whatever the language of the question. At most
+   {{max_searches}} searches per question, and one is usually enough: search again only if no
+   result is about the question, with different terms. It only lists articles you have not
+   seen yet.
+2. If the question asks for a specific detail (a dose, a rate, a number of patients, a method)
+   and the abstracts do not give it, call read_paper on the most relevant article with
+   full_text true, with the question in English. Read another article only if the first one
+   does not have it.
+3. Answer with the specific fact, say which study it comes from (therapy, disease, design) and
+   cite it. If the passages answer only part of the question or articles disagree, say so.
+
+{LITERATURE_RULES}"""
+
+LITERATURE_FINAL_SYSTEM_PROMPT = _final_prompt(LITERATURE_ROLE, LITERATURE_RULES)
+
+
+@dataclass(frozen=True)
+class AgentMode:
+    """Lo que cambia entre modos: los prompts y qué herramienta de búsqueda se limita."""
+
+    name: str
+    system_prompt: str  # plantilla con {max_searches}
+    final_system_prompt: str
+    # Herramienta de búsqueda cuyas llamadas se cuentan (máx. max_searches) y cuyos resultados
+    # ya vistos se quitan (decisiones 30 y 31).
+    search_tool: str
+    max_steps: int = 5
+
+
+AMR_MODE = AgentMode("amr", SYSTEM_PROMPT, FINAL_SYSTEM_PROMPT, SEARCH_LITERATURE.name)
+# Un paso más que AMR: buscar, leer, a veces leer otro artículo y responder (con 5, una
+# búsqueda de más dejaba sin paso para leer el segundo artículo).
+LITERATURE_MODE = AgentMode("literature", LITERATURE_SYSTEM_PROMPT,
+                            LITERATURE_FINAL_SYSTEM_PROMPT, SEARCH_PAPERS.name, max_steps=6)
 
 FINAL_NUDGE = "Answer the question now, using only these results and following the rules."
 
@@ -100,8 +165,8 @@ def call_key(call: ToolCall) -> str | None:
     return f"{call.name} {json.dumps(call.arguments, sort_keys=True, ensure_ascii=False)}"
 
 
-async def _search_limit(max_searches: int) -> ToolResult:
-    return ToolResult(f"ERROR: at most {max_searches} search_literature calls per question. "
+async def _search_limit(max_searches: int, tool: str) -> ToolResult:
+    return ToolResult(f"ERROR: at most {max_searches} {tool} calls per question. "
                       "Answer with the abstracts above, or use another tool.", is_error=True)
 
 
@@ -164,15 +229,17 @@ class AgentAnswer(BaseModel):
 
 
 class Agent:
-    def __init__(self, llm: ChatLLM, tools: ToolBox, *, max_steps: int = 5,
-                 token_budget: int = 12_000, max_calls_per_step: int = 4,
+    def __init__(self, llm: ChatLLM, tools: ToolBox, *, mode: AgentMode = AMR_MODE,
+                 max_steps: int | None = None, token_budget: int = 12_000,
+                 max_calls_per_step: int = 4,
                  max_literature_searches: int = 2) -> None:
         # Dos frenos para no agotar la cuota de Groq (8.000 tokens/min) con una sola pregunta:
         # un máximo de vueltas y un presupuesto de tokens. Al llegar a cualquiera de los dos,
         # se pide la respuesta final sin herramientas en vez de cortar sin responder.
         self._llm = llm
         self._tools = tools
-        self.max_steps = max_steps
+        self.mode = mode
+        self.max_steps = max_steps or mode.max_steps
         self.token_budget = token_budget
         self.max_calls_per_step = max_calls_per_step
         # En dos ejecuciones de las evals, el abstract relevante salió en la 1.ª o 2.ª búsqueda
@@ -185,13 +252,14 @@ class Agent:
         schemas = [s.to_openai() for s in self._tools.specs()]
         messages: list[dict[str, Any]] = [
             {"role": "system",
-             "content": SYSTEM_PROMPT.format(max_searches=self.max_literature_searches)},
+             "content": self.mode.system_prompt.format(
+                 max_searches=self.max_literature_searches)},
             {"role": "user", "content": question},
         ]
         steps: list[ToolStep] = []
         evidence: list[tuple[ToolCall, ToolResult]] = []  # para la vuelta final
         called: dict[str, int] = {}  # llamada (herramienta + argumentos) -> paso en que se hizo
-        shown_abstracts: set[str] = set()  # PMIDs que search_literature ya mostró
+        shown_abstracts: set[str] = set()  # PMIDs que la búsqueda ya mostró
         searches = 0  # búsquedas de literatura ejecutadas (las repetidas no cuentan)
         seen_pmids: set[str] = set()
         papers: dict[str, Paper] = {}  # PMID -> título, revista y año, para las referencias
@@ -220,11 +288,12 @@ class Agent:
                 key = call_key(call)
                 if key is not None and key in called:  # misma herramienta, mismos argumentos
                     pending.append(_repeated(call, called[key]))
-                elif (call.name == SEARCH_LITERATURE.name
+                elif (call.name == self.mode.search_tool
                       and searches >= self.max_literature_searches):
-                    pending.append(_search_limit(self.max_literature_searches))
+                    pending.append(_search_limit(self.max_literature_searches,
+                                                 self.mode.search_tool))
                 else:
-                    if call.name == SEARCH_LITERATURE.name:
+                    if call.name == self.mode.search_tool:
                         searches += 1
                     if key is not None:
                         called[key] = step
@@ -233,7 +302,7 @@ class Agent:
             results = await asyncio.gather(*pending)
             tools_ms += (time.perf_counter() - t_tools) * 1000
             for call, result in zip(turn.tool_calls, results, strict=True):
-                if call.name == SEARCH_LITERATURE.name:
+                if call.name == self.mode.search_tool:
                     pmids = result.pmids
                     result = drop_seen_abstracts(result, shown_abstracts)
                     shown_abstracts.update(pmids)
@@ -269,15 +338,14 @@ class Agent:
                         "total": round((time.perf_counter() - t0) * 1000, 1)},
         )
 
-    @staticmethod
-    def _final_messages(question: str,
+    def _final_messages(self, question: str,
                         evidence: list[tuple[ToolCall, ToolResult]]) -> list[dict[str, Any]]:
         """La pregunta y los resultados como texto plano: sin herramientas que intentar llamar."""
         blocks = [f"[{i}] {call.name} {json.dumps(call.arguments, ensure_ascii=False)}\n"
                   f"{result.content}" for i, (call, result) in enumerate(evidence, start=1)]
         results = "\n\n".join(blocks) or "(no tool results)"
         return [
-            {"role": "system", "content": FINAL_SYSTEM_PROMPT},
+            {"role": "system", "content": self.mode.final_system_prompt},
             {"role": "user", "content": f"Question: {question}\n\nTool results:\n\n{results}"
                                         f"\n\n{FINAL_NUDGE}"},
         ]

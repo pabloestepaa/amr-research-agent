@@ -110,12 +110,12 @@ async def test_read_paper_accepts_a_pmid_and_caches_the_article():
     (b"<pmc-articleset><article><front/></article></pmc-articleset>", "PMC1"),  # sin <body>
     (XML, None),  # el PMID no está en PMC
 ])
-async def test_read_paper_without_open_access_full_text_is_an_error_the_model_can_read(xml, pmcid):
+async def test_read_paper_without_full_text_is_an_error_the_model_can_read(xml, pmcid):
     handler, _ = ncbi(xml, pmcid)
     result = await tools_with(handler).call("read_paper", {"paper_id": "12345678",
                                                            "question": "dose"})
     assert result.is_error
-    assert "no open-access full text" in result.content
+    assert "no full text in PubMed Central" in result.content
 
 
 @pytest.mark.parametrize("args", [

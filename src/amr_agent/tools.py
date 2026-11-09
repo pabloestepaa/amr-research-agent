@@ -257,11 +257,11 @@ class LiteratureTools:
 READ_PAPER = ToolSpec(
     name="read_paper",
     description=(
-        "Read the full text of an open-access article in PubMed Central and return the passages "
-        "most relevant to a question, each with its section. Use it when the answer is a "
-        "specific detail (a dose, a response rate, a sample size, a method) that the abstract "
-        "does not give. Accepts a PMID or a PMCID; articles that are not open access have no "
-        "full text. Cite the passages with the article's PMID as [PMID:x]."
+        "Read the full text of an article in PubMed Central and return the passages most "
+        "relevant to a question, each with its section. Use it when the answer is a specific "
+        "detail (a dose, a response rate, a sample size, a method) that the abstract does not "
+        "give. Accepts a PMID or a PMCID; only articles with full_text true in search_papers "
+        "can be read. Cite the passages with the article's PMID as [PMID:x]."
     ),
     parameters={
         "type": "object",
@@ -341,7 +341,7 @@ class ReadPaperTools:
         pmcid = await self._pmcid(paper_id)
         article = await self._article(pmcid) if pmcid else None
         if article is None:
-            return _error(f"no open-access full text in PubMed Central for {paper_id}; "
+            return _error(f"no full text in PubMed Central for {paper_id}; "
                           "answer from the abstract instead")
         pmid = article.pmid or (paper_id if paper_id.isdigit() else None)
         passages = best_passages(article, question, k)
@@ -351,6 +351,117 @@ class ReadPaperTools:
         content, truncated = shrink(data, max(MAX_RESULT_CHARS, k * PASSAGE_CHARS))
         return ToolResult(content=content, pmids=frozenset({pmid}) if pmid else frozenset(),
                           truncated=truncated, papers=find_papers(data))
+
+
+# --- Herramienta remota sin MCP: búsqueda de artículos en vivo ------------------------------
+
+SEARCH_PAPERS = ToolSpec(
+    name="search_papers",
+    description=(
+        "Search PubMed for articles on any biomedical topic, ranked by PubMed's Best Match. "
+        "Returns title, journal, year, a short abstract, the PMID and whether the full text is "
+        "in PubMed Central (full_text: true means read_paper can read it). Write the query in "
+        "English as a few keywords (e.g. 'ELARA tisagenlecleucel follicular lymphoma'), not as a "
+        "sentence: every word must match."
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "query": {"type": "string", "description": "Keywords in English"},
+            "k": {"type": "integer", "minimum": 1, "maximum": 8, "default": 5,
+                  "description": "Number of articles to return"},
+            "full_text_only": {"type": "boolean", "default": False,
+                               "description": "Only articles whose full text can be read"},
+        },
+        "required": ["query"],
+    },
+)
+
+ESEARCH = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi"
+EUROPEPMC_SEARCH = "https://www.ebi.ac.uk/europepmc/webservices/rest/search"
+# Aquí el abstract solo sirve para elegir qué artículo leer: el detalle lo da read_paper. Recortado
+# caben 5 artículos en ~1.000 tokens (Groq Free: 8.000 tokens/min para toda la pregunta).
+SEARCH_ABSTRACT_CHARS = 700
+
+
+class PaperSearchTools:
+    """`search_papers`: PubMed ordena, Europe PMC describe.
+
+    El orden de Europe PMC favorece lo reciente: con "ZUMA-1 axicabtagene ciloleucel" no salía
+    ningún informe del ensayo entre los 8 primeros, y el Best Match de PubMed los ponía 1.º y 3.º.
+    Europe PMC da, en una sola petición para todos los PMIDs, el abstract y si el texto completo
+    está en PMC. Si `esearch` falla (estuvo caído el 2026-11-05), se busca solo en Europe PMC.
+    """
+
+    def __init__(self, http: httpx.AsyncClient, api_key: str | None = None,
+                 email: str | None = None) -> None:
+        self._http = http
+        self._ncbi = {"tool": "amr-research-agent", **({"email": email} if email else {}),
+                      **({"api_key": api_key} if api_key else {})}
+
+    def specs(self) -> list[ToolSpec]:
+        return [SEARCH_PAPERS]
+
+    async def _pubmed_ids(self, query: str, k: int, full_text_only: bool) -> list[str]:
+        term = f'({query}) AND "pubmed pmc"[sb]' if full_text_only else query
+        resp = await self._http.get(ESEARCH, params={
+            "db": "pubmed", "term": term, "sort": "relevance", "retmax": k, "retmode": "json",
+            **self._ncbi})
+        resp.raise_for_status()
+        data = resp.json()
+        if "esearchresult" not in data or "ERROR" in data["esearchresult"]:
+            raise RuntimeError(f"esearch failed: {str(data)[:200]}")  # NCBI da errores con 200
+        return data["esearchresult"].get("idlist", [])
+
+    async def _europepmc(self, query: str, k: int) -> list[dict[str, Any]]:
+        resp = await self._http.get(EUROPEPMC_SEARCH, params={
+            "query": query, "format": "json", "resultType": "core", "pageSize": k})
+        resp.raise_for_status()
+        return [r for r in resp.json().get("resultList", {}).get("result", []) if r.get("pmid")]
+
+    async def call(self, name: str, arguments: dict[str, Any]) -> ToolResult:
+        if name != SEARCH_PAPERS.name:
+            return _error(f"unknown tool {name!r}")
+        query = str(arguments.get("query") or "").strip()
+        if len(query) < 3:
+            return _error("'query' must have at least 3 characters")
+        k = max(1, min(int(arguments.get("k") or 5), 8))
+        full_text_only = arguments.get("full_text_only") is True
+        try:
+            pmids = await self._pubmed_ids(query, k, full_text_only)
+            records = await self._europepmc(
+                f"({' OR '.join(f'EXT_ID:{p}' for p in pmids)}) AND SRC:MED", k) if pmids else []
+            by_pmid = {r["pmid"]: r for r in records}
+            records = [by_pmid[p] for p in pmids if p in by_pmid]  # en el orden de PubMed
+        except (httpx.HTTPError, RuntimeError, ValueError):
+            # Respaldo: solo título y abstract, porque Europe PMC también busca en el texto
+            # completo y entonces ganan las revisiones que lo nombran todo de pasada.
+            fallback = f"TITLE_ABS:({query}) AND SRC:MED"
+            if full_text_only:
+                fallback += " AND IN_PMC:y"
+            records = await self._europepmc(fallback, k)
+
+        results = []
+        for r in records:
+            abstract = re.sub(r"<[^>]+>", " ", r.get("abstractText") or "")
+            abstract = re.sub(r"\s+", " ", abstract).strip()
+            year = r.get("pubYear")
+            results.append({
+                "pmid": r["pmid"], "title": (r.get("title") or "").strip(),
+                "journal": ((r.get("journalInfo") or {}).get("journal") or {}).get("title"),
+                "year": int(year) if str(year).isdigit() else None,
+                # En PMC aunque no sea de licencia abierta (p. ej. manuscritos de autor del NIH):
+                # efetch db=pmc devuelve su texto completo y read_paper lo puede leer.
+                "full_text": r.get("inPMC") == "Y",
+                "abstract": abstract if len(abstract) <= SEARCH_ABSTRACT_CHARS
+                else abstract[:SEARCH_ABSTRACT_CHARS] + "…",
+            })
+        if not results:
+            return ToolResult(content=_dumps({"results": [], "note": "no matching articles; "
+                                              "try fewer or broader keywords"}))
+        content, truncated = shrink({"results": results})
+        return ToolResult(content=content, pmids=frozenset(r["pmid"] for r in results),
+                          truncated=truncated, papers=find_papers(results))
 
 
 def drop_seen_abstracts(result: ToolResult, seen: set[str]) -> ToolResult:

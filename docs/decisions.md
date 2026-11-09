@@ -399,3 +399,34 @@ matches it. Embeddings stay an option for articles already read, if they are sto
 access articles in PMC can be read: 70% of LitQA2's.
 **Not yet wired into the agent:** a new tool changes how the AMR agent picks tools, and its evals
 would have to be re-run. That comes with the literature mode.
+
+## 34. A literature mode: PubMed ranks, Europe PMC describes, the agent reads (2026-11-09)
+**Context.** With `read_paper` (decision 33), the agent can answer questions outside AMR if it
+can find the right article. The AMR agent searches a fixed index of 3,000 abstracts, which is
+useless for other topics, and adding tools to it would change how it picks them and invalidate
+its evals.
+**Decision.**
+- An `AgentMode` holds what differs between modes: system prompt, final-turn prompt, the search
+  tool whose calls are capped at two and de-duplicated (decisions 30 and 31), and the step limit.
+  The AMR mode is the default and its prompt is byte-for-byte the same as before.
+- The literature mode has two tools, `search_papers` and `read_paper`, and six steps instead of
+  five, so that it can search, read an article, read a second one and answer.
+- `search_papers` takes the order from PubMed's Best Match (`esearch sort=relevance`) and the
+  abstracts from Europe PMC, in one request for all PMIDs. Europe PMC's own ranking favours recent
+  articles and also matches the full text of open-access papers: for "ZUMA-1 axicabtagene
+  ciloleucel" none of its first 8 results was a report of the trial, while PubMed ranked the
+  5-year follow-up first and the original NEJM report third. If `esearch` fails, it searches
+  Europe PMC restricted to title and abstract.
+- Each result says `full_text: true` when the article is in PubMed Central, whatever its
+  licence. The NEJM report of ZUMA-1 is not open access but is in PMC as an NIH author
+  manuscript, and `efetch` returns its full text; filtering on open access hid it.
+- The prompt tells the agent to search for the study (trial, therapy, disease) rather than for
+  the detail, because details are rarely in abstracts (decision 33).
+**Result.** "¿Qué porcentaje de pacientes del ensayo ZUMA-1 con axicabtagene ciloleucel recibió
+tocilizumab?": the first two versions (Europe PMC ranking, open-access filter) read a 2026
+retrospective study that only mentions ZUMA-1 in its introduction and refused. The final version
+found the NEJM report, read it and answered 43% with a valid citation. It took 16,400 tokens and
+58 s, because it read two articles with 10 passages each; Groq's free tier allows 8,000 tokens per
+minute. One question is not an evaluation: the literature mode needs its own eval set.
+**Open.** Fewer passages per call (5 by default, but the model asked for 10), and rejecting
+invented arguments in local tools as amr-mcp does (the model sent `top_k` instead of `k`).
