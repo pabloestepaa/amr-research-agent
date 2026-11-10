@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>AMR Research Agent</title>
-<meta name="description" content="Ask questions about antimicrobial resistance and get answers cited from PubMed abstracts, or let an agent query NCBI's gene catalog through an MCP server. Every citation is checked.">
+<meta name="description" content="Ask questions about antimicrobial resistance and get answers cited from PubMed abstracts, let an agent query NCBI's gene catalog through an MCP server, or have it search PubMed and read full-text papers. Every citation is checked.">
 <meta name="theme-color" content="#173a2c">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -68,7 +68,7 @@
   .lead { font: 400 1.15rem/1.45 var(--serif); margin: 0 0 18px; max-width: 34ch; text-wrap: pretty; }
 
   /* Modo: control segmentado hecho con radios (se usa con teclado como un radiogroup) */
-  .tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 3px; border: 1px solid var(--rule); border-radius: 6px; background: var(--paper); padding: 3px; margin: 0 0 10px; min-width: 0; }
+  .tabs { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 3px; border: 1px solid var(--rule); border-radius: 6px; background: var(--paper); padding: 3px; margin: 0 0 10px; min-width: 0; }
   .tabs label { position: relative; display: block; cursor: pointer; text-align: center; border-radius: 4px; padding: 8px 6px; min-height: 44px; font-weight: 600; font-size: 0.92rem; color: var(--muted); }
   .tabs small { display: block; font-weight: 400; font-size: 0.76rem; }
   .tabs input { position: absolute; opacity: 0; inset: 0; margin: 0; cursor: pointer; }
@@ -168,6 +168,8 @@
   .lane-h.app::before { background: var(--app); }
   .lane-h.mcp::before { background: var(--mcp-bar); }
   .lane-h.mcp, .cell.mcp-side { border-left: 2px dashed var(--mcp-bar); }
+  .lanes.single { grid-template-columns: 1.8rem minmax(0, 1fr); }
+  .lanes.single .wait-cell { grid-column: 2; }
   .lane-n { font: 600 0.9rem var(--serif); color: var(--muted); padding-top: 13px; font-variant-numeric: lining-nums tabular-nums; border-top: 1px solid var(--rule); }
   .lane-n.cont { border-top-style: dotted; }
   .cell { padding: 7px 12px 9px; border-top: 1px solid var(--rule); min-width: 0; }
@@ -269,7 +271,7 @@
 <div class="layout">
   <div class="side">
     <section class="ask" aria-label="Ask a question">
-      <p class="lead">Ask about antimicrobial resistance. Answers come from ~3,000 recent PubMed abstracts
+      <p class="lead" id="lead">Ask about antimicrobial resistance. Answers come from ~3,000 recent PubMed abstracts
         and NCBI's gene catalog, and every citation is checked against what was actually retrieved.</p>
       <details class="how">
         <summary>How it works</summary>
@@ -281,6 +283,9 @@
           <li>In agent mode the model runs a loop of up to 5 rounds and chooses its tools: the same
             literature search, or NCBI's gene catalog, protein records and PubMed through
             <a href="https://pypi.org/project/amr-mcp/">amr-mcp</a>, an MCP server I wrote.</li>
+          <li>Papers mode is not limited to AMR: the agent searches all of PubMed, then reads the full
+            text of the best match from PubMed Central and ranks its paragraphs with BM25, because
+            exact figures are rarely in the abstract.</li>
         </ol>
       </details>
 
@@ -289,6 +294,7 @@
           <legend class="vh">Mode</legend>
           <label><input type="radio" name="kind" value="ask">Literature<small>cited answer</small></label>
           <label><input type="radio" name="kind" value="agent" checked>Agent<small>calls tools via MCP</small></label>
+          <label><input type="radio" name="kind" value="papers">Papers<small>reads full text · beta</small></label>
         </fieldset>
         <label for="question" class="vh">Your question</label>
         <textarea id="question" name="question" maxlength="500" autocomplete="off"
@@ -302,7 +308,7 @@
             <option value="keyword">exact keywords (full-text)</option>
           </select>
         </div>
-        <p class="field-note" id="mode-note">The agent takes 15–60 s and about 12,000 LLM tokens per question, so it allows one question per minute.</p>
+        <p class="field-note" id="mode-note"></p>
         <div class="submit-row">
           <span class="kbd" id="kbd" aria-hidden="true"></span>
           <button type="submit" class="btn" id="submit">Ask the agent</button>
@@ -323,6 +329,9 @@
         <li><button type="button">What drug class does mcr-1 confer resistance to, and in which species is it most often found?</button></li>
         <li><button type="button">Which carbapenemase gene families are in the NCBI catalog, and what does recent literature say about KPC?</button></li>
         <li><button type="button">¿En qué especies se ha secuenciado más blaNDM-1?</button></li>
+      </ul>
+      <ul class="examples" id="examples-papers" aria-labelledby="ex-h" hidden>
+        <li><button type="button">In the ZUMA-1 trial of axicabtagene ciloleucel, what percentage of patients received tocilizumab?</button></li>
       </ul>
     </section>
 
@@ -351,8 +360,8 @@
   </main>
 
   <footer class="foot">
-    <p>A research tool, not clinical advice. Answers come only from the indexed abstracts and NCBI's
-      databases and can still be wrong: check the cited papers.</p>
+    <p>A research tool, not clinical advice. Answers come only from the indexed abstracts, NCBI's
+      databases and PubMed Central, and can still be wrong: check the cited papers.</p>
     <p>Runs on free tiers (Render, Neon, Groq): after a quiet spell the first question can take up to a
       minute, and the LLM quota is shared by every visitor.</p>
   </footer>
@@ -369,7 +378,16 @@ const form = $("ask"), question = $("question"), submit = $("submit"), statusBox
 const entry = $("entry");
 const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
 const NO_EVIDENCE = "I could not find evidence for this in the indexed literature.";
-const BUTTON = { ask: "Search the literature", agent: "Ask the agent" };
+const BUTTON = { ask: "Search the literature", agent: "Ask the agent", papers: "Search and read papers" };
+// Lo que cambia entre los dos agentes: rondas, presupuesto y lo que tarda.
+const AGENTS = {
+  agent: { rounds: 5, budget: "12,000", typical: 60, slowAfter: 70,
+    note: "The agent takes 15–60 s and about 5,000–12,000 LLM tokens per question, so it allows one question per minute." },
+  papers: { rounds: 6, budget: "16,000", typical: 120, slowAfter: 150,
+    note: "Experimental, not evaluated yet. Papers searches all of PubMed and reads full texts from PubMed Central. A question takes 1–2 min and about 15,000 LLM tokens, so it allows one per minute and five a day for everyone." },
+};
+const isAgentKind = (k) => k === "agent" || k === "papers";
+const KIND_LABEL = { ask: "literature mode", agent: "agent mode", papers: "papers mode" };
 
 function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -428,7 +446,7 @@ const CHECK = '<svg width="18" height="18" viewBox="0 0 20 20" aria-hidden="true
 const CROSS = '<svg width="18" height="18" viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="8.6" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M10 5.6v5.6M10 13.8v.4" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/></svg>';
 
 function renderWitness(kind, nValid, unverified) {
-  const by = kind === "agent" ? "a search or tool" : "the search";
+  const by = isAgentKind(kind) ? "a search or tool" : "the search";
   const total = nValid + unverified.length;
   if (total === 0) return "";
   if (!unverified.length)
@@ -472,16 +490,22 @@ function isEmpty(s) {
 }
 
 // Métodos del agente: cada llamada en el carril donde se ejecutó, con la barra = latencia.
-function renderLanes(steps) {
+// En el modo Papers todo se ejecuta en la app (PubMed y PMC por HTTP): un solo carril.
+function renderLanes(steps, kind) {
   if (!steps.length) return '<p class="sub">The agent answered without calling any tools.</p>';
+  const single = kind === "papers";
   const max = Math.max(...steps.map((s) => s.latency_ms), 1);
   let prev = null;
   const rows = steps.map((s, i) => {
-    const mcp = s.tool !== "search_literature";
+    const mcp = !single && s.tool !== "search_literature";
     const args = s.arguments
       ? Object.entries(s.arguments).filter(([, v]) => v !== null).map(([k, v]) => `${k}=${JSON.stringify(v)}`).join(", ")
       : "invalid arguments";
-    const what = s.tool === "search_literature" && !s.is_error ? plural(s.pmids.length, "abstract", "abstracts") : `${fmt(s.result_chars)} chars`;
+    const what = s.is_error ? `${fmt(s.result_chars)} chars`
+      : s.tool === "search_literature" ? plural(s.pmids.length, "abstract", "abstracts")
+      : s.tool === "search_papers" ? plural(s.pmids.length, "article", "articles")
+      : s.tool === "read_paper" ? `full-text passages, ${fmt(s.result_chars)} chars`
+      : `${fmt(s.result_chars)} chars`;
     const flags = [s.is_error ? '<span class="flag err">error</span>' : "", isEmpty(s) ? '<span class="flag warn">no matches</span>' : "",
       s.truncated ? '<span class="flag warn">trimmed to fit</span>' : ""].join(" ");
     const width = Math.max(3, Math.round((s.latency_ms / max) * 100));
@@ -494,21 +518,29 @@ function renderLanes(steps) {
     const cont = s.step === prev ? " cont" : "";
     const n = s.step === prev ? "" : s.step;
     prev = s.step;
+    if (single) return `<div class="lane-n${cont}">${n}</div><div class="cell${cont}">${call}</div>`;
     return `<div class="lane-n${cont}">${n}</div>`
       + (mcp ? `<div class="cell empty${cont}"></div><div class="cell mcp-side${cont}">${call}</div>`
              : `<div class="cell${cont}">${call}</div><div class="cell empty mcp-side${cont}"></div>`);
   });
-  return `<div class="lanes" role="list" aria-label="Tool calls in order">
-      <div class="lane-h" aria-hidden="true"></div>
-      <div class="lane-h app">In this app<span>hybrid search on Postgres</span></div>
-      <div class="lane-h mcp">amr-mcp, over MCP<span>NCBI gene catalog, proteins, PubMed</span></div>
+  return `<div class="lanes${single ? " single" : ""}" role="list" aria-label="Tool calls in order">
+      ${laneHeads(kind)}
       ${rows.join("")}
     </div>`;
 }
 
+function laneHeads(kind) {
+  if (kind === "papers")
+    return `<div class="lane-h" aria-hidden="true"></div>
+      <div class="lane-h app">In this app<span>PubMed search, full text from PubMed Central, BM25</span></div>`;
+  return `<div class="lane-h" aria-hidden="true"></div>
+      <div class="lane-h app">In this app<span>hybrid search on Postgres</span></div>
+      <div class="lane-h mcp">amr-mcp, over MCP<span>NCBI gene catalog, proteins, PubMed</span></div>`;
+}
+
 const STOP = {
-  max_steps: "It reached the 5-round limit, so the last round was a final answer without tools.",
-  token_budget: "It reached the 12,000-token budget, so the last round was a final answer without tools.",
+  max_steps: (a) => `It reached the ${a.rounds}-round limit, so the last round was a final answer without tools.`,
+  token_budget: (a) => `It reached the ${a.budget}-token budget, so the last round was a final answer without tools.`,
 };
 
 // --- Una entrada completa ------------------------------------------------------------------
@@ -522,7 +554,7 @@ function renderEntry(e) {
 
   const meta = [];
   meta.push(recorded ? `<b>Recorded run</b>, ${escapeHtml(recorded)}` : "<b>Your question</b>");
-  meta.push(kind === "agent" ? "agent mode" : "literature mode");
+  meta.push(KIND_LABEL[kind]);
   if (recorded) meta.push("no quota spent");
   if (body.usage) meta.push(`${escapeHtml(body.usage.model)} on Groq`);
   $("entry-meta").innerHTML = `<span>${meta.join(" · ")}</span>`;
@@ -534,16 +566,18 @@ function renderEntry(e) {
   else parts.push(renderWitness(kind, validCount, [...unverified]));
 
   const lat = body.latency_ms || {};
-  if (kind === "agent") {
+  if (isAgentKind(kind)) {
     const steps = body.steps || [];
     const rounds = new Set(steps.map((s) => s.step)).size;
     const u = body.usage;
-    parts.push(`<h3>Methods</h3><p class="sub"><b>Fig. 1.</b> ${steps.length ? `${plural(steps.length, "tool call", "tool calls")} over ${plural(rounds, "round", "rounds")}, each in the lane where it ran. Bar length is latency.` : ""}</p>`);
-    parts.push(renderLanes(steps));
+    const where = kind === "papers" ? "" : ", each in the lane where it ran";
+    parts.push(`<h3>Methods</h3><p class="sub"><b>Fig. 1.</b> ${steps.length ? `${plural(steps.length, "tool call", "tool calls")} over ${plural(rounds, "round", "rounds")}${where}. Bar length is latency.` : ""}</p>`);
+    parts.push(renderLanes(steps, kind));
     const totals = [`Total ${seconds(lat.total || 0)}`];
     if (lat.llm) totals.push(`LLM ${seconds(lat.llm)}, tools ${seconds(lat.tools || 0)}`);
     totals.push(`${plural(u.llm_calls, "LLM call", "LLM calls")} (one per round, plus the final answer)`, `${fmt(u.prompt_tokens + u.completion_tokens)} tokens`);
-    parts.push(`<p class="totals">${totals.join(" · ")}${STOP[body.stop_reason] ? ". " + STOP[body.stop_reason] : ""}</p>`);
+    const stop = STOP[body.stop_reason] ? ". " + STOP[body.stop_reason](AGENTS[kind]) : "";
+    parts.push(`<p class="totals">${totals.join(" · ")}${stop}</p>`);
     const cites = new Map((body.citations || []).map((c) => [c.pmid, c]));
     const fromTool = (pmid) => {
       const s = steps.find((x) => x.pmids.includes(pmid));
@@ -576,7 +610,7 @@ function renderEntry(e) {
 // Cuando una pregunta falla, el aviso va en la propia entrada: en móvil la página ya se ha
 // desplazado hasta aquí y el formulario queda arriba, fuera de la vista.
 function renderFailure(kind, q, err) {
-  $("entry-meta").innerHTML = `<span><b>Your question</b> · ${kind === "agent" ? "agent mode" : "literature mode"} · not answered</span>`;
+  $("entry-meta").innerHTML = `<span><b>Your question</b> · ${KIND_LABEL[kind]} · not answered</span>`;
   $("entry-q").innerHTML = italicize(escapeHtml(normalize(q)));
   const back = current ? ` <button type="button" class="link-btn" data-act="restore">Show the previous entry</button>.` : "";
   $("entry-body").innerHTML = `<div class="entry-notice ${err.cls || "error"}"><p>${err.html || escapeHtml(String(err.message || err))}</p>`
@@ -585,11 +619,11 @@ function renderFailure(kind, q, err) {
 }
 
 // --- Envío, espera y límites ---------------------------------------------------------------
-const isAgent = () => form.elements.kind.value === "agent";
-const kindNow = () => (isAgent() ? "agent" : "ask");
+const kindNow = () => form.elements.kind.value;
+const isAgent = () => isAgentKind(kindNow());
 let current = null;             // la entrada que se ve (para restaurarla si algo falla)
 let busy = false;
-const cooldown = { ask: 0, agent: 0 };  // hasta cuándo (ms) no tiene sentido preguntar
+const cooldown = { ask: 0, agent: 0, papers: 0 };  // hasta cuándo (ms) no tiene sentido preguntar
 let ticker = null;
 
 function setStatus(html, kind) {
@@ -621,19 +655,27 @@ function startTicker() {
   if (ticker) return;
   ticker = setInterval(() => {
     syncButton();
-    if (!busy && cooldown.ask <= Date.now() && cooldown.agent <= Date.now()) { clearInterval(ticker); ticker = null; }
+    if (!busy && Object.values(cooldown).every((t) => t <= Date.now())) { clearInterval(ticker); ticker = null; }
   }, 500);
 }
 
+const PLACEHOLDER = {
+  ask: "e.g. Which genes confer colistin resistance in E. coli?",
+  agent: "e.g. In which species is blaKPC-2 most often found?",
+  papers: "e.g. What dose was used in the phase 1 trial of …? Name the trial or therapy.",
+};
+const LEAD = {
+  amr: $("lead").textContent,
+  papers: "Ask about any biomedical study. The agent searches all of PubMed, reads the full text of the best match from PubMed Central, and every citation is checked against what it actually read.",
+};
 function syncMode() {
-  const agent = isAgent();
-  $("search-opts").hidden = agent;
-  $("mode-note").hidden = !agent;
-  $("examples-ask").hidden = agent;
-  $("examples-agent").hidden = !agent;
-  question.placeholder = agent
-    ? "e.g. In which species is blaKPC-2 most often found?"
-    : "e.g. Which genes confer colistin resistance in E. coli?";
+  const kind = kindNow();
+  $("lead").textContent = kind === "papers" ? LEAD.papers : LEAD.amr;
+  $("search-opts").hidden = kind !== "ask";
+  $("mode-note").hidden = !isAgentKind(kind);
+  $("mode-note").textContent = AGENTS[kind] ? AGENTS[kind].note : "";
+  for (const k of ["ask", "agent", "papers"]) $("examples-" + k).hidden = k !== kind;
+  question.placeholder = PLACEHOLDER[kind];
   syncLang();
   syncButton();
 }
@@ -642,17 +684,18 @@ const SPANISH = /[¿¡ñáéíóú]|\b(qué|cuál|cómo|dónde|genes? de|resiste
 function syncLang() { $("lang-note").hidden = isAgent() || !SPANISH.test(question.value); }
 
 function showPending(kind, q) {
-  $("entry-meta").innerHTML = `<span><b>Your question</b> · ${kind === "agent" ? "agent mode" : "literature mode"} · working</span>`;
+  $("entry-meta").innerHTML = `<span><b>Your question</b> · ${KIND_LABEL[kind]} · working</span>`;
   $("entry-q").innerHTML = italicize(escapeHtml(normalize(q)));
-  const what = kind === "agent"
+  const a = AGENTS[kind];
+  const what = kind === "papers"
+    ? "The agent is searching PubMed and reading full texts. This usually takes 1–2 minutes, partly waiting for the free LLM quota."
+    : kind === "agent"
     ? "The agent is choosing tools and reading their results. This usually takes 15–60 s."
     : "Searching the abstracts and writing a cited answer. This usually takes a few seconds.";
-  const frame = kind !== "agent" ? "" : `<h3>Methods</h3>
-    <p class="sub"><b>Fig. 1.</b> The agent runs up to 5 rounds on the server; its tool calls are drawn here, each in its lane, when it answers.</p>
-    <div class="lanes">
-      <div class="lane-h" aria-hidden="true"></div>
-      <div class="lane-h app">In this app<span>hybrid search on Postgres</span></div>
-      <div class="lane-h mcp">amr-mcp, over MCP<span>NCBI gene catalog, proteins, PubMed</span></div>
+  const frame = !a ? "" : `<h3>Methods</h3>
+    <p class="sub"><b>Fig. 1.</b> The agent runs up to ${a.rounds} rounds on the server; its tool calls are drawn here${kind === "papers" ? "" : ", each in its lane,"} when it answers.</p>
+    <div class="lanes${kind === "papers" ? " single" : ""}">
+      ${laneHeads(kind)}
       <div class="lane-n">…</div><div class="cell wait-cell"><div class="wait-track"><i id="wait-fill"></i></div></div>
     </div>`;
   $("entry-body").innerHTML = `<div class="pending"><p>${what}</p><p class="elapsed" id="elapsed">0 s elapsed</p><p id="slow" hidden></p></div>${frame}`;
@@ -662,10 +705,10 @@ function showPending(kind, q) {
     const s = Math.round((Date.now() - t0) / 1000);
     const el = $("elapsed");
     if (el) el.textContent = `${s} s elapsed`;
-    const fill = $("wait-fill");  // tiempo real transcurrido frente a los 60 s habituales
-    if (fill) fill.style.width = `${Math.min(100, (s / 60) * 100)}%`;
+    const fill = $("wait-fill");  // tiempo real transcurrido frente a lo habitual del modo
+    if (fill && a) fill.style.width = `${Math.min(100, (s / a.typical) * 100)}%`;
     const slow = $("slow");
-    if (slow && s >= (kind === "agent" ? 70 : 12)) {
+    if (slow && s >= (a ? a.slowAfter : 12)) {
       slow.hidden = false;
       slow.textContent = "Taking longer than usual: the free database or the server may be waking up after a quiet spell. It can take up to a minute more.";
     }
@@ -689,7 +732,7 @@ async function ask(event) {
   }
   busy = true;
   submit.classList.add("busy");
-  submit.textContent = kind === "agent" ? "Working…" : "Searching…";
+  submit.textContent = isAgentKind(kind) ? "Working…" : "Searching…";
   syncButton();
   setStatus("", "");
   const mode = $("mode").value;
@@ -699,10 +742,12 @@ async function ask(event) {
   try {
     let resp;
     try {
-      resp = await fetch(kind === "agent" ? "/agent" : "/ask", {
+      const payload = kind === "papers" ? { question: q, mode: "literature" }
+        : kind === "agent" ? { question: q } : { question: q, mode };
+      resp = await fetch(kind === "ask" ? "/ask" : "/agent", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(kind === "agent" ? { question: q } : { question: q, mode }),
+        body: JSON.stringify(payload),
       });
     } catch {
       throw { html: "Couldn't reach the server. If it was asleep it may still be starting: try again in a moment.", cls: "error" };
@@ -711,7 +756,7 @@ async function ask(event) {
     if (!resp.ok) throw problem(resp, body, kind);
     current = { kind, q, body, mode, recorded: null };
     renderEntry(current);
-    if (kind === "agent") cooldown.agent = started + 60_000;  // la API permite 1 por minuto
+    if (isAgentKind(kind)) cooldown[kind] = started + 60_000;  // la API permite 1 por minuto
     setStatus("Answer ready.", "sr");
     entry.focus({ preventScroll: true });
     bringIntoView();
@@ -738,7 +783,7 @@ function problem(resp, body, kind) {
     return { html: `The demo's daily question budget is used up (the free LLM quota is shared). It resets within a day. Meanwhile, <button type="button" class="link-btn" data-act="recorded">see the recorded agent run</button>.`, cls: "limit" };
   if (resp.status === 429) {
     cooldown[kind] = Date.now() + wait * 1000;
-    return { html: kind === "agent"
+    return { html: isAgentKind(kind)
       ? "The agent allows one question per minute from each visitor, to stay inside the free LLM quota."
       : "That's five questions in a minute.", cls: "limit", until: cooldown[kind] };
   }
@@ -746,9 +791,9 @@ function problem(resp, body, kind) {
     return { html: `The free LLM token budget for today is nearly used up (it's shared by every visitor and frees up gradually over the day). Try again later. Meanwhile, <button type="button" class="link-btn" data-act="recorded">see the recorded agent run</button>.`, cls: "limit" };
   if (resp.status === 503 && /rate limit/i.test(detail)) {
     cooldown[kind] = Date.now() + 60_000;
-    return { html: `The free LLM quota for this minute is used up (it's shared by every visitor). Try again in a minute${kind === "agent" ? ', or <button type="button" class="link-btn" data-act="literature">switch to Literature mode</button>, which needs far fewer tokens' : ""}.`, cls: "limit", until: cooldown[kind] };
+    return { html: `The free LLM quota for this minute is used up (it's shared by every visitor). Try again in a minute${isAgentKind(kind) ? ', or <button type="button" class="link-btn" data-act="literature">switch to Literature mode</button>, which needs far fewer tokens' : ""}.`, cls: "limit", until: cooldown[kind] };
   }
-  if (resp.status === 503 && kind === "agent")
+  if (resp.status === 503 && isAgentKind(kind))
     return { html: 'The agent isn\'t available right now. <button type="button" class="link-btn" data-act="literature">Switch to Literature mode</button>, which still works.', cls: "error" };
   if (resp.status === 422) return { html: "Questions need between 3 and 500 characters.", cls: "error" };
   if (resp.status === 502) return { html: "The LLM provider returned an error. Please try again.", cls: "error" };

@@ -460,8 +460,11 @@ class PaperSearchTools:
                 else abstract[:SEARCH_ABSTRACT_CHARS] + "…",
             })
         if not results:
-            return ToolResult(content=_dumps({"results": [], "note": "no matching articles; "
-                                              "try fewer or broader keywords"}))
+            # PubMed exige que estén todas las palabras: una consulta larga suele dar 0.
+            return ToolResult(content=_dumps({"results": [], "note": (
+                "no matching articles: PubMed needs every keyword to match. Try fewer keywords, "
+                "e.g. the trial or therapy name and the disease. This search did not count "
+                "towards your limit.")}))
         content, truncated = shrink({"results": results})
         return ToolResult(content=content, pmids=frozenset(r["pmid"] for r in results),
                           truncated=truncated, papers=find_papers(results))

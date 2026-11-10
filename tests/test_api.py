@@ -5,7 +5,7 @@ import openai
 import pytest
 from fastapi.testclient import TestClient
 
-from amr_agent.agent import Agent, AgentAnswer
+from amr_agent.agent import LITERATURE_MODE, Agent, AgentAnswer
 from amr_agent.api.main import app, get_agent, get_agent_quota, get_quota, get_rag, get_retriever
 from amr_agent.api.ratelimit import AskQuota
 from amr_agent.rag import RagService
@@ -153,3 +153,46 @@ def test_agent_llm_rate_limit_becomes_503(client):
 
     app.dependency_overrides[get_agent] = lambda: Agent(RateLimitedLLM(), Toolset([]))
     assert client.post("/agent", json={"question": "mcr-1?"}).status_code == 503
+
+
+# --- Modo literatura de /agent (pestaña "Papers") -------------------------------------------
+
+@pytest.fixture
+def literature(client):
+    """Un agente de literatura con guion y cuotas reales (sin el override de la fixture)."""
+    app.dependency_overrides.pop(get_agent_quota)
+    app.state.agent_quota = AskQuota(per_ip_per_minute=100, per_day=100)
+    app.state.literature_quota = AskQuota(per_ip_per_minute=1, per_day=100)
+    llm = ScriptedLLM(text_turn("A literature answer."), text_turn("Again."))
+    app.state.literature_agent = Agent(llm, Toolset([]), mode=LITERATURE_MODE)
+    yield llm
+    del app.state.agent_quota, app.state.literature_quota, app.state.literature_agent
+
+
+def test_literature_mode_uses_its_own_agent(client, literature):
+    resp = client.post("/agent", json={"question": "CAR-T dose?", "mode": "literature"})
+    assert resp.status_code == 200 and resp.json()["answer"] == "A literature answer."
+    system = literature.calls[0]["messages"][0]["content"]
+    assert system.startswith("You are a research assistant for the biomedical literature.")
+
+
+def test_literature_mode_has_its_own_quota(client, literature):
+    lit = {"question": "CAR-T dose?", "mode": "literature"}
+    assert client.post("/agent", json=lit).status_code == 200
+    assert client.post("/agent", json=lit).status_code == 429  # 1 por minuto
+    assert client.post("/agent", json={"question": "mcr-1?"}).status_code == 200  # AMR, aparte
+
+
+def test_literature_mode_unavailable_is_503_without_spending_quota(client, literature):
+    app.state.literature_agent = None
+    lit = {"question": "CAR-T dose?", "mode": "literature"}
+    assert [client.post("/agent", json=lit).status_code for _ in range(2)] == [503, 503]
+
+
+def test_agent_rejects_an_unknown_mode(client):
+    assert client.post("/agent", json={"question": "mcr-1?", "mode": "x"}).status_code == 422
+
+
+def test_amr_is_the_default_mode_in_the_schema(client):
+    schema = client.get("/openapi.json").json()["components"]["schemas"]["AgentRequest"]
+    assert schema["properties"]["mode"]["default"] == "amr"

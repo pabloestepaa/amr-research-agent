@@ -181,3 +181,43 @@ async def test_read_paper_returns_at_most_eight_passages():
     result = await tools.call("read_paper", {"paper_id": "PMC1", "question": "tocilizumab",
                                              "k": 10})
     assert len(json.loads(result.content)["passages"]) == 8
+
+
+# --- Qué cuenta para el límite de búsquedas (decisión 37) -----------------------------------
+
+async def test_rejected_and_empty_searches_do_not_use_up_the_limit():
+    # En la demo: un `top_k` inventado y una consulta larga sin resultados dejaban al agente sin
+    # búsquedas antes de ver un solo artículo.
+    calls: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request)
+        if str(request.url).startswith(ESEARCH):
+            ids = [] if "long" in request.url.params["term"] else ["11111111"]
+            return httpx.Response(200, json={"esearchresult": {"count": str(len(ids)),
+                                                                "idlist": ids}})
+        return httpx.Response(200, json={"resultList": {"result": [epmc_record("11111111")]}})
+
+    http = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    llm = ScriptedLLM(
+        tool_turn(("search_papers", {"query": "CAR-T", "top_k": 5})),  # rechazada
+        tool_turn(("search_papers", {"query": "a long query with no results"})),  # vacía
+        tool_turn(("search_papers", {"query": "CAR-T glioma"})),
+        tool_turn(("search_papers", {"query": "CAR-T glioma phase 1"})),
+        tool_turn(("search_papers", {"query": "CAR-T"})),  # tercera con resultados: bloqueada
+        text_turn("ok"))
+    result = await Agent(llm, Toolset([PaperSearchTools(http)]), mode=LITERATURE_MODE).run("?")
+    assert [s.is_error for s in result.steps] == [True, False, False, False, True]
+    assert result.steps[-1].preview.startswith("ERROR: at most 2 search_papers calls")
+    empty = json.loads(llm.calls[2]["messages"][-1]["content"])
+    assert "did not count towards your limit" in empty["note"]
+
+
+async def test_two_searches_in_one_step_count_only_if_they_return_articles():
+    http, _ = network([epmc_record("11111111")])
+    llm = ScriptedLLM(
+        tool_turn(("search_papers", {"query": "CAR-T"}), ("search_papers", {"query": "x", "y": 1})),
+        tool_turn(("search_papers", {"query": "CAR-T glioma"})),  # segunda que cuenta: pasa
+        text_turn("ok"))
+    result = await Agent(llm, Toolset([PaperSearchTools(http)]), mode=LITERATURE_MODE).run("?")
+    assert [s.is_error for s in result.steps] == [False, True, False]

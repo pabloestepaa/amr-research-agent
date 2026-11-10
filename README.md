@@ -178,7 +178,7 @@ Each of these problems looked fine by eye and only showed up in the numbers:
 
 ## Design decisions
 
-All 36 decisions, with context and trade-offs, are in [`docs/decisions.md`](docs/decisions.md).
+All 37 decisions, with context and trade-offs, are in [`docs/decisions.md`](docs/decisions.md).
 The ones that shaped the project most:
 
 | Decision | Why | Trade-off |

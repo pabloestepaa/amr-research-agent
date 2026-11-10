@@ -260,7 +260,10 @@ class Agent:
         evidence: list[tuple[ToolCall, ToolResult]] = []  # para la vuelta final
         called: dict[str, int] = {}  # llamada (herramienta + argumentos) -> paso en que se hizo
         shown_abstracts: set[str] = set()  # PMIDs que la búsqueda ya mostró
-        searches = 0  # búsquedas de literatura ejecutadas (las repetidas no cuentan)
+        # Búsquedas de literatura que devolvieron algo. No cuentan las repetidas, las rechazadas
+        # (argumento inventado, fallo de red) ni las vacías: no han enseñado nada al modelo y,
+        # si contaran, se quedaría sin búsquedas antes de ver un solo artículo (decisión 37).
+        searches = 0
         seen_pmids: set[str] = set()
         papers: dict[str, Paper] = {}  # PMID -> título, revista y año, para las referencias
         turns: list[ChatTurn] = []
@@ -284,6 +287,7 @@ class Agent:
             messages.append(turn.as_message())
             t_tools = time.perf_counter()
             pending = []
+            counted: set[int] = set()  # índices de las búsquedas contadas en este paso
             for i, call in enumerate(turn.tool_calls):
                 key = call_key(call)
                 if key is not None and key in called:  # misma herramienta, mismos argumentos
@@ -294,13 +298,15 @@ class Agent:
                                                  self.mode.search_tool))
                 else:
                     if call.name == self.mode.search_tool:
-                        searches += 1
+                        searches += 1  # provisional: se descuenta abajo si no devolvió nada
+                        counted.add(i)
                     if key is not None:
                         called[key] = step
                     pending.append(self._call(call, i))
             # Si pide varias herramientas a la vez, son independientes: en paralelo.
             results = await asyncio.gather(*pending)
             tools_ms += (time.perf_counter() - t_tools) * 1000
+            searches -= sum(1 for i in counted if results[i].is_error or not results[i].pmids)
             for call, result in zip(turn.tool_calls, results, strict=True):
                 if call.name == self.mode.search_tool:
                     pmids = result.pmids

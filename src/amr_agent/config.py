@@ -48,6 +48,17 @@ class Settings(BaseSettings):
     agent_token_budget: int = 12_000
     mcp_timeout_s: float = 30.0
 
+    # Modo literatura de /agent (pestaña "Papers" de la demo, decisión 37): busca en todo PubMed y
+    # lee el texto completo de PMC. No usa amr-mcp ni la base de datos. Una pregunta gasta
+    # ~13.000-16.000 tokens, el doble que el Groq Free deja por minuto (8.000).
+    literature_enabled: bool = True
+    literature_per_ip_per_minute: int = 1
+    literature_per_day: int = 5  # ~80.000 de los 200.000 tokens diarios, compartidos con el resto
+    literature_token_budget: int = 16_000
+    # Aquí sí se espera a que pase el límite por minuto: sin esperar, casi toda pregunta acabaría
+    # en 503 a mitad de camino. La pregunta tarda más (~1-2 min), pero termina.
+    literature_max_retry_wait_s: float = 60.0
+
     # NCBI E-utilities: la API key es opcional (sube el límite de 3 a 10 peticiones/s).
     ncbi_api_key: str | None = None
     ncbi_email: str | None = None

@@ -5,15 +5,16 @@ import math
 import time
 from contextlib import AsyncExitStack, asynccontextmanager, contextmanager
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Literal
 
+import httpx
 import openai
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse
 from mcp import Client
 from pydantic import BaseModel, Field
 
-from amr_agent.agent import Agent, AgentAnswer
+from amr_agent.agent import LITERATURE_MODE, Agent, AgentAnswer
 from amr_agent.api.diagnostics import memory_summary
 from amr_agent.api.ratelimit import AskQuota
 from amr_agent.config import get_settings
@@ -22,7 +23,14 @@ from amr_agent.embeddings import FastEmbedEmbedder
 from amr_agent.llm import OpenAICompatibleLLM
 from amr_agent.rag import RagAnswer, RagService, Source
 from amr_agent.retrieval import Retriever, SearchBackend, SearchMode
-from amr_agent.tools import LiteratureTools, McpTools, Toolset, amr_mcp_server
+from amr_agent.tools import (
+    LiteratureTools,
+    McpTools,
+    PaperSearchTools,
+    ReadPaperTools,
+    Toolset,
+    amr_mcp_server,
+)
 
 log = logging.getLogger("amr_agent")
 
@@ -67,14 +75,21 @@ async def lifespan(app: FastAPI):
         app.state.rag = RagService(retriever, llm, top_k=settings.top_k)
         app.state.quota = AskQuota(settings.ask_per_ip_per_minute, settings.ask_per_day)
         app.state.agent_quota = AskQuota(settings.agent_per_ip_per_minute, settings.agent_per_day)
+        app.state.literature_quota = AskQuota(settings.literature_per_ip_per_minute,
+                                              settings.literature_per_day)
         app.state.agent = None
         if settings.agent_enabled:
             t = time.perf_counter()
             app.state.agent = await start_agent(stack, llm, retriever, settings)
             timings["amr-mcp"] = time.perf_counter() - t
+        app.state.literature_agent = None
+        if settings.literature_enabled:
+            http = await stack.enter_async_context(httpx.AsyncClient(timeout=30))
+            app.state.literature_agent = literature_agent(http, settings)
         phases = ", ".join(f"{k} {v:.1f} s" for k, v in timings.items())
-        log.info("Startup %.1f s (%s) · agent %s · %s", sum(timings.values()), phases,
-                 "on" if app.state.agent else "off", memory_summary())
+        log.info("Startup %.1f s (%s) · agent %s · literature %s · %s",
+                 sum(timings.values()), phases, "on" if app.state.agent else "off",
+                 "on" if app.state.literature_agent else "off", memory_summary())
         yield
 
 
@@ -105,11 +120,28 @@ async def start_agent(stack: AsyncExitStack, llm, retriever, settings) -> Agent 
                  token_budget=settings.agent_token_budget)
 
 
+def literature_agent(http: httpx.AsyncClient, settings) -> Agent:
+    """El agente del modo literatura: PubMed + texto completo de PMC, sin amr-mcp ni BD.
+
+    Lleva su propio cliente del LLM porque espera más a Groq (ver config.py): una pregunta
+    gasta el doble de lo que el plan gratuito deja por minuto.
+    """
+    llm = OpenAICompatibleLLM(
+        settings.llm_base_url, settings.llm_api_key, settings.llm_model, settings.llm_timeout_s,
+        max_retry_wait_s=settings.literature_max_retry_wait_s,
+    )
+    tools = Toolset([PaperSearchTools(http, settings.ncbi_api_key, settings.ncbi_email),
+                     ReadPaperTools(http, settings.ncbi_api_key, settings.ncbi_email)])
+    return Agent(llm, tools, mode=LITERATURE_MODE,
+                 token_budget=settings.literature_token_budget)
+
+
 app = FastAPI(
     title="AMR Research Agent",
-    description=("RAG with citations over PubMed literature on antimicrobial resistance, and a "
-                 "tool-calling agent that also queries NCBI databases through an MCP server."),
-    version="0.2.0",
+    description=("RAG with citations over PubMed literature on antimicrobial resistance, a "
+                 "tool-calling agent that also queries NCBI databases through an MCP server, "
+                 "and a literature mode that searches PubMed and reads full texts from PMC."),
+    version="0.3.0",
     lifespan=lifespan,
 )
 
@@ -128,12 +160,28 @@ def get_quota(request: Request) -> AskQuota:
     return request.app.state.quota
 
 
-def get_agent_quota(request: Request) -> AskQuota:
-    return request.app.state.agent_quota
+class AgentRequest(BaseModel):
+    question: str = Field(min_length=3, max_length=500, examples=[
+        "Which species carry blaKPC-2 most often, and what does recent literature say about "
+        "treating KPC infections?"])
+    mode: Literal["amr", "literature"] = Field(
+        default="amr",
+        description="amr: indexed AMR abstracts + NCBI gene catalog (amr-mcp). literature: any "
+                    "biomedical question, searches PubMed and reads full texts from PubMed "
+                    "Central (slower, ~15,000 tokens).")
 
 
-def get_agent(request: Request) -> Agent:
-    agent = request.app.state.agent
+# Las dependencias del agente leen el modo del cuerpo: FastAPI lo comparte con el endpoint.
+def get_agent_quota(request: Request, body: AgentRequest) -> AskQuota:
+    state = request.app.state
+    return state.literature_quota if body.mode == "literature" else state.agent_quota
+
+
+def get_agent(request: Request, body: AgentRequest) -> Agent:
+    if body.mode == "literature":
+        agent = getattr(request.app.state, "literature_agent", None)
+    else:
+        agent = request.app.state.agent
     if agent is None:
         raise HTTPException(503, "The agent is not available right now; /ask still works")
     return agent
@@ -213,18 +261,13 @@ async def ask(body: AskRequest, rag: Annotated[RagService, Depends(get_rag)]) ->
         return await rag.ask(body.question, k=body.k, mode=body.mode)
 
 
-class AgentRequest(BaseModel):
-    question: str = Field(min_length=3, max_length=500, examples=[
-        "Which species carry blaKPC-2 most often, and what does recent literature say about "
-        "treating KPC infections?"])
-
-
 # get_agent va primero en `dependencies`: si el agente no está disponible, la petición no
 # llega a gastar cuota. FastAPI cachea la dependencia, así que no se ejecuta dos veces.
 @app.post("/agent", response_model=AgentAnswer,
           dependencies=[Depends(get_agent), Depends(enforce_agent_quota)])
 async def agent(body: AgentRequest, agent: Annotated[Agent, Depends(get_agent)]) -> AgentAnswer:
-    """Agente con herramientas: literatura indexada + catálogo de genes y proteínas de NCBI (MCP).
+    """Agente con herramientas. Modo `amr`: literatura indexada + catálogo de genes y proteínas de
+    NCBI (MCP). Modo `literature`: busca en PubMed y lee el texto completo de PMC.
 
     Devuelve la trayectoria completa (qué herramientas usó, con qué argumentos y cuánto tardó).
     """

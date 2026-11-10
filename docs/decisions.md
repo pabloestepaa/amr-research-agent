@@ -483,3 +483,33 @@ eval set cannot measure this mode: its answers come from the gene catalog or fro
 **Limits.** 9 questions written from known sentences favour the retriever (the wording overlaps
 with the passage: 0.33 word overlap in the synthetic set against 0.40 in LitQA2). The real test
 is still the student's own questions.
+
+## 37. The literature mode in the API and the demo, and which searches count (2026-11-10)
+**Context.** The literature mode (decision 34) only ran from a script. To show it, and for the
+target user to try it, it has to be reachable from the demo, but it costs ~15,000 tokens per
+question, about twice what Groq's free tier allows per minute.
+**Decision.**
+- `POST /agent` takes `mode`: `amr` (default, unchanged) or `literature`. The dependencies read
+  the mode from the body, so an unavailable agent answers 503 before any quota is spent, as
+  before. The literature agent needs neither amr-mcp nor the database, so it works even if
+  amr-mcp fails to start.
+- It has its own quota (1 question per minute per visitor, 5 per day in total, ~80,000 of the
+  200,000 daily tokens) and its own LLM client that waits up to 60 s for Groq's per-minute limit
+  instead of 5 s: without waiting, most questions would end in a 503 half way through. Token
+  budget 16,000 (the AMR agent keeps 12,000).
+- The demo gets a third tab, "Papers", marked beta: one lane in Methods (everything runs in the
+  app), its own lead text, round limit, waiting bar and stop messages.
+- Searches that return nothing no longer count towards the search cap, nor do rejected calls (an
+  invented argument, a network error). In the first demo test the model sent `top_k` (rejected)
+  and then a long query with no PubMed results (PubMed requires every word), and the cap blocked
+  every later search before it had seen a single article. The empty-result note now explains
+  that every keyword must match. For the AMR agent this changes nothing in practice: its search
+  always returns abstracts.
+**Result.** Four live questions on 2026-11-10: one correct (decision 34's ZUMA-1 question, in
+Spanish, the day before); three wrong. ELARA: the main report has no full text in PMC, partial
+answer from a subgroup paper. KarMMa: found the NEJM report but read another article, then hit
+the round limit and refused. ZUMA-1 in English: read the 2-year follow-up twice (no tocilizumab
+figure) and refused. The pattern is choosing which article to read and stopping too late, not
+search or reading. `gpt-oss` also sends `top_k` instead of `k` on the first call in every
+question. These are the first things the literature eval (decision 36) has to measure before
+any prompt change.
