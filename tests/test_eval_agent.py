@@ -7,10 +7,17 @@ import pytest
 from amr_agent.agent import AgentAnswer, AgentUsage, ToolStep
 from amr_agent.evals.agent_eval import failed_row, normalize_text, score_task, summarize
 from amr_agent.evals.cassette import CassetteTools, cassette_key
-from amr_agent.evals.dataset import AgentTask, load_agent_golden
+from amr_agent.evals.dataset import LITERATURE_GOLDEN_PATH, AgentTask, load_agent_golden
 from amr_agent.evals.report import agent_table
 from amr_agent.rag import NO_EVIDENCE
-from amr_agent.tools import MCP_TOOLS, SEARCH_LITERATURE, ToolResult, ToolSpec
+from amr_agent.tools import (
+    MCP_TOOLS,
+    READ_PAPER,
+    SEARCH_LITERATURE,
+    SEARCH_PAPERS,
+    ToolResult,
+    ToolSpec,
+)
 
 CAT = "get_amr_gene|search_amr_genes"
 HOST_TASK = AgentTask(
@@ -222,3 +229,56 @@ def test_agent_golden_rejects_inconsistent_tasks(tmp_path):
                                "expect_args": {"get_protein_hosts": "WP_1"}}) + "\n")
     with pytest.raises(ValueError, match="expect_args"):
         load_agent_golden(bad)
+
+
+# --- modo literatura -------------------------------------------------------------------------
+
+FT_TASK = AgentTask(id="ft-01", category="full_text", question="Median duration of response?",
+                    expect_tools=["search_papers", "read_paper"],
+                    answer_contains=["25.6 weeks"], relevant_pmids=["36624315"])
+
+
+def test_literature_task_counts_search_papers_and_read_paper():
+    steps = [step("search_papers", 1, pmids=["36624315", "1"], query="MAGE-A4 T cells"),
+             step("read_paper", 2, pmids=["36624315"], paper_id="36624315", question="DoR")]
+    row = score_task(FT_TASK, answer("25.6 weeks [PMID:36624315].", steps))
+    assert row["success"] and row["literature_hit"] and row["read_hit"]
+
+
+def test_reading_another_paper_is_a_read_miss_but_not_by_itself_a_failure():
+    # Encontró el artículo pero leyó otro y aun así dio el dato (p. ej., un seguimiento que lo
+    # repite): la tarea cuenta, y read_hit dice que la lectura no fue la esperada.
+    steps = [step("search_papers", 1, pmids=["36624315", "2"], query="MAGE-A4"),
+             step("read_paper", 2, pmids=["2"], paper_id="2", question="DoR")]
+    row = score_task(FT_TASK, answer("25.6 weeks [PMID:2].", steps))
+    assert row["success"] and row["literature_hit"] and row["read_hit"] is False
+
+
+def test_a_failed_read_does_not_count_as_reading():
+    steps = [step("search_papers", 1, pmids=["36624315"], query="MAGE-A4"),
+             step("read_paper", 2, error=True, pmids=["36624315"], paper_id="36624315",
+                  question="DoR")]
+    assert score_task(FT_TASK, answer("No data.", steps))["read_hit"] is False
+
+
+def test_read_hit_rate_only_appears_in_literature_reports():
+    amr = summarize([score_task(HOST_TASK, answer("K. pneumoniae", GOOD_HOST_STEPS))])
+    assert "read_hit_rate" not in amr
+    steps = [step("search_papers", 1, pmids=["36624315"], query="q"),
+             step("read_paper", 2, pmids=["36624315"], paper_id="36624315", question="q")]
+    lit = summarize([score_task(FT_TASK, answer("25.6 weeks", steps))])
+    assert lit["read_hit_rate"] == 1.0
+    report = {"model": "m", "n_tasks": 1, "max_steps": 6, "token_budget": 12_000,
+              "cassette_mode": "replay", "cassette_hits": 0, "cassette_misses": 2,
+              "summary": amr, "per_task": []}
+    assert "read_paper read" not in agent_table(report)
+
+
+def test_literature_golden_set_is_valid():
+    tasks = load_agent_golden(LITERATURE_GOLDEN_PATH)
+    for t in tasks:
+        named = {n for group in t.expect_tools for n in group.split("|")}
+        assert named <= {SEARCH_PAPERS.name, READ_PAPER.name}, t.id
+        if not t.should_abstain:
+            assert t.relevant_pmids and t.answer_contains, t.id
+    assert {t.category for t in tasks} == {"full_text", "out_of_scope"}

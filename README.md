@@ -141,11 +141,12 @@ below, which retrieves the relevant abstract more often; a re-run is pending.
 **Agent** (22 tasks over catalog, species, references, literature, multi-tool and out-of-scope
 questions): 19/22 tasks fully correct in the latest run, right tools and right arguments in
 every task, expected facts in every answer that should have them, all out-of-scope questions
-refused, no hallucinated PMIDs, no crashes, ~4,350 tokens per task. The three runs so far scored
-19, 17 and 19 out of 22: each one found failures that led to the fixes below, and Groq is not
-deterministic even at temperature 0, so a run moves by a few tasks. Two of the three failures
-left are refusals: the agent retrieved the right abstract and still said it had no evidence,
-because the abstract answers in other words (an ESBL-producing strain is resistant to
+refused, no hallucinated PMIDs, no crashes, ~4,560 tokens per task. The four runs so far scored
+19, 17, 19 and 19 out of 22: each of the first three found failures that led to the fixes below,
+and Groq is not deterministic even at temperature 0, so a run moves by a few tasks. Two of the
+three failures left are refusals, unchanged by a looser abstention rule (decision 32): the
+agent retrieved the right abstract and still said it had no evidence, because the abstract
+answers in other words (an ESBL-producing strain is resistant to
 cephalosporins; myricetin is a polyphenol). The third is a search that added "2023 2024" to its
 query and missed the relevant abstract.
 
@@ -177,7 +178,7 @@ Each of these problems looked fine by eye and only showed up in the numbers:
 
 ## Design decisions
 
-All 31 decisions, with context and trade-offs, are in [`docs/decisions.md`](docs/decisions.md).
+All 36 decisions, with context and trade-offs, are in [`docs/decisions.md`](docs/decisions.md).
 The ones that shaped the project most:
 
 | Decision | Why | Trade-off |

@@ -367,7 +367,14 @@ the three out-of-scope questions are still refused. With the final version, on `
 and the out-of-scope tasks: 4 of 5. `lit-05` still refuses, although replaying its queries shows
 the abstract in the first search: in both runs the model searched twice more and refused after
 the cap. It stays as a known failure rather than adding an example close to the task.
-`multi-01` still adds "2023 2024" to its query and misses the abstract. A full run is pending.
+`multi-01` still adds "2023 2024" to its query and misses the abstract.
+The full run (2026-11-10) did not confirm the partial one: 19/22 again, with the same three
+failures. `lit-02` and `lit-05` both found their abstract (literature hit) and refused after a
+third search was blocked by the cap; `multi-01` added "2023 2024" again. Everything else held:
+right tools and arguments in every task, all out-of-scope questions refused, no invalid
+citations, no task at the step limit, ~4,560 tokens per task. The rule did not hurt anything, but
+on this model it does not fix refusals reliably either: with Groq not deterministic at
+temperature 0, the partial pass of `lit-02` was one good draw, not a fix.
 
 ## 33. Read the full text with BM25 over passages, no embeddings (2026-11-09)
 **Context.** To make the project useful beyond AMR (a biotechnology student searching cell
@@ -449,3 +456,30 @@ results are almost identical, because the real unit is the paragraph (scientific
 ~1,200 characters and are never split). The characters returned are about k x 1,200 whatever the
 chunk size. Cutting the cost further would mean returning only the best sentences of each
 passage, which needs its own measurement.
+
+## 36. An eval set for the literature mode, built from full-text facts (2026-11-10)
+**Context.** Decision 34 tested the literature mode on one question. The target user (a
+biotechnology student working on cell therapy) has not sent real questions yet, and the AMR
+eval set cannot measure this mode: its answers come from the gene catalog or from abstracts.
+**Decision.**
+- `evals/golden_literature.jsonl`: 9 questions whose answer is a number or a name that is in the
+  full text of a cell-therapy article but not in its abstract (CARVac starting dose, median
+  duration of response, manufacturing platform...), plus 2 out-of-scope questions. They come
+  from the synthetic set of the viability study (a Results sentence picked without an LLM, the
+  question paraphrased by `gpt-oss-20b`, then checked against the sentence). Two are in Spanish,
+  as the target user would ask them. Each question names the study, since a real user knows
+  which trial they are asking about.
+- The same trajectory checks as the AMR eval (`amr-eval-agent --mode literature`): the agent
+  must call `search_papers` and `read_paper`, a search must find the article, and the answer must
+  contain the fact. A new metric, `read_hit_rate`, says whether `read_paper` read that article. It
+  does not decide success (another paper may report the same figure), but it tells a search
+  failure from a reading or writing failure.
+- No database: the tools call PubMed, Europe PMC and PMC. Their responses are recorded in
+  `evals/literature_cassette.jsonl`, which stays out of git because it holds passages of articles
+  and not all of them have a licence that allows redistribution (some are NIH author
+  manuscripts). The eval set only stores questions, PMIDs and facts.
+- One question was dropped: its answer was "8%", and a substring check cannot tell it from
+  "18%". Answer checks avoid bare numbers ("3 patients", not "3").
+**Limits.** 9 questions written from known sentences favour the retriever (the wording overlaps
+with the passage: 0.33 word overlap in the synthetic set against 0.40 in LitQA2). The real test
+is still the student's own questions.

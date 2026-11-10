@@ -25,3 +25,6 @@ skills-lock.json
 
 # artefactos locales de la skill impeccable (críticas, capturas, contrato de dirección)
 .impeccable/
+
+# grabación del modo literatura: guarda pasajes de artículos (no todos se pueden redistribuir)
+evals/literature_cassette.jsonl

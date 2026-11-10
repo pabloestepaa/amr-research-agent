@@ -64,9 +64,13 @@ def load_corpus(path: Path = CORPUS_PATH) -> list[Article]:
 
 AGENT_GOLDEN_PATH = EVALS_DIR / "golden_agent.jsonl"
 CASSETTE_PATH = EVALS_DIR / "agent_cassette.jsonl"
+# Modo literatura (decisión 36): preguntas sobre datos que solo están en el texto completo.
+LITERATURE_GOLDEN_PATH = EVALS_DIR / "golden_literature.jsonl"
+# Fuera de git: guarda pasajes de artículos y no todos tienen licencia que permita redistribuirlos.
+LITERATURE_CASSETTE_PATH = EVALS_DIR / "literature_cassette.jsonl"
 
 TaskCategory = Literal[
-    "catalog", "hosts", "references", "literature", "multi_tool", "out_of_scope"]
+    "catalog", "hosts", "references", "literature", "multi_tool", "out_of_scope", "full_text"]
 
 
 class AgentTask(BaseModel):
@@ -87,7 +91,8 @@ class AgentTask(BaseModel):
     expect_args: dict[str, str] = Field(default_factory=dict)
     # Textos que debe contener la respuesta (hechos del catálogo y de NCBI, verificables).
     answer_contains: list[str] = Field(default_factory=list)
-    # Abstracts que responden a la pregunta: se mira si search_literature los encontró.
+    # Artículos que responden a la pregunta: se mira si alguna búsqueda los encontró (y, en el
+    # modo literatura, si read_paper los leyó).
     relevant_pmids: list[str] = Field(default_factory=list)
     should_abstain: bool = False
     reviewed: bool = False

@@ -39,6 +39,12 @@ Latest numbers: [RESULTS.md](RESULTS.md).
 - `agent_cassette.jsonl` — recorded `amr-mcp` responses (tool + arguments → result). Agent evals
   replay them, so a slow or failing NCBI, or a new catalog version, does not change the score;
   calls not recorded yet go live and are added. `--cassette refresh` re-records everything.
+- `golden_literature.jsonl` — 9 literature-mode tasks (decision 36): a figure or a name that is
+  in the full text of a cell-therapy article but not in its abstract, so the agent has to find the
+  study with `search_papers` and read it with `read_paper`. Two are in Spanish; two more tasks are
+  out of scope. Built from the synthetic set of the viability study and checked by Claude, not by
+  a domain expert. Their tool responses go to `literature_cassette.jsonl`, which is not in git
+  (it holds passages of articles).
 - `thresholds.json` — minimum metric values; CI fails if a change drops below them.
 - `results/*.json` — full outputs, including per-question results for error analysis.
 
@@ -51,6 +57,7 @@ uv run amr-eval-retrieval --load-corpus --check                  # snapshot, lik
 uv run amr-eval-retrieval --database-url postgresql://localhost/amr_agent --name retrieval_full
 uv run amr-eval-answers --limit 5                                 # quick check, uses quota
 uv run amr-eval-agent --load-corpus --only host-01,oos-01         # agent evals, uses quota
+uv run amr-eval-agent --mode literature                          # no DB, ~150k tokens
 uv run amr-eval-report                                            # regenerates RESULTS.md
 ```
 

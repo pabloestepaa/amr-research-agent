@@ -74,7 +74,8 @@ AGENT_METRICS = (
     ("tool_selection", "Called the tools the task needs"),
     ("argument_accuracy", "Called them with the right arguments (e.g. the WP_ accession)"),
     ("answer_accuracy", "Answer contains the verifiable facts (drug class, top species...)"),
-    ("literature_hit_rate", "search_literature found the relevant abstract"),
+    ("literature_hit_rate", "A search found the relevant article"),
+    ("read_hit_rate", "read_paper read the relevant article (literature mode)"),
     ("abstention_accuracy", "Out-of-scope questions correctly refused"),
     ("false_abstention_rate", "In-scope questions wrongly refused (lower is better)"),
     ("citation_validity", "Answers without hallucinated PMIDs"),
@@ -100,7 +101,7 @@ def agent_table(report: dict) -> str:
         "| metric | value |",
         "|---|---|",
     ]
-    lines += [f"| {label} | {_fmt(s.get(key))} |" for key, label in AGENT_METRICS]
+    lines += [f"| {label} | {_fmt(s.get(key))} |" for key, label in AGENT_METRICS if key in s]
     by_cat = s.get("by_category", {})
     lines += ["", "Task success by category:", "",
               "| " + " | ".join(f"{c} (n={v['n']})" for c, v in by_cat.items()) + " |",

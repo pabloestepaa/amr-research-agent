@@ -2,6 +2,7 @@
 
     uv run amr-eval-agent --load-corpus        # snapshot de evals, todas las tareas
     uv run amr-eval-agent --only host-01,oos-01   # solo algunas
+    uv run amr-eval-agent --mode literature    # modo literatura (sin BD: PubMed y PMC en vivo)
 
 No basta con mirar la respuesta final: un agente puede acertar por casualidad o fallar porque
 eligió mal una herramienta. Para cada tarea de `evals/golden_agent.jsonl` se comprueba, sin LLM
@@ -9,12 +10,15 @@ juez (todo son reglas deterministas):
 - herramientas: ¿llamó a las que hacían falta? (p. ej., get_protein_hosts para especies)
 - argumentos: ¿con los valores correctos? (la accesión WP_ que sacó del catálogo)
 - respuesta: ¿contiene los hechos verificables? (la clase de fármaco, la especie principal)
-- literatura: ¿search_literature encontró el abstract que responde?
+- literatura: ¿alguna búsqueda encontró el artículo que responde? En el modo literatura,
+  además, ¿read_paper leyó ese artículo? (el dato no está en el abstract)
 - abstención: ¿se negó en las preguntas fuera de ámbito?
 - coste: llamadas innecesarias, llamadas con error, pasos, tokens y paradas por límite.
 
 Las respuestas de amr-mcp se graban en `evals/agent_cassette.jsonl` (ver cassette.py) para que
-la eval no dependa de que NCBI esté disponible ni de la versión del catálogo.
+la eval no dependa de que NCBI esté disponible ni de la versión del catálogo. Las del modo
+literatura van a `evals/literature_cassette.jsonl`, que no se sube a git (guarda pasajes de los
+artículos).
 """
 
 import argparse
@@ -25,18 +29,22 @@ import time
 import unicodedata
 from itertools import chain
 
-from amr_agent.agent import AgentAnswer
+from amr_agent.agent import LITERATURE_MODE, AgentAnswer
 from amr_agent.evals.answers_eval import is_abstention, is_daily_limit
 from amr_agent.evals.dataset import (
     AGENT_GOLDEN_PATH,
     CASSETTE_PATH,
     CORPUS_PATH,
+    LITERATURE_CASSETTE_PATH,
+    LITERATURE_GOLDEN_PATH,
     RESULTS_DIR,
     AgentTask,
     load_agent_golden,
 )
 from amr_agent.evals.metrics import mean
 
+# Herramientas que devuelven artículos: sirven para ver si el agente encontró el relevante.
+SEARCH_TOOLS = {"search_literature", "search_papers", "read_paper"}
 HYPHENS_RE = re.compile(r"[‐-―−]")
 
 
@@ -72,7 +80,9 @@ def score_task(task: AgentTask, result: AgentAnswer) -> dict:
 
     expected_names = set(chain.from_iterable(g.split("|") for g in task.expect_tools))
     literature_pmids = set(chain.from_iterable(
-        s.pmids for s in steps if s.tool == "search_literature"))
+        s.pmids for s in steps if s.tool in SEARCH_TOOLS))
+    read_pmids = set(chain.from_iterable(
+        s.pmids for s in steps if s.tool == "read_paper" and not s.is_error))
 
     args_ok = (all(args_match(g, n) for g, n in task.expect_args.items())
                if task.expect_args else None)
@@ -80,6 +90,10 @@ def score_task(task: AgentTask, result: AgentAnswer) -> dict:
                      for item in task.answer_contains) if task.answer_contains else None)
     literature_hit = (bool(literature_pmids & set(task.relevant_pmids))
                       if task.relevant_pmids else None)
+    # No entra en `success`: lo que cuenta es el dato en la respuesta. Sirve para saber si un
+    # fallo fue de búsqueda, de lectura o de redacción.
+    read_hit = (bool(read_pmids & set(task.relevant_pmids))
+                if task.relevant_pmids and "read_paper" in expected_names else None)
     abstained = is_abstention(result.answer)
     citations_valid = not result.invalid_citations
 
@@ -101,6 +115,7 @@ def score_task(task: AgentTask, result: AgentAnswer) -> dict:
         "args_ok": args_ok,
         "answer_ok": answer_ok,
         "literature_hit": literature_hit,
+        "read_hit": read_hit,
         "abstained": abstained,
         "should_abstain": task.should_abstain,
         "citations_valid": citations_valid,
@@ -128,7 +143,8 @@ def failed_row(task: AgentTask, exc: Exception, latency_ms: float) -> dict:
         "id": task.id, "category": task.category, "question": task.question,
         "answer": "", "success": False, "error": f"{type(exc).__name__}: {exc}"[:500],
         "tools_ok": None, "tool_recall": None, "args_ok": None, "answer_ok": None,
-        "literature_hit": None, "abstained": None, "should_abstain": task.should_abstain,
+        "literature_hit": None, "read_hit": None, "abstained": None,
+        "should_abstain": task.should_abstain,
         "citations_valid": None, "invalid_citations": [], "trajectory": [],
         "n_tool_calls": 0, "extra_calls": 0, "error_calls": 0, "llm_calls": 0, "tokens": 0,
         "stop_reason": "error", "latency_ms": round(latency_ms, 1),
@@ -150,12 +166,16 @@ def summarize(rows: list[dict]) -> dict:
     total_calls = sum(r["n_tool_calls"] for r in ran)
     latencies = sorted(r["latency_ms"] for r in ran)
     categories = sorted({r["category"] for r in rows})
+    # Solo en el modo literatura: en la tabla de AMR sería una fila vacía.
+    read = ({"read_hit_rate": rate("read_hit")}
+            if any(r.get("read_hit") is not None for r in rows) else {})
     return {
         "task_success": rate("success"),
         "tool_selection": rate("tools_ok", in_scope),
         "argument_accuracy": rate("args_ok"),
         "answer_accuracy": rate("answer_ok"),
         "literature_hit_rate": rate("literature_hit"),
+        **read,
         "abstention_accuracy": rate("abstained", out_scope),
         "false_abstention_rate": rate("abstained", in_scope),
         "citation_validity": rate("citations_valid"),
@@ -174,10 +194,67 @@ def summarize(rows: list[dict]) -> dict:
     }
 
 
+async def _run_tasks(agent, tasks: list[AgentTask], rows: list[dict]) -> bool:
+    """Ejecuta en serie (el límite de Groq es de la cuenta) las tareas que no están en `rows`.
+
+    Devuelve False si se agotó la cuota diaria. Hay que llamarla dentro del `async with` del
+    cliente MCP: fuera, la excepción saldría envuelta en un ExceptionGroup de anyio y
+    `except openai.RateLimitError` no la vería.
+    """
+    import openai
+
+    finished = {r["id"] for r in rows}
+    for n, task in enumerate(tasks, start=1):
+        if task.id in finished:
+            continue
+        t0 = time.perf_counter()
+        try:
+            result = await agent.run(task.question)
+        except openai.RateLimitError as exc:
+            if not is_daily_limit(exc):
+                raise
+            print(f"Daily token limit reached at {task.id}; saving partial results")
+            return False
+        except Exception as exc:  # noqa: BLE001 - un fallo del agente es un resultado
+            row = failed_row(task, exc, (time.perf_counter() - t0) * 1000)
+            rows.append(row)
+            print(f"[{n}/{len(tasks)}] {task.id} ERROR {row['error']}", flush=True)
+            continue
+        row = score_task(task, result)
+        rows.append(row)
+        print(f"[{n}/{len(tasks)}] {task.id} success={row['success']} "
+              f"tools={row['trajectory']} tokens={row['tokens']}", flush=True)
+    return True
+
+
+def _report(s, agent, cassette, complete: bool, rows: list[dict], mode: str) -> dict:
+    return {
+        "mode": mode, "model": s.llm_model, "max_steps": agent.max_steps,
+        "token_budget": agent.token_budget, "cassette_mode": cassette.mode,
+        "cassette_hits": cassette.hits, "cassette_misses": cassette.misses,
+        "complete": complete, "n_tasks": len(rows), "summary": summarize(rows),
+        "per_task": rows,
+    }
+
+
+def _llm(s):
+    from amr_agent.llm import OpenAICompatibleLLM
+
+    if not s.llm_api_key:
+        raise SystemExit("LLM_API_KEY is not set")
+    # Como en las evals de respuestas: muchos reintentos y esperas largas permitidas, porque
+    # aquí sí compensa esperar a que pase el límite por minuto de Groq.
+    return OpenAICompatibleLLM(s.llm_base_url, s.llm_api_key, s.llm_model, 60, max_retries=10)
+
+
+def _pending(done: list[dict] | None) -> list[dict]:
+    # Al reanudar, las tareas que acabaron en error se repiten (el error pudo ser pasajero).
+    return [r for r in done or [] if not r.get("error")]
+
+
 async def run(database_url: str, tasks: list[AgentTask], cassette_mode: str,
               done: list[dict] | None = None) -> dict:
-    """Ejecuta el agente real (Groq + amr-mcp por stdio) sobre `tasks`."""
-    import openai
+    """Modo AMR: el agente real (Groq + amr-mcp por stdio + snapshot de abstracts)."""
     from mcp import Client
 
     from amr_agent.agent import Agent
@@ -185,23 +262,14 @@ async def run(database_url: str, tasks: list[AgentTask], cassette_mode: str,
     from amr_agent.db import make_pool
     from amr_agent.embeddings import FastEmbedEmbedder
     from amr_agent.evals.cassette import CassetteTools
-    from amr_agent.llm import OpenAICompatibleLLM
     from amr_agent.retrieval import Retriever
     from amr_agent.tools import LiteratureTools, McpTools, Toolset, amr_mcp_server
 
     s = get_settings()
-    if not s.llm_api_key:
-        raise SystemExit("LLM_API_KEY is not set")
-    # Como en las evals de respuestas: muchos reintentos y esperas largas permitidas, porque
-    # aquí sí compensa esperar a que pase el límite por minuto de Groq.
-    llm = OpenAICompatibleLLM(s.llm_base_url, s.llm_api_key, s.llm_model, 60, max_retries=10)
+    llm = _llm(s)
     pool = make_pool(database_url, max_size=2)
     await pool.open()
-    # Al reanudar, las tareas que acabaron en error se repiten (el error pudo ser pasajero).
-    rows = [r for r in done or [] if not r.get("error")]
-    finished = {r["id"] for r in rows}
-    complete = True
-    cassette = None
+    rows = _pending(done)
     try:
         retriever = Retriever(pool, FastEmbedEmbedder(s.embedding_model), s.keyword_weight,
                               s.keyword_max_df)
@@ -209,41 +277,40 @@ async def run(database_url: str, tasks: list[AgentTask], cassette_mode: str,
             cassette = CassetteTools(await McpTools.load(client), CASSETTE_PATH, cassette_mode)
             agent = Agent(llm, Toolset([LiteratureTools(retriever), cassette]),
                           max_steps=s.agent_max_steps, token_budget=s.agent_token_budget)
-            for n, task in enumerate(tasks, start=1):  # en serie: el límite es de la cuenta
-                if task.id in finished:
-                    continue
-                # Capturamos aquí dentro: fuera del `async with` la excepción saldría envuelta
-                # en un ExceptionGroup de anyio y `except openai.RateLimitError` no la vería.
-                t0 = time.perf_counter()
-                try:
-                    result = await agent.run(task.question)
-                except openai.RateLimitError as exc:
-                    if not is_daily_limit(exc):
-                        raise
-                    print(f"Daily token limit reached at {task.id}; saving partial results")
-                    complete = False
-                    break
-                except Exception as exc:  # noqa: BLE001 - un fallo del agente es un resultado
-                    row = failed_row(task, exc, (time.perf_counter() - t0) * 1000)
-                    rows.append(row)
-                    print(f"[{n}/{len(tasks)}] {task.id} ERROR {row['error']}", flush=True)
-                    continue
-                row = score_task(task, result)
-                rows.append(row)
-                print(f"[{n}/{len(tasks)}] {task.id} success={row['success']} "
-                      f"tools={row['trajectory']} tokens={row['tokens']}", flush=True)
+            try:
+                complete = await _run_tasks(agent, tasks, rows)
+            finally:
+                cassette.save()  # también si se corta: lo grabado ya no hay que volver a pedirlo
     finally:
         await pool.close()
-        if cassette is not None:
-            cassette.save()  # también si se corta: lo grabado ya no hay que volver a pedirlo
-    return {
-        "model": s.llm_model, "max_steps": s.agent_max_steps,
-        "token_budget": s.agent_token_budget, "cassette_mode": cassette_mode,
-        "cassette_hits": cassette.hits if cassette else 0,
-        "cassette_misses": cassette.misses if cassette else 0,
-        "complete": complete, "n_tasks": len(rows), "summary": summarize(rows),
-        "per_task": rows,
-    }
+    return _report(s, agent, cassette, complete, rows, "amr")
+
+
+async def run_literature(tasks: list[AgentTask], cassette_mode: str,
+                         done: list[dict] | None = None) -> dict:
+    """Modo literatura: search_papers (PubMed + Europe PMC) y read_paper (PMC). Sin BD."""
+    import httpx
+
+    from amr_agent.agent import Agent
+    from amr_agent.config import get_settings
+    from amr_agent.evals.cassette import CassetteTools
+    from amr_agent.tools import PaperSearchTools, ReadPaperTools, Toolset
+
+    s = get_settings()
+    llm = _llm(s)
+    rows = _pending(done)
+    async with httpx.AsyncClient(timeout=30) as http:
+        tools = Toolset([PaperSearchTools(http, s.ncbi_api_key, s.ncbi_email),
+                         ReadPaperTools(http, s.ncbi_api_key, s.ncbi_email)])
+        cassette = CassetteTools(tools, LITERATURE_CASSETTE_PATH, cassette_mode)
+        # Mismo presupuesto de tokens que la API: medir si cabe es parte de la eval.
+        agent = Agent(llm, Toolset([cassette]), mode=LITERATURE_MODE,
+                      token_budget=s.agent_token_budget)
+        try:
+            complete = await _run_tasks(agent, tasks, rows)
+        finally:
+            cassette.save()
+    return _report(s, agent, cassette, complete, rows, "literature")
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -251,35 +318,45 @@ def main(argv: list[str] | None = None) -> None:
     from amr_agent.evals.retrieval_eval import load_snapshot, resolve_eval_db
 
     parser = argparse.ArgumentParser(description="Agent trajectory evals (uses LLM quota)")
+    parser.add_argument("--mode", choices=["amr", "literature"], default="amr",
+                        help="agent mode; literature needs no database (default: amr)")
     parser.add_argument("--database-url", help="defaults to $DATABASE_URL_EVAL")
     parser.add_argument("--load-corpus", action="store_true",
                         help=f"drop and reload the eval DB from {CORPUS_PATH}")
     parser.add_argument("--limit", type=int, help="only the first N tasks")
     parser.add_argument("--only", help="comma-separated task ids")
-    parser.add_argument("--name", default="agent", help="results file name (no extension)")
+    parser.add_argument("--name", help="results file name, no extension "
+                                       "(default: agent, or literature with --mode literature)")
     parser.add_argument("--resume", action="store_true",
                         help="keep the tasks already in the results file, run the rest")
     parser.add_argument("--cassette", choices=["replay", "refresh", "live"], default="replay",
                         help="tool responses: replay recorded ones (default), re-record, or live")
     args = parser.parse_args(argv)
-    out = RESULTS_DIR / f"{args.name}.json"
+    literature = args.mode == "literature"
+    name = args.name or ("literature" if literature else "agent")
+    out = RESULTS_DIR / f"{name}.json"
 
-    url = resolve_eval_db(args.database_url, args.load_corpus)
-    if args.load_corpus:
-        print(f"Loaded {load_snapshot(url, CORPUS_PATH)} abstracts from {CORPUS_PATH}")
-    tasks = load_agent_golden(AGENT_GOLDEN_PATH)
+    if literature:
+        tasks = load_agent_golden(LITERATURE_GOLDEN_PATH)
+    else:
+        url = resolve_eval_db(args.database_url, args.load_corpus)
+        if args.load_corpus:
+            print(f"Loaded {load_snapshot(url, CORPUS_PATH)} abstracts from {CORPUS_PATH}")
+        tasks = load_agent_golden(AGENT_GOLDEN_PATH)
     if args.only:
         wanted = set(args.only.split(","))
         tasks = [t for t in tasks if t.id in wanted]
     tasks = tasks[: args.limit]
     done = json.loads(out.read_text())["per_task"] if args.resume and out.exists() else []
-    report = asyncio.run(run(url, tasks, args.cassette, done))
+    report = asyncio.run(run_literature(tasks, args.cassette, done) if literature
+                         else run(url, tasks, args.cassette, done))
 
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(report, indent=2, ensure_ascii=False) + "\n")
     print("\n" + agent_table(report) + f"\n\nSaved {out}")
     if not report["complete"]:
-        print(f"Incomplete: run again with --resume --name {args.name} when the quota resets")
+        print(f"Incomplete: run again with --resume --mode {args.mode} --name {name} "
+              "when the quota resets")
         raise SystemExit(2)
 
 
