@@ -6,8 +6,10 @@
 A research assistant for antimicrobial resistance (AMR). It answers questions with hybrid RAG
 over ~3,000 recent PubMed abstracts, and with a tool-calling agent that also queries NCBI's AMR
 gene catalog and sequence records through [`amr-mcp`](https://pypi.org/project/amr-mcp/), an MCP
-server I wrote and published. Every citation is checked against what the tools actually returned,
-and evals measure retrieval, answers and agent trajectories.
+server I wrote and published. A third mode, in beta, goes beyond AMR: it searches all of PubMed
+and reads full-text articles to find the figure a question asks for, which is rarely in the
+abstract. Every citation is checked against what the tools actually returned, and evals measure
+retrieval, answers and agent trajectories.
 
 **Live demo: <https://amr-research-agent.onrender.com>** · API docs at
 [`/docs`](https://amr-research-agent.onrender.com/docs)
@@ -25,6 +27,9 @@ and evals measure retrieval, answers and agent trajectories.
 - The agent is a tool-calling loop written by hand, without a framework. It chains catalog
   lookups, NCBI protein records and the literature search, within limits on steps, tokens and
   calls per step.
+- To find a fact inside a full-text article, `read_paper` ranks its paragraphs with BM25, with
+  no embeddings and no index. On LitQA2, the passage that holds the answer is in the top 8 for
+  92 % of the questions.
 - A PMID only counts as a citation if a tool returned it. In 42 RAG answers and 22 agent tasks,
   no answer cited a PMID that no tool had returned.
 - Evals run at three levels: retrieval on every push, with thresholds that fail CI; answers,
@@ -35,11 +40,18 @@ and evals measure retrieval, answers and agent trajectories.
 
 ## What it does
 
-The API has two ways to ask:
+The API has three ways to ask, which are the three tabs of the demo:
 
-- `POST /ask`: classic RAG. Search the abstracts, then answer citing them as `[PMID:x]`.
-- `POST /agent`: the model decides which tools to call and in what order, then answers.
-  The response includes the full trajectory: each tool call, its arguments, latency and result.
+- `POST /ask` (tab *Literature*): classic RAG. Search the abstracts, then answer citing them as
+  `[PMID:x]`.
+- `POST /agent` (tab *Agent*): the model decides which tools to call and in what order, then
+  answers. The response includes the full trajectory: each tool call, its arguments, latency and
+  result.
+- `POST /agent` with `"mode": "literature"` (tab *Papers*, beta): the same loop with two other
+  tools. `search_papers` searches all of PubMed live, and `read_paper` reads an article's full
+  text from PubMed Central and returns the passages that best match the question. It is meant
+  for questions like "what share of ZUMA-1 patients received tocilizumab?", whose answer is in a
+  results table and not in the abstract.
 
 An example from the agent evals (task `multi-01`), which needs two different sources:
 
@@ -84,12 +96,14 @@ flowchart TB
         ASK --> R
         AG -- search_literature --> R
         AG -- "catalog, species, references" --> MCP
+        AG -- "Papers mode: search_papers, read_paper" --> LIT["Literature tools<br/>BM25 over paragraphs"]
     end
 
     ASK --> LLM["Groq · gpt-oss-120b"]
     AG --> LLM
     R --> DB[("Postgres + pgvector<br/>text · tsvector · vector(384)")]
     MCP --> NCBI["NCBI Reference Gene Catalog<br/>+ E-utilities"]
+    LIT --> PM["PubMed ranking · Europe PMC abstracts<br/>PubMed Central full text"]
     ING["amr-ingest (offline)<br/>PubMed / Europe PMC"] --> DB
     api -. "OTLP traces" .-> LF["Langfuse"]
 ```
@@ -108,6 +122,11 @@ flowchart TB
   about fifty lines. Tools are the literature search plus four `amr-mcp` tools reached through a
   real MCP client. Results are trimmed to 6,000 characters, independent calls run in parallel, and
   when a limit is hit the model is asked for a final answer with the evidence it has.
+- Papers mode ([`tools.py`](src/amr_agent/tools.py), [`fulltext.py`](src/amr_agent/fulltext.py)):
+  PubMed's Best Match ranks the articles and Europe PMC supplies their abstracts in one request.
+  `read_paper` fetches the JATS XML with `efetch db=pmc`, keeps paragraphs, figure captions and
+  tables with their section, and ranks them with BM25. Each mode has its own prompt, tools and
+  step limit, so the AMR agent and its evals are untouched.
 - LLM client ([`llm.py`](src/amr_agent/llm.py)): any OpenAI-compatible API through `base_url`.
   It retries rate limits only when the wait is short, so the API fails fast instead of hanging.
 
@@ -122,6 +141,7 @@ are in [`evals/RESULTS.md`](evals/RESULTS.md).
 | Retrieval | recall@k, MRR, nDCG@10 per search mode | 36 reviewed questions, local embeddings, no LLM | every push; CI fails below [thresholds](evals/thresholds.json) |
 | Answers | faithfulness, relevance, citation validity, abstention | RAG + an LLM judge from a different model (`gpt-oss-20b`) | manual or weekly |
 | Agent | right tools, right arguments, facts in the answer, refusals, cost | 22 reviewed tasks, deterministic rules, recorded tool responses | manual |
+| Papers agent | found and read the right article, the fact in the answer, refusals, cost | 11 tasks, each a figure that is in a full text but not in its abstract | manual |
 
 **Retrieval** (full corpus, 2,999 abstracts, 36 questions):
 
@@ -151,6 +171,17 @@ answers in other words (an ESBL-producing strain is resistant to
 cephalosporins; myricetin is a polyphenol). The third is a search that added "2023 2024" to its
 query and missed the relevant abstract.
 
+**Papers agent** (9 cell-therapy questions whose answer is only in the full text, 2 out of scope):
+7/11 in the first run, after fixing the evaluator. Both out-of-scope questions were refused and
+no answer cited a PMID that no tool had returned, but it costs ~9,000 tokens and ~40 s per
+question. In every remaining failure the right article never came up in a search (the `CAR T`
+problem below). The fix is in, and the run that measures it is pending.
+
+Before the agent, `read_paper` was measured on its own. It finds the passage with the answer
+in the top 8 for 0.92 of the LitQA2 questions (FutureHouse, 131 with open full text) and in the
+top 10 for 0.92 of 24 paraphrased cell-therapy questions. Embeddings fused with BM25 gained a
+few points in the top 5, at the cost of ~9 s per article (decision 33).
+
 ### What the evals caught
 
 Each of these problems looked fine by eye and only showed up in the numbers:
@@ -173,6 +204,10 @@ Each of these problems looked fine by eye and only showed up in the numbers:
   so searches are now capped at two per question and the prompt says which tool fits each kind
   of question. Step-limit hits went from 5 to 0, tool choice from 0.89 to 1.00, and tokens per
   task fell by 29 %.
+- The Papers agent missed articles that a quoted search puts in the first two results. PubMed
+  translates `CAR T` into `car t[Author]`, a search for an author named "Car T", so most
+  cell-therapy queries matched unrelated papers. The query now sends `"CAR T"` as a phrase. Replaying the agent's own
+  recorded queries against PubMed, two of the four missing articles came up.
 - One failure was the evaluator's fault: a correct answer failed because `gpt-oss` writes
   "Escherichia coli" with a narrow no-break space. Facts are now compared after Unicode
   normalisation.
@@ -216,6 +251,7 @@ The ones that shaped the project most:
 | Hand-written agent loop, no framework | every message sent to the model is visible, and a scripted fake LLM tests the loop | no persistent state or branching graphs, which this agent does not need |
 | `amr-mcp` through a real MCP client in a subprocess | the project shows both sides of MCP; the client works with any MCP server | ~95 MB of the 512 MB budget (the container measures 367 MiB) |
 | Own eval metrics instead of Ragas or DeepEval | each metric is a few tested lines, and the judge prompt is versioned with the code | fewer metrics out of the box |
+| BM25 over each article's paragraphs, no embeddings, in `read_paper` | 0.92 of LitQA2 passages in the top 8, with no index and no model | embeddings fused with RRF gained a few points in the top 5 but cost ~9 s per article |
 | No cross-encoder reranker | it raised MRR to 0.85, but took ~4 s per query and over 1 GB of RAM | worth adding on paid hosting or with a hosted rerank API |
 | Fail fast on LLM rate limits | with the daily quota spent, a 503 in 0.5 s beats a 35 s spinner ending in the same error | the evals, which can wait, allow longer retries |
 
@@ -247,6 +283,7 @@ export DATABASE_URL_EVAL=postgresql://localhost/amr_agent_eval
 uv run amr-eval-retrieval --load-corpus --check   # as in CI
 uv run amr-eval-answers                           # ~150k tokens, ~25 min on Groq Free
 uv run amr-eval-agent --load-corpus               # ~130k tokens
+uv run amr-eval-agent --mode literature           # Papers agent, no database, ~100k tokens
 uv run amr-eval-report                            # rewrites evals/RESULTS.md
 ```
 
@@ -262,9 +299,12 @@ OpenTelemetry (GenAI conventions) + Langfuse · GitHub Actions · Render.
 Limitations:
 
 - The corpus is small and recent: ~3,000 abstracts from 2022–2026, with no full texts.
+- The Papers mode can only read articles that are in PubMed Central, 70 % of those in LitQA2.
+  It is in beta: it searches the live PubMed, which needs precise keywords, and the eval only
+  has 9 in-scope tasks, written from articles and not yet by a real user.
 - The embeddings are English-only, so questions in other languages retrieve worse. The agent is
   told to query the literature in English, which helps.
-- The eval sets are small (36 retrieval questions, 42 answers, 22 agent tasks): enough to catch
+- The eval sets are small (36 retrieval questions, 42 answers, 22 agent tasks, 11 Papers tasks): enough to catch
   regressions and compare options, but not for tight confidence intervals. The keyword threshold
   (10 %) was tuned on the same questions it is measured on.
 - Results are not deterministic: even at temperature 0, the same agent task can take a different

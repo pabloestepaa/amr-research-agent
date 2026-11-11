@@ -48,7 +48,7 @@ all expose OpenAI-compatible endpoints, so switching providers means changing tw
 variables. The current model is `openai/gpt-oss-120b` on Groq; Groq had retired the originally
 chosen `llama-3.3-70b-versatile`.
 
-## 7. Citations are validated, not trusted (2026-11-05)
+## 7. Check every citation against what was retrieved (2026-11-05)
 **Context.** The prompt asks for `[PMID:x]` citations, but models do not always comply:
 `gpt-oss-120b` sometimes cites with full-width brackets such as `【PMID:x】`. This was caught on the
 first real query, when the answer looked fine but the API reported zero citations.
@@ -212,7 +212,7 @@ citation format.
 of the question and to answer in the question's language, a cheap workaround for the English-only
 embedding model (decision 4). Two Spanish tasks in the agent evals check it.
 
-## 24. Limits that end in an answer, not an error (2026-11-05)
+## 24. Hitting a limit still produces an answer (2026-11-05)
 **Decision.** At most 5 steps, a 12,000-token budget per question and 4 tool calls per step. When a
 limit is reached, the agent makes one last call without tools and an instruction to answer with
 what it has (first done with `tool_choice="none"`, which `gpt-oss` ignored: see decision 28);
