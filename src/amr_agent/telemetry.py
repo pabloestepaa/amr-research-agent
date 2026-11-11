@@ -198,6 +198,22 @@ def record_tool(span: Span, *, is_error: bool, error: str, pmids: int, truncated
         span.set_status(StatusCode.ERROR, error[:300])
 
 
+# --- Arranque -------------------------------------------------------------------------------
+
+@contextmanager
+def startup_span(name: str) -> Iterator[Span]:
+    """Agrupa lo que pasa al arrancar en una sola traza. Sin esto, cada paso de la conexión con
+    amr-mcp (server/discover, initialize, tools/list...) era una traza suelta en Langfuse."""
+    with _span(name, SpanKind.INTERNAL, {"langfuse.observation.type": "span"}) as span:
+        yield span
+
+
+def record_failure(span: Span, exc: BaseException) -> None:
+    """Para errores que se capturan y no salen del span (el arranque sigue sin amr-mcp)."""
+    span.set_attribute("error.type", type(exc).__qualname__)
+    span.set_status(StatusCode.ERROR, str(exc)[:300])
+
+
 # --- /ask -----------------------------------------------------------------------------------
 
 @contextmanager

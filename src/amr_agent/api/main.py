@@ -14,6 +14,7 @@ from fastapi.responses import FileResponse
 from mcp import Client
 from pydantic import BaseModel, Field
 
+from amr_agent import telemetry
 from amr_agent.agent import LITERATURE_MODE, Agent, AgentAnswer
 from amr_agent.api.diagnostics import memory_summary
 from amr_agent.api.ratelimit import AskQuota
@@ -23,7 +24,6 @@ from amr_agent.embeddings import FastEmbedEmbedder
 from amr_agent.llm import OpenAICompatibleLLM
 from amr_agent.rag import RagAnswer, RagService, Source
 from amr_agent.retrieval import Retriever, SearchBackend, SearchMode
-from amr_agent.telemetry import setup_tracing, tracing_mode
 from amr_agent.tools import (
     LiteratureTools,
     McpTools,
@@ -61,7 +61,7 @@ async def lifespan(app: FastAPI):
     async with AsyncExitStack() as stack:  # cierra todo lo abierto, en orden inverso, al apagar
         # Lo primero en abrirse es lo último en cerrarse: al apagar, el provider envía los spans
         # que queden en el lote después de que termine todo lo demás.
-        if (tracer_provider := setup_tracing()) is not None:
+        if (tracer_provider := telemetry.setup_tracing()) is not None:
             stack.callback(tracer_provider.shutdown)
         pool = make_pool(settings.database_url)
         await pool.open()
@@ -94,7 +94,7 @@ async def lifespan(app: FastAPI):
         phases = ", ".join(f"{k} {v:.1f} s" for k, v in timings.items())
         log.info("Startup %.1f s (%s) · agent %s · literature %s · tracing %s · %s",
                  sum(timings.values()), phases, "on" if app.state.agent else "off",
-                 "on" if app.state.literature_agent else "off", tracing_mode(),
+                 "on" if app.state.literature_agent else "off", telemetry.tracing_mode(),
                  memory_summary())
         yield
 
@@ -103,24 +103,29 @@ async def start_agent(stack: AsyncExitStack, llm, retriever, settings) -> Agent 
     """Arranca amr-mcp (un subproceso para toda la vida de la API) y monta el agente.
 
     Si falla, la API arranca igualmente: /ask y /search no dependen de él y /agent responde 503.
-    Mejor una demo a medias que ninguna.
+    Mejor una demo a medias que ninguna. Todo el arranque es una sola traza (`start amr-mcp`).
     """
-    try:
-        client = await stack.enter_async_context(
-            Client(amr_mcp_server(), read_timeout_seconds=settings.mcp_timeout_s))
-        mcp_tools = await McpTools.load(client, timeout_s=settings.mcp_timeout_s)
-    except Exception:
-        log.exception("Could not start amr-mcp: /agent is disabled")
-        return None
-    # Cargamos el catálogo ya (en la imagen Docker viene incluido): la primera pregunta no espera
-    # y, si no está, lo vemos en los logs al arrancar. Sin catálogo el agente sigue siendo útil
-    # (literatura y especies hospedadoras), así que solo avisamos.
-    try:
-        warm = await client.call_tool("catalog_info", {})
-        if warm.is_error:
-            log.warning("amr-mcp catalog unavailable: %s", warm.content)
-    except Exception:
-        log.warning("amr-mcp catalog warm-up failed", exc_info=True)
+    with telemetry.startup_span("start amr-mcp") as span:
+        try:
+            client = await stack.enter_async_context(
+                Client(amr_mcp_server(), read_timeout_seconds=settings.mcp_timeout_s))
+            mcp_tools = await McpTools.load(client, timeout_s=settings.mcp_timeout_s)
+        except Exception as exc:
+            telemetry.record_failure(span, exc)
+            log.exception("Could not start amr-mcp: /agent is disabled")
+            return None
+        span.set_attribute("amr_agent.mcp.tools", len(mcp_tools.specs()))
+        # Cargamos el catálogo ya (en la imagen Docker viene incluido): la primera pregunta no
+        # espera y, si no está, lo vemos en los logs al arrancar. Sin catálogo el agente sigue
+        # siendo útil (literatura y especies hospedadoras), así que solo avisamos.
+        try:
+            warm = await client.call_tool("catalog_info", {})
+            if warm.is_error:
+                span.set_attribute("amr_agent.mcp.catalog", "unavailable")
+                log.warning("amr-mcp catalog unavailable: %s", warm.content)
+        except Exception:
+            span.set_attribute("amr_agent.mcp.catalog", "failed")
+            log.warning("amr-mcp catalog warm-up failed", exc_info=True)
     tools = Toolset([LiteratureTools(retriever), mcp_tools])
     return Agent(llm, tools, max_steps=settings.agent_max_steps,
                  token_budget=settings.agent_token_budget)

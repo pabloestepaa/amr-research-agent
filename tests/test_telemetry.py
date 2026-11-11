@@ -176,3 +176,41 @@ def test_http_requests_alone_leave_no_spans(spans):
 
     assert TestClient(app).get("/health").status_code == 200
     assert spans.get_finished_spans() == ()
+
+
+async def test_connecting_to_amr_mcp_is_one_trace(spans, monkeypatch):
+    from contextlib import AsyncExitStack
+    from types import SimpleNamespace
+
+    from amr_agent.api import main
+
+    monkeypatch.setattr(main, "amr_mcp_server", lambda: amr_server.mcp)  # en memoria
+    settings = SimpleNamespace(mcp_timeout_s=5, agent_max_steps=5, agent_token_budget=12_000)
+    async with AsyncExitStack() as stack:
+        agent = await main.start_agent(stack, ScriptedLLM(), FakeRetriever([]), settings)
+    assert agent is not None
+
+    finished = spans.get_finished_spans()
+    [root] = [s for s in finished if s.parent is None]
+    assert root.name == "start amr-mcp"
+    assert root.attributes["amr_agent.mcp.tools"] == len(MCP_TOOLS)
+    assert len(finished) > 1 and {s.context.trace_id for s in finished} == {root.context.trace_id}
+
+
+async def test_a_failed_amr_mcp_start_is_an_error_span(spans, monkeypatch):
+    from contextlib import AsyncExitStack
+    from types import SimpleNamespace
+
+    from amr_agent.api import main
+
+    def broken():
+        raise FileNotFoundError("amr-mcp not installed")
+
+    monkeypatch.setattr(main, "amr_mcp_server", broken)
+    async with AsyncExitStack() as stack:
+        agent = await main.start_agent(stack, ScriptedLLM(), FakeRetriever([]),
+                                       SimpleNamespace(mcp_timeout_s=5))
+    assert agent is None  # la API arranca sin /agent
+    [span] = spans.get_finished_spans()
+    assert (span.name, span.status.status_code) == ("start amr-mcp", StatusCode.ERROR)
+    assert span.attributes["error.type"] == "FileNotFoundError"
