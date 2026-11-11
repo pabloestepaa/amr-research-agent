@@ -35,8 +35,9 @@ CITATION_RE = re.compile(
 CITATION_LIST_RE = re.compile(
     r"[\[【［]\s*(PMID\s*[:：]?\s*\d+(?:\s*[,;]\s*(?:PMID\s*[:：]?\s*)?\d+)+)\s*[\]】］]"
 )
-# Referencias de navegación sin PMID, como 【2】 o 【3†L1-L5】: no le dicen nada al lector.
-BARE_REF_RE = re.compile(r"[ \t]*【\s*\d+\s*(?:†[^】]*)?】")
+# Referencias de navegación sin PMID, como 【2】 o 【3†L1-L5】, o con la posición en JSON,
+# 【{"cursor":0,"loc":0}】 (visto en /agent el 2026-11-11): no le dicen nada al lector.
+BARE_REF_RE = re.compile(r"[ \t]*【\s*(?:\d+\s*(?:†[^】]*)?|\{[^】]*\})\s*】")
 
 
 def normalize_citations(text: str) -> str:

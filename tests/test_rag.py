@@ -48,6 +48,13 @@ def test_several_pmids_in_one_bracket_become_separate_citations():
     assert extract_citations(text) == ["11470367", "37255469", "5", "6"]
 
 
+def test_browsing_positions_in_json_are_removed():
+    # /agent en Render, 2026-11-11: la posición del resultado en vez de un PMID.
+    text = ('Carbapenems【{"cursor":0,"loc":0}】 and '
+            'K. pneumoniae【{"cursor": 2, "loc": 14}】 [PMID:1].')
+    assert normalize_citations(text) == "Carbapenems and K. pneumoniae [PMID:1]."
+
+
 def test_normalize_leaves_ordinary_brackets_and_parentheses_alone():
     text = "Resistance rose [2021 data] (n = 12) to 47 % [PMID:1] (PMID-free note)."
     assert normalize_citations(text) == text
