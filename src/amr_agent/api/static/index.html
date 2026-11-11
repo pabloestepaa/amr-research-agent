@@ -298,7 +298,7 @@
         </fieldset>
         <label for="question" class="vh">Your question</label>
         <textarea id="question" name="question" maxlength="500" autocomplete="off"
-          placeholder="e.g. In which species is blaKPC-2 most often found?" aria-describedby="lang-note mode-note"></textarea>
+          placeholder="e.g. In which species is blaKPC-2 most often found?" aria-describedby="lang-note mode-note log-note"></textarea>
         <p class="field-note lang" id="lang-note" hidden>The search index is English-only, so English questions find more. The answer will still be in your language.</p>
         <div class="opts" id="search-opts" hidden>
           <label for="mode">Search by</label>
@@ -313,6 +313,7 @@
           <span class="kbd" id="kbd" aria-hidden="true"></span>
           <button type="submit" class="btn" id="submit">Ask the agent</button>
         </div>
+        <p class="field-note" id="log-note">Questions and answers are logged to debug the agent, so leave out personal details.</p>
         <div class="status" id="status" role="status" aria-live="polite"></div>
       </form>
 
@@ -364,6 +365,9 @@
       databases and PubMed Central, and can still be wrong: check the cited papers.</p>
     <p>Runs on free tiers (Render, Neon, Groq): after a quiet spell the first question can take up to a
       minute, and the LLM quota is shared by every visitor.</p>
+    <p>Each question is traced with OpenTelemetry and stored in Langfuse: the question, the answer, the
+      tools the agent called with their arguments, and token counts. No account or IP address goes into
+      these traces. They are used to find and fix failures.</p>
   </footer>
 </div>
 

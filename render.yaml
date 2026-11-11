@@ -18,6 +18,11 @@ services:
         value: https://api.groq.com/openai/v1
       - key: LLM_MODEL
         value: openai/gpt-oss-120b
+      # Trazas OpenTelemetry (decisión 39). Sin estas dos variables no se exporta nada.
+      - key: OTEL_EXPORTER_OTLP_ENDPOINT
+        value: https://cloud.langfuse.com/api/public/otel # Langfuse Cloud, región EU
+      - key: OTEL_EXPORTER_OTLP_HEADERS # Authorization=Basic%20<base64(pk:sk)>,x-langfuse-ingestion-version=4
+        sync: false
       - key: ASK_PER_IP_PER_MINUTE
         value: "5"
       - key: ASK_PER_DAY
