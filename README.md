@@ -91,6 +91,7 @@ flowchart TB
     R --> DB[("Postgres + pgvector<br/>text · tsvector · vector(384)")]
     MCP --> NCBI["NCBI Reference Gene Catalog<br/>+ E-utilities"]
     ING["amr-ingest (offline)<br/>PubMed / Europe PMC"] --> DB
+    api -. "OTLP traces" .-> LF["Langfuse"]
 ```
 
 - Ingestion ([`ingest/`](src/amr_agent/ingest/)): NCBI E-utilities, falling back to Europe PMC
@@ -176,9 +177,35 @@ Each of these problems looked fine by eye and only showed up in the numbers:
   "Escherichia coli" with a narrow no-break space. Facts are now compared after Unicode
   normalisation.
 
+## Observability
+
+Every `/ask` and `/agent` request in production is a trace in [Langfuse](https://langfuse.com)
+(free Hobby plan). The spans follow OpenTelemetry's
+[GenAI semantic conventions](https://github.com/open-telemetry/semantic-conventions-genai) and
+are written by hand in [`telemetry.py`](src/amr_agent/telemetry.py), so any OTLP backend can
+receive them. An agent question looks like this:
+
+```
+invoke_agent amr-research-agent       question, answer, total tokens, stop reason
+├─ chat openai/gpt-oss-120b           tokens, finish reason, latency of each turn
+├─ execute_tool get_amr_gene          arguments, PMIDs returned, error
+│  └─ MCP send tools/call get_amr_gene    created by the mcp SDK
+├─ execute_tool search_literature
+└─ chat openai/gpt-oss-120b
+```
+
+<p align="center"><img src="docs/img/langfuse-trace.png" width="860"
+  alt="A trace in Langfuse's timeline view: an agent question about blaKPC-2 with four gpt-oss-120b calls, get_amr_gene, get_protein_hosts and search_literature, each MCP call nested under its tool; get_protein_hosts takes 2.64 s of the 6.68 s total"></p>
+
+This trace shows something the evals never measured. The four LLM calls took 3.6 s in total,
+and one `get_protein_hosts` call took 2.6 s, almost all of it waiting on NCBI. A trace keeps
+only the question, the final answer and the tool arguments, without prompts or tool results,
+because the questions come from a public demo. The page tells visitors so. Without an OTLP
+endpoint, tracing is off and the SDK is not imported. See decision 39.
+
 ## Design decisions
 
-All 37 decisions, with context and trade-offs, are in [`docs/decisions.md`](docs/decisions.md).
+All 39 decisions, with context and trade-offs, are in [`docs/decisions.md`](docs/decisions.md).
 The ones that shaped the project most:
 
 | Decision | Why | Trade-off |
@@ -230,7 +257,7 @@ Deployment to Render and Neon is described in [`docs/deploy.md`](docs/deploy.md)
 Stack: Python 3.13 · FastAPI · PostgreSQL + pgvector (Neon) · fastembed (`bge-small-en-v1.5`,
 ONNX) · OpenAI SDK against Groq (`gpt-oss-120b`, judge `gpt-oss-20b`) · MCP (`mcp` client,
 [`amr-mcp`](https://github.com/pabloestepaa/amr-mcp) server) · pytest · ruff · Docker ·
-GitHub Actions · Render.
+OpenTelemetry (GenAI conventions) + Langfuse · GitHub Actions · Render.
 
 Limitations:
 

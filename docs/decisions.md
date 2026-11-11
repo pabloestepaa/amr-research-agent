@@ -544,3 +544,42 @@ otherwise: in the four real failures the right article never appeared in any sea
   ft-07) are queries with too many words, which is the model's choice; the next run says whether
   that needs a code change or a prompt change.
 **Result.** Pending the next run (it costs a day of quota).
+
+## 39. Traces with OpenTelemetry's GenAI conventions, sent to Langfuse (2026-11-11)
+**Context.** In production the only window into the agent was one startup log line and the
+JSON each request returns. When a demo question went wrong there was no record of which tools
+it called, how long each step took or how many tokens it spent, and the evals only cover the
+questions in the golden sets.
+**Decision.**
+- Spans follow OpenTelemetry's GenAI semantic conventions (`invoke_agent`, `chat`,
+  `execute_tool`, `invoke_workflow`, `retrieval`, with `gen_ai.usage.*`, `gen_ai.tool.*`...).
+  The code depends on OpenTelemetry, not on a vendor SDK: any OTLP backend can receive them,
+  and a few `langfuse.*` attributes only add hints (observation type, input, output).
+- The spans are written by hand in [`telemetry.py`](../src/amr_agent/telemetry.py) instead of
+  using `opentelemetry-instrumentation-openai-v2`. That package is in beta, does not clearly
+  support `openai` 3.x (which uses `httpx2`), and would record full prompts. Hand-written spans
+  are ~200 lines and record exactly what was chosen.
+- What is stored: the question, the final answer and the tool arguments (the queries the model
+  writes). Not the prompts, intermediate messages or tool results. Questions come from strangers
+  on a public demo, so the page now says that questions are logged and asks visitors to leave
+  out personal details. No account or IP address goes into a trace.
+- Backend: Langfuse Cloud, free Hobby plan (50,000 units a month, data visible for 30 days, no
+  card). One agent question is about 11 units (1 trace plus ~10 observations), so the agent's
+  own daily quota cannot exhaust it.
+- The `mcp` SDK already creates a client span for each `tools/call` and propagates the trace
+  context, so MCP calls appear under the tool that made them at no cost. FastAPI 0.162 also
+  creates HTTP spans whenever a tracer provider exists; they are off, so Render's health checks
+  and page views spend no units. The connection to `amr-mcp` at startup is one trace
+  (`start amr-mcp`) instead of five loose ones.
+- Off unless configured: without `OTEL_EXPORTER_OTLP_ENDPOINT` the SDK is not even imported.
+  `OTEL_TRACES_EXPORTER=console` prints spans locally. Spans are exported in batches from
+  another thread, so exporting never delays an answer.
+**Trade-offs.** About 20 MB more memory (the container measured 375–397 MB of 512). The GenAI
+conventions are still marked Development and attribute names may change. Export failures only
+show up in the Render logs, never in Langfuse (the first setup failed with a 401 for that
+reason, see `docs/deploy.md`). Langfuse shows the cost as $0 because it has no price for
+`gpt-oss-120b` on Groq.
+**Result.** The first trace already answered something the evals never measured: in a
+three-tool question (6.7 s in total), the four LLM calls took 3.6 s together and a single
+`get_protein_hosts` call took 2.6 s, almost all of it waiting on NCBI inside `amr-mcp`. For
+latency, the external databases matter as much as the model.
