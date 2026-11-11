@@ -55,10 +55,12 @@ def normalize_text(text: str) -> str:
     guion no separable (U+2011):
     la respuesta es correcta pero "escherichia coli" no aparecía en ella (falso negativo en
     host-02). NFKC convierte los espacios especiales en espacios normales; los guiones los
-    unificamos a mano porque NFKC no los toca.
+    unificamos a mano porque NFKC no los toca. Y escribe "62.5 %" con espacio (falso negativo en
+    ft-01, decisión 38): el espacio antes de "%" no cuenta.
     """
     text = HYPHENS_RE.sub("-", unicodedata.normalize("NFKC", text))
-    return re.sub(r"\s+", " ", text).lower()
+    text = re.sub(r"\s+", " ", text).lower()
+    return re.sub(r"(\d) %", r"\1%", text)
 
 
 def _alternatives(text: str) -> list[str]:

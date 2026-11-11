@@ -513,3 +513,34 @@ figure) and refused. The pattern is choosing which article to read and stopping 
 search or reading. `gpt-oss` also sends `top_k` instead of `k` on the first call in every
 question. These are the first things the literature eval (decision 36) has to measure before
 any prompt change.
+
+## 38. What the first literature eval found: PubMed reads "CAR T" as an author (2026-11-11)
+**Context.** First full run of the literature eval (decision 36), 11 tasks, ~100,000 tokens:
+5/11. Decision 37 guessed that the problem was choosing which article to read. The eval said
+otherwise: in the four real failures the right article never appeared in any search.
+**Findings.**
+- PubMed translates `CAR T` into `car t[Author]`, a search for an author called "Car T". "GD2
+  CAR T H3K27M glioma" returned 3 unrelated articles; with `"CAR T"` in quotes it returns 15, with
+  the trial the task is about second. `CAR T-cell` does not go to the author field but expands
+  "car" to automobiles and a protein. In a cell-therapy search tool this breaks most queries.
+- Long queries return nothing, because PubMed requires every word to match: 9 of the 29 searches
+  were empty. The tool's note says so and the model keeps adding words anyway. "TCR" is
+  translated as a journal name and "HLA-A*02+" is indexed in a way the query never matches.
+- The first call of every task (9/9) sent `top_k` instead of `k` and was rejected: one wasted
+  step per question.
+- Two failures were the evaluator's: the answers were right but wrote "62.5 %" with a space and
+  "3 of the 12 treated patients".
+**Decision.**
+- `search_papers` rewrites every `CAR T` / `CAR-T` / `CAR T-cell(s)` as the phrase `"CAR T"`
+  before calling PubMed (`pubmed_term`). Replaying the agent's own 20 recorded queries against
+  live PubMed, the fix finds the missing article for two of the four failed tasks (ft-03 second,
+  ft-05 first) and changes nothing for the others.
+- The parameter is renamed from `k` to `top_k`, the name the model uses anyway. Accepting both
+  would hide invented arguments again, which decision 35 removed on purpose.
+- The evaluator ignores a space before `%`, and ft-06 accepts "3 of 12" and "3 of the 12". This
+  adds answer forms after seeing the answers, as in decision 29; they are other ways of writing
+  the same fact, not looser facts. The saved run was re-scored with the fixed evaluator: 7/11.
+- Not done yet: retrying an empty search with fewer words. The two remaining failures (ft-04,
+  ft-07) are queries with too many words, which is the model's choice; the next run says whether
+  that needs a code change or a prompt change.
+**Result.** Pending the next run (it costs a day of quota).

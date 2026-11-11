@@ -51,6 +51,42 @@ Generator: `openai/gpt-oss-120b` · judge: `openai/gpt-oss-20b` · 42 questions 
 | Questions whose relevant abstract was retrieved | 0.83 |
 | p50 latency (ms) | 22199.90 |
 
+## Agent — literature
+
+Model: `openai/gpt-oss-120b` · 11 tasks · max 6 steps, 12,000 token budget · tool responses: replay (0 replayed, 29 live)
+
+| metric | value |
+|---|---|
+| Task success (every check below passed) | 0.64 |
+| Called the tools the task needs | 0.89 |
+| Called them with the right arguments (e.g. the WP_ accession) | — |
+| Answer contains the verifiable facts (drug class, top species...) | 0.56 |
+| A search found the relevant article | 0.56 |
+| read_paper read the relevant article (literature mode) | 0.56 |
+| Out-of-scope questions correctly refused | 1.00 |
+| In-scope questions wrongly refused (lower is better) | 0.44 |
+| Answers without hallucinated PMIDs | 1.00 |
+| Tasks where the agent crashed, e.g. a provider 400 (lower is better) | 0 |
+| Tool calls per task | 3.45 |
+| Unneeded tool calls per task (lower is better) | 0.00 |
+| Tool calls that returned an error (lower is better) | 0.24 |
+| Tasks stopped by the step or token limit (lower is better) | 0.36 |
+| Tokens per task | 9044.27 |
+| p50 latency (ms) | 41795.70 |
+
+Task success by category:
+
+| full_text (n=9) | out_of_scope (n=2) |
+|---|---|
+| 0.56 | 1.00 |
+
+Failed tasks:
+
+- `ft-03`: 1:search_papers({"full_text_only": false, "query": "GD2-CAR T cells H3K27M diffuse midline glioma manufacturing automated system", "top_k": 5}) ERROR → 2:search_papers({"full_text_only": false, "k": 10, "query": "GD2-CAR T cells H3K27M diffuse midline glioma manufacturing automated system"}) → 3:search_papers({"full_text_only": false, "k": 10, "query": "GD2 CAR T H3K27M glioma"}) → 4:read_paper({"k": 10, "paper_id": "34964902", "question": "automated system used to manufacture GD2-CAR T cells"}) → 5:search_papers({"full_text_only": false, "k": 10, "query": "GD2 CAR T cells H3K27M diffuse midline glioma clinical trial manufacturing automated system"})
+- `ft-04`: 1:search_papers({"full_text_only": false, "query": "autologous T cells MAGE-A4 HLA-A*02 phase 1 solid cancers", "top_k": 5}) ERROR → 2:search_papers({"full_text_only": false, "k": 10, "query": "autologous T cells MAGE-A4 HLA-A*02 phase 1 solid cancers"}) → 3:search_papers({"full_text_only": false, "k": 10, "query": "MAGE-A4 TCR phase 1"}) → 4:search_papers({"full_text_only": false, "k": 10, "query": "MAGE-A4 TCR-transduced autologous T cells phase 1 HLA-A*02 solid tumor"}) → 5:search_papers({"full_text_only": false, "k": 10, "query": "MAGE-A4 TCR autologous T cells phase 1"})
+- `ft-05`: 1:search_papers({"full_text_only": false, "query": "intracerebroventricular B7-H3 CAR T cells diffuse intrinsic pontine glioma phase 1", "top_k": 5}) ERROR → 2:search_papers({"full_text_only": false, "k": 10, "query": "intracerebroventricular B7-H3 CAR T cells diffuse intrinsic pontine glioma phase 1"}) → 3:read_paper({"k": 10, "paper_id": "41639009", "question": "median time from diagnosis to death or last follow-up diffuse intrinsic pontine glioma intracerebroventricular B7-H3 CAR T cells"}) → 4:search_papers({"full_text_only": true, "k": 10, "query": "BrainChild-03 intracerebroventricular B7-H3 CAR T cells DIPG phase 1 median time from diagnosis to death"}) → 5:search_papers({"full_text_only": true, "k": 10, "query": "BrainChild-03 B7-H3 CAR T DIPG"})
+- `ft-07`: 1:search_papers({"full_text_only": false, "query": "TRANSCEND FL lisocabtagene maraleucel follicular lymphoma phase 2 overall survival", "top_k": 5}) ERROR → 2:search_papers({"full_text_only": false, "k": 5, "query": "TRANSCEND FL lisocabtagene maraleucel follicular lymphoma phase 2 overall survival"}) → 3:read_paper({"k": 10, "paper_id": "42462111", "question": "one-year overall survival"}) → 4:search_papers({"full_text_only": false, "k": 5, "query": "TRANSCEND FL primary analysis lisocabtagene maraleucel overall survival 12 months"}) → 5:read_paper({"k": 10, "paper_id": "42462111", "question": "12-month overall survival"})
+
 ## Retrieval — retrieval full
 
 Corpus: 2999 abstracts · 36 questions · BAAI/bge-small-en-v1.5 · keyword max_df=0.1, weight=1.0

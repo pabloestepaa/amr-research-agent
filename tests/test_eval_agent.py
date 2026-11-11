@@ -133,6 +133,7 @@ def test_typography_does_not_hide_a_correct_fact():
     row = score_task(task, answer(text, GOOD_HOST_STEPS))
     assert row["answer_ok"] is True
     assert normalize_text("A\u00a0B\u2212C  D") == "a b-c d"
+    assert normalize_text("5 of them (62.5\u202f%)") == "5 of them (62.5%)"
 
 
 def test_a_crashed_task_counts_as_failed_but_not_in_the_cost_averages():

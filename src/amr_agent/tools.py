@@ -371,8 +371,10 @@ SEARCH_PAPERS = ToolSpec(
         "type": "object",
         "properties": {
             "query": {"type": "string", "description": "Keywords in English"},
-            "k": {"type": "integer", "minimum": 1, "maximum": 8, "default": 5,
-                  "description": "Number of articles to return"},
+            # `top_k` y no `k`: gpt-oss mandó `top_k` en la 1.ª llamada de las 9 tareas de la
+            # primera eval (decisión 38) y cada error le costaba un paso.
+            "top_k": {"type": "integer", "minimum": 1, "maximum": 8, "default": 5,
+                      "description": "Number of articles to return"},
             "full_text_only": {"type": "boolean", "default": False,
                                "description": "Only articles whose full text can be read"},
         },
@@ -385,6 +387,14 @@ EUROPEPMC_SEARCH = "https://www.ebi.ac.uk/europepmc/webservices/rest/search"
 # Aquí el abstract solo sirve para elegir qué artículo leer: el detalle lo da read_paper. Recortado
 # caben 5 artículos en ~1.000 tokens (Groq Free: 8.000 tokens/min para toda la pregunta).
 SEARCH_ABSTRACT_CHARS = 700
+# PubMed lee "CAR T" como un autor ("car t"[Author]): "GD2 CAR T H3K27M glioma" daba 3 artículos
+# irrelevantes y con "CAR T" entre comillas, 15 con el ensayo bueno el 2.º. "CAR T-cell" no va al
+# autor, pero expande "car" a coches y proteínas. Todas las variantes pasan a la frase "CAR T".
+CAR_T_RE = re.compile(r'(?<!")\bCAR[\s-]T(?:[\s-](cells?)\b|\b)(?!")', re.IGNORECASE)
+
+
+def pubmed_term(query: str) -> str:
+    return CAR_T_RE.sub(lambda m: '"CAR T"' + (f" {m[1]}" if m[1] else ""), query)
 
 
 class PaperSearchTools:
@@ -406,6 +416,7 @@ class PaperSearchTools:
         return [SEARCH_PAPERS]
 
     async def _pubmed_ids(self, query: str, k: int, full_text_only: bool) -> list[str]:
+        query = pubmed_term(query)
         term = f'({query}) AND "pubmed pmc"[sb]' if full_text_only else query
         resp = await self._http.get(ESEARCH, params={
             "db": "pubmed", "term": term, "sort": "relevance", "retmax": k, "retmode": "json",
@@ -428,7 +439,7 @@ class PaperSearchTools:
         query = str(arguments.get("query") or "").strip()
         if len(query) < 3:
             return _error("'query' must have at least 3 characters")
-        k = max(1, min(int(arguments.get("k") or 5), 8))
+        k = max(1, min(int(arguments.get("top_k") or 5), 8))
         full_text_only = arguments.get("full_text_only") is True
         try:
             pmids = await self._pubmed_ids(query, k, full_text_only)

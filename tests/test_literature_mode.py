@@ -18,6 +18,7 @@ from amr_agent.tools import (
     PaperSearchTools,
     ReadPaperTools,
     Toolset,
+    pubmed_term,
 )
 from tests.fakes import ScriptedLLM, text_turn, tool_turn
 
@@ -62,7 +63,7 @@ def network(records: list[dict], pubmed: list[str] | None = None, esearch_down: 
 async def test_search_papers_keeps_pubmed_order_and_returns_short_citable_results():
     records = [epmc_record("1"), epmc_record("2", in_pmc=False), {"title": "preprint, no PMID"}]
     http, calls = network(records, pubmed=["2", "1"])  # Europe PMC los da en otro orden
-    result = await PaperSearchTools(http).call("search_papers", {"query": "CAR-T CRS", "k": 3})
+    result = await PaperSearchTools(http).call("search_papers", {"query": "CAR-T CRS", "top_k": 3})
     rows = json.loads(result.content)["results"]
     assert [(r["pmid"], r["full_text"]) for r in rows] == [("2", False), ("1", True)]
     assert rows[1]["abstract"].startswith("CAR-T cells x")  # sin etiquetas HTML
@@ -70,7 +71,7 @@ async def test_search_papers_keeps_pubmed_order_and_returns_short_citable_result
     assert (rows[1]["journal"], rows[1]["year"]) == ("Blood", 2024)
     assert result.pmids == frozenset({"1", "2"})
     esearch, epmc = calls
-    assert (esearch.url.params["term"], esearch.url.params["sort"]) == ("CAR-T CRS", "relevance")
+    assert (esearch.url.params["term"], esearch.url.params["sort"]) == ('"CAR T" CRS', "relevance")
     assert epmc.url.params["query"] == "(EXT_ID:2 OR EXT_ID:1) AND SRC:MED"
 
 
@@ -85,7 +86,7 @@ async def test_search_papers_can_ask_only_for_readable_articles():
     http, calls = network([])
     result = await PaperSearchTools(http).call(
         "search_papers", {"query": "CAR-T", "full_text_only": True})
-    assert calls[0].url.params["term"] == '(CAR-T) AND "pubmed pmc"[sb]'
+    assert calls[0].url.params["term"] == '("CAR T") AND "pubmed pmc"[sb]'
     assert len(calls) == 1  # sin PMIDs no se pregunta a Europe PMC
     assert json.loads(result.content)["note"].startswith("no matching articles")
 
@@ -95,6 +96,22 @@ async def test_search_papers_falls_back_to_europepmc_when_pubmed_fails():
     result = await PaperSearchTools(http).call("search_papers", {"query": "CAR-T CRS"})
     assert json.loads(result.content)["results"][0]["pmid"] == "1"
     assert calls[-1].url.params["query"] == "TITLE_ABS:(CAR-T CRS) AND SRC:MED"
+
+
+def test_car_t_goes_to_pubmed_as_a_phrase_not_as_an_author():
+    # PubMed traducía "CAR T" como "car t"[Author] y la búsqueda se quedaba sin el ensayo bueno.
+    assert pubmed_term("GD2 CAR T H3K27M glioma") == 'GD2 "CAR T" H3K27M glioma'
+    assert pubmed_term("CAR T-cell therapy") == '"CAR T" cell therapy'
+    assert pubmed_term("car-t cells DIPG") == '"CAR T" cells DIPG'
+    assert pubmed_term('"CAR T" glioma') == '"CAR T" glioma'  # ya entrecomillado
+    assert pubmed_term("CART protein; CAR-NK cells") == "CART protein; CAR-NK cells"
+
+
+async def test_search_papers_sends_the_car_t_phrase_to_pubmed():
+    http, calls = network([])
+    await PaperSearchTools(http).call(
+        "search_papers", {"query": "B7-H3 CAR T DIPG", "full_text_only": True})
+    assert calls[0].url.params["term"] == '(B7-H3 "CAR T" DIPG) AND "pubmed pmc"[sb]'
 
 
 # --- El agente en modo literatura -----------------------------------------------------------
@@ -158,10 +175,10 @@ def test_amr_mode_is_the_default_and_keeps_its_prompt():
 async def test_invented_arguments_are_rejected_before_reaching_the_tool():
     http, calls = network([epmc_record("1")])
     result = await Toolset([PaperSearchTools(http)]).call(
-        "search_papers", {"query": "CAR-T", "top_k": 10})
+        "search_papers", {"query": "CAR-T", "max_results": 10})
     assert result.is_error and calls == []  # ni PubMed ni Europe PMC
-    assert result.content == ("ERROR: Unknown argument(s) for search_papers: top_k. "
-                              "Valid arguments: query, k, full_text_only.")
+    assert result.content == ("ERROR: Unknown argument(s) for search_papers: max_results. "
+                              "Valid arguments: query, top_k, full_text_only.")
 
 
 async def test_null_optional_arguments_are_not_invented():
@@ -186,7 +203,7 @@ async def test_read_paper_returns_at_most_eight_passages():
 # --- Qué cuenta para el límite de búsquedas (decisión 37) -----------------------------------
 
 async def test_rejected_and_empty_searches_do_not_use_up_the_limit():
-    # En la demo: un `top_k` inventado y una consulta larga sin resultados dejaban al agente sin
+    # En la demo: un argumento inventado y una consulta larga sin resultados dejaban al agente sin
     # búsquedas antes de ver un solo artículo.
     calls: list[httpx.Request] = []
 
@@ -200,7 +217,7 @@ async def test_rejected_and_empty_searches_do_not_use_up_the_limit():
 
     http = httpx.AsyncClient(transport=httpx.MockTransport(handler))
     llm = ScriptedLLM(
-        tool_turn(("search_papers", {"query": "CAR-T", "top_k": 5})),  # rechazada
+        tool_turn(("search_papers", {"query": "CAR-T", "max_results": 5})),  # rechazada
         tool_turn(("search_papers", {"query": "a long query with no results"})),  # vacía
         tool_turn(("search_papers", {"query": "CAR-T glioma"})),
         tool_turn(("search_papers", {"query": "CAR-T glioma phase 1"})),
