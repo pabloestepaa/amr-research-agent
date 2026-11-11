@@ -12,11 +12,13 @@ import asyncio
 import json
 import re
 import time
+from collections.abc import Awaitable
 from dataclasses import dataclass
 from typing import Any, Literal
 
 from pydantic import BaseModel
 
+from amr_agent import telemetry
 from amr_agent.llm import ChatLLM, ChatTurn, ToolCall
 from amr_agent.rag import NO_EVIDENCE, extract_citations, normalize_citations
 from amr_agent.tools import (
@@ -248,6 +250,20 @@ class Agent:
         self.max_literature_searches = max_literature_searches
 
     async def run(self, question: str) -> AgentAnswer:
+        """Responde a la pregunta y deja la trayectoria en una traza (telemetry.py)."""
+        with telemetry.agent_span(
+                question, mode=self.mode.name,
+                provider=getattr(self._llm, "provider", "unknown"),
+                model=getattr(self._llm, "model", "unknown")) as span:
+            result = await self._run(question)
+            telemetry.record_agent(
+                span, answer=result.answer, input_tokens=result.usage.prompt_tokens,
+                output_tokens=result.usage.completion_tokens, llm_calls=result.usage.llm_calls,
+                tool_calls=len(result.steps), stop_reason=result.stop_reason,
+                invalid_citations=len(result.invalid_citations))
+        return result
+
+    async def _run(self, question: str) -> AgentAnswer:
         t0 = time.perf_counter()
         schemas = [s.to_openai() for s in self._tools.specs()]
         messages: list[dict[str, Any]] = [
@@ -286,7 +302,7 @@ class Agent:
 
             messages.append(turn.as_message())
             t_tools = time.perf_counter()
-            pending = []
+            pending: list[Awaitable[ToolResult]] = []
             counted: set[int] = set()  # índices de las búsquedas contadas en este paso
             for i, call in enumerate(turn.tool_calls):
                 key = call_key(call)
@@ -304,7 +320,8 @@ class Agent:
                         called[key] = step
                     pending.append(self._call(call, i))
             # Si pide varias herramientas a la vez, son independientes: en paralelo.
-            results = await asyncio.gather(*pending)
+            results = await asyncio.gather(*(self._traced(call, p) for call, p
+                                             in zip(turn.tool_calls, pending, strict=True)))
             tools_ms += (time.perf_counter() - t_tools) * 1000
             searches -= sum(1 for i in counted if results[i].is_error or not results[i].pmids)
             for call, result in zip(turn.tool_calls, results, strict=True):
@@ -355,6 +372,17 @@ class Agent:
             {"role": "user", "content": f"Question: {question}\n\nTool results:\n\n{results}"
                                         f"\n\n{FINAL_NUDGE}"},
         ]
+
+    async def _traced(self, call: ToolCall, pending: Awaitable[ToolResult]) -> ToolResult:
+        """Un span `execute_tool` por llamada, también las repetidas o rechazadas: son decisiones
+        del modelo y en la traza deben verse. Se espera dentro del span para que lo que cree la
+        herramienta (el span de MCP) quede colgando de él."""
+        with telemetry.tool_span(call.name, call.id, call.arguments) as span:
+            result = await pending
+            telemetry.record_tool(span, is_error=result.is_error, error=result.content,
+                                  pmids=len(result.pmids), truncated=result.truncated,
+                                  result_chars=len(result.content))
+        return result
 
     async def _call(self, call: ToolCall, index: int) -> ToolResult:
         if index >= self.max_calls_per_step:

@@ -5,6 +5,7 @@ import time
 
 from pydantic import BaseModel
 
+from amr_agent import telemetry
 from amr_agent.llm import LLMClient
 from amr_agent.retrieval import Hit, SearchBackend, SearchMode
 
@@ -100,9 +101,19 @@ class RagService:
         self._llm = llm
         self.top_k = top_k
 
-    async def ask(self, question: str, k: int | None = None, mode: SearchMode = "hybrid"):
+    async def ask(self, question: str, k: int | None = None,
+                  mode: SearchMode = "hybrid") -> "RagAnswer":
+        """Busca, genera y valida las citas, dejando una traza (telemetry.py)."""
+        with telemetry.workflow_span(question) as span:
+            result = await self._ask(question, k or self.top_k, mode)
+            telemetry.record_workflow(span, result.answer, len(result.invalid_citations))
+        return result
+
+    async def _ask(self, question: str, k: int, mode: SearchMode) -> "RagAnswer":
         t0 = time.perf_counter()
-        hits = await self._retriever.search(question, k or self.top_k, mode)
+        with telemetry.retrieval_span(k, mode) as span:
+            hits = await self._retriever.search(question, k, mode)
+            span.set_attribute("amr_agent.retrieval.hits", len(hits))
         retrieval_ms = (time.perf_counter() - t0) * 1000
         sources = [Source.from_hit(h) for h in hits]
 

@@ -14,6 +14,8 @@ from typing import Any, Literal, Protocol
 import openai
 from openai import AsyncOpenAI
 
+from amr_agent import telemetry
+
 
 @dataclass(frozen=True)
 class Completion:
@@ -109,21 +111,22 @@ class OpenAICompatibleLLM:
             http_client=http_client,  # solo en tests: un cliente con respuestas simuladas
         )
         self.model = model
+        self.provider = telemetry.provider_name(base_url)  # "groq": para las trazas
         self.max_retries = max_retries
         self.max_retry_wait_s = max_retry_wait_s
 
-    async def _create(self, **kwargs: Any) -> Any:
+    async def _create(self, **kwargs: Any) -> tuple[Any, int]:
         """Llama al proveedor reintentando 429, 5xx y errores de red, pero solo si compensa.
 
         Si el servidor pide esperar más de `max_retry_wait_s` (con la cuota diaria de Groq
         agotada pide minutos), fallamos ya: en la API es mejor un 503 inmediato que un visitante
         mirando "Working..." durante minutos para recibir el mismo error. Las evals, en cambio,
-        pueden permitirse esperar.
+        pueden permitirse esperar. Devuelve también cuántas veces reintentó (para la traza).
         """
         attempt = 0
         while True:
             try:
-                return await self._client.chat.completions.create(**kwargs)
+                return await self._client.chat.completions.create(**kwargs), attempt
             except RETRYABLE as exc:
                 wait = retry_delay(exc, attempt)
                 if attempt >= self.max_retries or wait > self.max_retry_wait_s:
@@ -134,12 +137,15 @@ class OpenAICompatibleLLM:
     async def complete(self, system: str, user: str, *, json_mode: bool = False) -> Completion:
         start = time.perf_counter()
         extra = {"response_format": {"type": "json_object"}} if json_mode else {}
-        resp = await self._create(
-            model=self.model,
-            temperature=0.0,  # respuestas lo más deterministas posible: mejor para evaluar
-            messages=[{"role": "system", "content": system}, {"role": "user", "content": user}],
-            **extra,
-        )
+        with telemetry.chat_span(self.provider, self.model) as span:
+            resp, retries = await self._create(
+                model=self.model,
+                temperature=0.0,  # respuestas lo más deterministas posible: mejor para evaluar
+                messages=[{"role": "system", "content": system},
+                          {"role": "user", "content": user}],
+                **extra,
+            )
+            telemetry.record_chat(span, resp, retries)
         usage = resp.usage
         return Completion(
             text=(resp.choices[0].message.content or "").strip(),
@@ -155,7 +161,10 @@ class OpenAICompatibleLLM:
         # pide el agente la respuesta final (ver `Agent._final_messages`).
         start = time.perf_counter()
         extra = {"tools": tools, "tool_choice": tool_choice} if tools else {}
-        resp = await self._create(model=self.model, temperature=0.0, messages=messages, **extra)
+        with telemetry.chat_span(self.provider, self.model) as span:
+            resp, retries = await self._create(model=self.model, temperature=0.0,
+                                               messages=messages, **extra)
+            telemetry.record_chat(span, resp, retries)
         msg = resp.choices[0].message
         usage = resp.usage
         return ChatTurn(

@@ -23,6 +23,7 @@ from amr_agent.embeddings import FastEmbedEmbedder
 from amr_agent.llm import OpenAICompatibleLLM
 from amr_agent.rag import RagAnswer, RagService, Source
 from amr_agent.retrieval import Retriever, SearchBackend, SearchMode
+from amr_agent.telemetry import setup_tracing, tracing_mode
 from amr_agent.tools import (
     LiteratureTools,
     McpTools,
@@ -58,6 +59,10 @@ async def lifespan(app: FastAPI):
     t = time.perf_counter()
     await apply_schema_async(settings.database_url)
     async with AsyncExitStack() as stack:  # cierra todo lo abierto, en orden inverso, al apagar
+        # Lo primero en abrirse es lo último en cerrarse: al apagar, el provider envía los spans
+        # que queden en el lote después de que termine todo lo demás.
+        if (tracer_provider := setup_tracing()) is not None:
+            stack.callback(tracer_provider.shutdown)
         pool = make_pool(settings.database_url)
         await pool.open()
         stack.push_async_callback(pool.close)
@@ -87,9 +92,10 @@ async def lifespan(app: FastAPI):
             http = await stack.enter_async_context(httpx.AsyncClient(timeout=30))
             app.state.literature_agent = literature_agent(http, settings)
         phases = ", ".join(f"{k} {v:.1f} s" for k, v in timings.items())
-        log.info("Startup %.1f s (%s) · agent %s · literature %s · %s",
+        log.info("Startup %.1f s (%s) · agent %s · literature %s · tracing %s · %s",
                  sum(timings.values()), phases, "on" if app.state.agent else "off",
-                 "on" if app.state.literature_agent else "off", memory_summary())
+                 "on" if app.state.literature_agent else "off", tracing_mode(),
+                 memory_summary())
         yield
 
 
@@ -143,6 +149,11 @@ app = FastAPI(
                  "and a literature mode that searches PubMed and reads full texts from PMC."),
     version="0.3.0",
     lifespan=lifespan,
+    # FastAPI crea sus propios spans (POST /agent, fastapi.endpoint...) en cuanto hay un
+    # TracerProvider. Los quitamos: cada visita a la página y cada /health de Render serían
+    # una traza más contra las 50.000 unidades/mes de Langfuse, y Langfuse toma la entrada y la
+    # salida de la traza del span raíz, que así es invoke_agent con la pregunta (decisión 39).
+    telemetry={"tracing": False},
 )
 
 
