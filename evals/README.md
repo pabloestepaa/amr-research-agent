@@ -41,8 +41,10 @@ Latest numbers: [RESULTS.md](RESULTS.md).
   calls not recorded yet go live and are added. `--cassette refresh` re-records everything.
 - `golden_literature.jsonl`: 9 literature-mode tasks (decision 36): a figure or a name that is
   in the full text of a cell-therapy article but not in its abstract, so the agent has to find the
-  study with `search_papers` and read it with `read_paper`. Two are in Spanish; two more tasks are
-  out of scope. Built from the synthetic set of the viability study and checked by Claude, not by
+  study with `search_papers` and read it with `read_paper`. Two are in Spanish. Three `general`
+  questions name no study (the first is a real user's question, which the agent refused to
+  answer, see decision 40): they pass if the answer gives a percentage with valid citations and
+  does not refuse, since there is no single right figure. Two more tasks are out of scope. Built from the synthetic set of the viability study and checked by Claude, not by
   a domain expert. Their tool responses go to `literature_cassette.jsonl`, which is not in git
   (it holds passages of articles).
 - `thresholds.json`: minimum metric values; CI fails if a change drops below them.

@@ -19,7 +19,7 @@ import httpx
 from mcp import Client
 from mcp.client.stdio import StdioServerParameters
 
-from amr_agent.fulltext import Article, best_passages, parse_jats
+from amr_agent.fulltext import Article, abstract_excerpt, best_passages, parse_jats
 from amr_agent.retrieval import SearchBackend
 
 # Herramientas de amr-mcp que exponemos. Cuantas menos, mejor elige el modelo y menos tokens
@@ -384,8 +384,9 @@ SEARCH_PAPERS = ToolSpec(
 
 ESEARCH = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi"
 EUROPEPMC_SEARCH = "https://www.ebi.ac.uk/europepmc/webservices/rest/search"
-# Aquí el abstract solo sirve para elegir qué artículo leer: el detalle lo da read_paper. Recortado
-# caben 5 artículos en ~1.000 tokens (Groq Free: 8.000 tokens/min para toda la pregunta).
+# El abstract sirve para elegir qué artículo leer y, en preguntas generales, para responder
+# (decisión 40). Recortado caben 5 artículos en ~1.000 tokens (Groq Free: 8.000 tokens/min para
+# toda la pregunta); el recorte se queda con las frases que mejor encajan con la consulta.
 SEARCH_ABSTRACT_CHARS = 700
 # PubMed lee "CAR T" como un autor ("car t"[Author]): "GD2 CAR T H3K27M glioma" daba 3 artículos
 # irrelevantes y con "CAR T" entre comillas, 15 con el ensayo bueno el 2.º. "CAR T-cell" no va al
@@ -467,8 +468,7 @@ class PaperSearchTools:
                 # En PMC aunque no sea de licencia abierta (p. ej. manuscritos de autor del NIH):
                 # efetch db=pmc devuelve su texto completo y read_paper lo puede leer.
                 "full_text": r.get("inPMC") == "Y",
-                "abstract": abstract if len(abstract) <= SEARCH_ABSTRACT_CHARS
-                else abstract[:SEARCH_ABSTRACT_CHARS] + "…",
+                "abstract": abstract_excerpt(abstract, query, SEARCH_ABSTRACT_CHARS),
             })
         if not results:
             # PubMed exige que estén todas las palabras: una consulta larga suele dar 0.

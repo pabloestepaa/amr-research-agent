@@ -10,6 +10,8 @@ from amr_agent.llm import LLMClient
 from amr_agent.retrieval import Hit, SearchBackend, SearchMode
 
 NO_EVIDENCE = "I could not find evidence for this in the indexed literature."
+# El modo Papers no tiene índice: busca en todo PubMed. Mismo papel, otras palabras.
+NO_EVIDENCE_PAPERS = "I could not find evidence for this in the articles I found."
 
 SYSTEM_PROMPT = f"""You are a research assistant specialised in antimicrobial resistance (AMR).
 Answer the user's question using ONLY the sources provided below the question.

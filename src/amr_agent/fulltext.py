@@ -171,6 +171,42 @@ def bm25_rank(query: str, docs: list[str], k1: float = 1.5, b: float = 0.75) -> 
     return sorted(range(n), key=lambda i: -scores[i])  # sorted es estable: empate = orden original
 
 
+# Fin de frase: punto, cierre o interrogación y luego mayúscula o paréntesis. Los abstracts
+# estructurados de Europe PMC pegan el título de la sección ("...P = 0.03.ResultsCrude..."),
+# así que no se exige espacio. No corta tras "vs.", "e.g.", "i.e." ni "et al.".
+SENTENCE_END_RE = re.compile(
+    r"(?<=[.!?])(?<!\bvs\.)(?<!\be\.g\.)(?<!\bi\.e\.)(?<!\bal\.)\s*(?=[A-Z(\[])")
+
+
+def abstract_excerpt(abstract: str, query: str, limit: int) -> str:
+    """Las frases del abstract que mejor encajan con la consulta, en su orden y sin pasar de
+    `limit` caracteres; "…" donde se ha quitado algo (decisión 40).
+
+    Cortar por el principio dejaba fuera los resultados: en una pregunta real sobre trasplante
+    de islotes, el "78.6%" estaba en el carácter 1.046 de un abstract de 1.892."""
+    if len(abstract) <= limit:
+        return abstract
+    sentences = [x.strip() for x in SENTENCE_END_RE.split(abstract) if x.strip()]
+    keep: set[int] = set()
+    used = 0
+    for i in bm25_rank(query, sentences):
+        if used + len(sentences[i]) + 2 > limit:
+            continue  # una frase muy larga no tapa a las siguientes
+        keep.add(i)
+        used += len(sentences[i]) + 2
+    if not keep:  # ni una frase cabe: el principio, como antes
+        return abstract[:limit] + "…"
+    parts, prev = [], -1
+    for i in sorted(keep):
+        if i != prev + 1:
+            parts.append("…")
+        parts.append(sentences[i])
+        prev = i
+    if prev != len(sentences) - 1:
+        parts.append("…")
+    return " ".join(parts)
+
+
 def best_passages(article: Article, question: str, k: int) -> list[Block]:
     passages = chunk(article.blocks)
     order = bm25_rank(question, [f"{p.section} {p.text}" for p in passages])

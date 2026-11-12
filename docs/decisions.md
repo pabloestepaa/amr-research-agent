@@ -591,3 +591,42 @@ reason, see `docs/deploy.md`). Langfuse shows the cost as $0 because it has no p
 three-tool question (6.7 s in total), the four LLM calls took 3.6 s together and a single
 `get_protein_hosts` call took 2.6 s, almost all of it waiting on NCBI inside `amr-mcp`. For
 latency, the external databases matter as much as the model.
+
+## 40. General questions in the Papers mode: answer from the abstracts, read each article once (2026-11-12)
+**Context.** The first question from a real user ("¿Qué porcentaje de pacientes deja de
+necesitar insulina después de un trasplante de islotes pancreáticos?") ended in a refusal after
+about two minutes. The trace in Langfuse showed why. The first search returned an on-topic
+article from the international islet transplant registry, and the agent read it three times
+with slightly different questions or more passages, searched again, read it a fourth time and
+hit the step limit. Its percentages are in figures, which `read_paper` cannot see, so with what
+it had read the refusal was honest. Two other abstracts in the search results did give figures
+("Insulin independence occurred in 78.6%" in a 20-year single-centre cohort, "26.7% vs. 0%" in a
+phase 3 trial), but the agent never saw them: `search_papers` cut every abstract to its first
+700 characters, and the results came after character 1,000. Every task in the eval named a
+study, so this case had never been measured.
+**Decision.**
+- The prompt tells the agent that a question naming no study has no single right article. It
+  answers from the abstracts with the figures of two or three studies, their setting and a
+  citation each, and says results vary. It reads an article only if no abstract has a figure.
+- `search_papers` keeps the abstract sentences that best match the query, ranked with the same
+  BM25 as `read_paper`, in their original order and with "…" where something was left out,
+  instead of the first 700 characters. The size is the same. The sentence splitter handles
+  Europe PMC's structured abstracts ("P = 0.03.ResultsCrude...") and does not cut after "vs.".
+- Each article can be read once per question. A second `read_paper` on the same article (by
+  PMID, with or without a `PMID:` prefix) returns an error that asks for another article or an
+  answer, like repeated calls already do (decision 30). Only successful reads count: a read
+  rejected for an invented argument can be retried.
+- The Papers mode refuses with its own message, "I could not find evidence for this in the
+  articles I found". "Indexed literature" was the AMR mode's wording, and this mode has no
+  index. The evaluator and the demo accept both messages.
+- Three `general` tasks join the literature eval, the user's question among them. There is no
+  single right figure, so they pass if the answer gives a percentage, cites valid PMIDs and does
+  not refuse. The tasks were written after seeing the failure, as in decision 29.
+The AMR prompt is unchanged, byte for byte.
+**Result.** The user's question, run once against Groq after the prompt and read-once changes
+only: it read the article, was stopped from reading it again, searched twice more and refused.
+After the abstract change: it answered with the 78.6% from the single-centre cohort and the
+registry's note that insulin independence beyond ten years is exceptional, both cited. It
+still read the registry article first and used all six steps (17,000 tokens, 69 s), so the
+prompt alone does not stop it from reading. The full literature run is pending (~100,000
+tokens, not on the same day as the answer eval).

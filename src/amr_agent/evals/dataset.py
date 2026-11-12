@@ -70,7 +70,8 @@ LITERATURE_GOLDEN_PATH = EVALS_DIR / "golden_literature.jsonl"
 LITERATURE_CASSETTE_PATH = EVALS_DIR / "literature_cassette.jsonl"
 
 TaskCategory = Literal[
-    "catalog", "hosts", "references", "literature", "multi_tool", "out_of_scope", "full_text"]
+    "catalog", "hosts", "references", "literature", "multi_tool", "out_of_scope", "full_text",
+    "general"]  # general: modo Papers, la pregunta no nombra un estudio (decisión 40)
 
 
 class AgentTask(BaseModel):

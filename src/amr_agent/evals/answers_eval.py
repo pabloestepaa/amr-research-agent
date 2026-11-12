@@ -24,7 +24,7 @@ from dataclasses import dataclass
 from amr_agent.evals.dataset import CORPUS_PATH, GOLDEN_PATH, RESULTS_DIR, GoldenItem, load_golden
 from amr_agent.evals.metrics import mean
 from amr_agent.llm import LLMClient
-from amr_agent.rag import NO_EVIDENCE, RagService
+from amr_agent.rag import NO_EVIDENCE, NO_EVIDENCE_PAPERS, RagService
 from amr_agent.retrieval import Hit, SearchBackend, SearchMode
 
 JUDGE_SYSTEM = """You are a strict evaluator of answers produced by a research assistant.
@@ -85,7 +85,7 @@ class RecordingRetriever:
 
 
 def is_abstention(answer: str) -> bool:
-    return NO_EVIDENCE.rstrip(".").lower() in answer.lower()
+    return any(m.rstrip(".").lower() in answer.lower() for m in (NO_EVIDENCE, NO_EVIDENCE_PAPERS))
 
 
 async def judge(llm: LLMClient, question: str, answer: str, cited: list[Hit]) -> Judgement:

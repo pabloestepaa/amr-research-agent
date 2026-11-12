@@ -9,7 +9,7 @@ from amr_agent.evals.agent_eval import failed_row, normalize_text, score_task, s
 from amr_agent.evals.cassette import CassetteTools, cassette_key
 from amr_agent.evals.dataset import LITERATURE_GOLDEN_PATH, AgentTask, load_agent_golden
 from amr_agent.evals.report import agent_table
-from amr_agent.rag import NO_EVIDENCE
+from amr_agent.rag import NO_EVIDENCE, NO_EVIDENCE_PAPERS
 from amr_agent.tools import (
     MCP_TOOLS,
     READ_PAPER,
@@ -280,6 +280,15 @@ def test_literature_golden_set_is_valid():
     for t in tasks:
         named = {n for group in t.expect_tools for n in group.split("|")}
         assert named <= {SEARCH_PAPERS.name, READ_PAPER.name}, t.id
-        if not t.should_abstain:
+        if t.category == "full_text":
             assert t.relevant_pmids and t.answer_contains, t.id
-    assert {t.category for t in tasks} == {"full_text", "out_of_scope"}
+        if t.category == "general":  # sin estudio concreto: ni PMID ni dato fijos (decisión 40)
+            assert not t.relevant_pmids and t.answer_contains, t.id
+    assert {t.category for t in tasks} == {"full_text", "general", "out_of_scope"}
+
+
+def test_a_general_task_passes_with_cited_figures_and_fails_if_it_refuses():
+    [general] = [t for t in load_agent_golden(LITERATURE_GOLDEN_PATH) if t.id == "gen-01"]
+    steps = [step("search_papers", query="islet transplantation", pmids=["10911004"])]
+    assert score_task(general, answer("7 of 7 patients (100%) [PMID:10911004].", steps))["success"]
+    assert not score_task(general, answer(NO_EVIDENCE_PAPERS, steps))["success"]

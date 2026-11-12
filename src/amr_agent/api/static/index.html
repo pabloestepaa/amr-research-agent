@@ -394,7 +394,9 @@ const $ = (id) => document.getElementById(id);
 const form = $("ask"), question = $("question"), submit = $("submit"), statusBox = $("status");
 const entry = $("entry");
 const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
-const NO_EVIDENCE = "I could not find evidence for this in the indexed literature.";
+// Abstención de /ask y del agente AMR, y la del modo Papers (no tiene índice: busca en PubMed).
+const NO_EVIDENCE = ["I could not find evidence for this in the indexed literature.",
+                     "I could not find evidence for this in the articles I found."];
 const BUTTON = { ask: "Search the literature", agent: "Ask the agent", papers: "Search and read papers" };
 // Lo que cambia entre los dos agentes: rondas, presupuesto y lo que tarda.
 const AGENTS = {
@@ -578,7 +580,7 @@ function renderEntry(e) {
   $("entry-q").innerHTML = italicize(escapeHtml(normalize(q)));
 
   const parts = [`<div class="answer">${renderAnswer(answer, refNo, unverified)}</div>`];
-  if (answer.trim() === NO_EVIDENCE)
+  if (NO_EVIDENCE.includes(answer.trim()))
     parts.push(`<p class="witness none">${CHECK}<span>No citations: what was found doesn't answer this, so it says so instead of guessing.</span></p>`);
   else parts.push(renderWitness(kind, validCount, [...unverified]));
 

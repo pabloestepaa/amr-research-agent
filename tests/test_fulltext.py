@@ -6,7 +6,7 @@ from pathlib import Path
 import httpx
 import pytest
 
-from amr_agent.fulltext import Block, bm25_rank, chunk, parse_jats, tokenize
+from amr_agent.fulltext import Block, abstract_excerpt, bm25_rank, chunk, parse_jats, tokenize
 from amr_agent.tools import EFETCH, IDCONV, READ_PAPER, ReadPaperTools
 
 XML = (Path(__file__).parent / "fixtures" / "pmc_article.xml").read_bytes()
@@ -131,3 +131,16 @@ async def test_read_paper_validates_arguments_without_calling_ncbi(args):
 def test_read_paper_schema_has_its_limits_in_the_description():
     k = READ_PAPER.to_openai()["function"]["parameters"]["properties"]["k"]
     assert "maximum" not in k and "maximum 8" in k["description"]
+
+
+def test_abstract_excerpt_keeps_the_sentences_that_match_the_query():
+    # Caso real (decisión 40): la cifra estaba al final y el recorte por el principio la quitaba.
+    abstract = ("Objective To analyse islet and pancreas transplantation in one centre. "
+                + "Background sentence about the history of the field. " * 12
+                + "Insulin independence occurred in 78.6% and 92.5% in ITx and PTx recipients "
+                  "(26.7% vs. 0% in a subset, P = 0.09). "
+                + "Conclusions Both procedures are safe.")
+    excerpt = abstract_excerpt(abstract, "islet transplantation insulin independence", 300)
+    assert "78.6%" in excerpt and "26.7% vs. 0% in a subset" in excerpt  # sin cortar en "vs."
+    assert len(excerpt) <= 300 and excerpt.endswith("…")
+    assert abstract_excerpt("Short abstract.", "anything", 300) == "Short abstract."

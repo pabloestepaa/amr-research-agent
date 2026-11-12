@@ -242,7 +242,7 @@ endpoint, tracing is off and the SDK is not imported. See decision 39.
 
 ## Design decisions
 
-All 39 decisions, with context and trade-offs, are in [`docs/decisions.md`](docs/decisions.md).
+All 40 decisions, with context and trade-offs, are in [`docs/decisions.md`](docs/decisions.md).
 The ones that shaped the project most:
 
 | Decision | Why | Trade-off |

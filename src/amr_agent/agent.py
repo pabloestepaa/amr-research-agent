@@ -20,8 +20,9 @@ from pydantic import BaseModel
 
 from amr_agent import telemetry
 from amr_agent.llm import ChatLLM, ChatTurn, ToolCall
-from amr_agent.rag import NO_EVIDENCE, extract_citations, normalize_citations
+from amr_agent.rag import NO_EVIDENCE, NO_EVIDENCE_PAPERS, extract_citations, normalize_citations
 from amr_agent.tools import (
+    READ_PAPER,
     SEARCH_LITERATURE,
     SEARCH_PAPERS,
     Paper,
@@ -31,19 +32,20 @@ from amr_agent.tools import (
 )
 
 
-def _rules(scope: str, extra: str = "") -> str:
-    """Reglas comunes a los dos modos; cambia el ámbito (y AMR añade cómo citar el catálogo)."""
+def _rules(scope: str, extra: str = "", no_evidence: str = NO_EVIDENCE) -> str:
+    """Reglas comunes a los dos modos; cambia el ámbito, el mensaje de abstención y AMR añade
+    cómo citar el catálogo."""
     return f"""Rules:
 - {scope} For anything else (writing
   code, general knowledge, news, weather...) do not call any tool and reply exactly:
-  "{NO_EVIDENCE}"
+  "{no_evidence}"
 - Cite claims from articles as [PMID:12345678], only with PMIDs returned by the tools.
 {extra}- Results often use other words than the question: a broader or narrower term, a synonym, an
   acronym. If a result answers the question in other words, answer with it and say how its terms
   match the question. You may use textbook knowledge for that link, never for the findings
   themselves: those come from the results. If the results answer only part of it, answer that
   part and say what is missing.
-- Only if no tool result is about the question, reply exactly: "{NO_EVIDENCE}"
+- Only if no tool result is about the question, reply exactly: "{no_evidence}"
 - Answer in the language of the question. Be concise: at most two short paragraphs."""
 
 
@@ -99,7 +101,8 @@ FINAL_SYSTEM_PROMPT = _final_prompt(ROLE, RULES)
 LITERATURE_ROLE = "You are a research assistant for the biomedical literature."
 
 LITERATURE_RULES = _rules(
-    "You only answer questions about biomedical and life-science research.")
+    "You only answer questions about biomedical and life-science research.",
+    no_evidence=NO_EVIDENCE_PAPERS)
 
 LITERATURE_SYSTEM_PROMPT = f"""{LITERATURE_ROLE}
 Answer the user's question with the tools below. Do not answer from memory.
@@ -108,15 +111,20 @@ How to work:
 1. search_papers finds articles by title and abstract. Search for the study, not for the detail:
    the trial or therapy name, the disease, the population (e.g. "ELARA tisagenlecleucel
    follicular lymphoma"), because details such as doses or rates are usually only in the full
-   text. Query in English, as keywords, whatever the language of the question. At most
-   {{max_searches}} searches per question, and one is usually enough: search again only if no
-   result is about the question, with different terms. It only lists articles you have not
-   seen yet.
-2. If the question asks for a specific detail (a dose, a rate, a number of patients, a method)
-   and the abstracts do not give it, call read_paper on the most relevant article with
-   full_text true, with the question in English. Read another article only if the first one
-   does not have it.
-3. Answer with the specific fact, say which study it comes from (therapy, disease, design) and
+   text. If the question names no study, search for the topic. Query in English, as keywords,
+   whatever the language of the question. At most {{max_searches}} searches per question, and
+   one is usually enough: search again only if no result is about the question, with different
+   terms. It only lists articles you have not seen yet.
+2. If the question names no study (e.g. "what share of patients..." about a treatment in
+   general), there is no single right article: answer from the abstracts. Give the figures of
+   two or three studies with their setting (design, number of patients, follow-up), cite each
+   one and say that results vary between studies. Read an article only if no abstract has a
+   figure.
+3. If the question asks for a detail of a study (a dose, a rate, a number of patients, a
+   method) and the abstracts do not give it, call read_paper on the most relevant article with
+   full_text true, with the question in English. Each article can be read once: if its passages
+   do not have the answer, read another article or answer with what you have.
+4. Answer with the specific fact, say which study it comes from (therapy, disease, design) and
    cite it. If the passages answer only part of the question or articles disagree, say so.
 
 {LITERATURE_RULES}"""
@@ -135,13 +143,19 @@ class AgentMode:
     # ya vistos se quitan (decisiones 30 y 31).
     search_tool: str
     max_steps: int = 5
+    # Herramienta que lee un artículo entero: cada artículo una sola vez por pregunta (decisión
+    # 40). Releerlo con otra pregunta o más pasajes casi nunca trae nada nuevo y cuesta miles
+    # de tokens que se reenvían en cada vuelta.
+    read_tool: str | None = None
+    no_evidence: str = NO_EVIDENCE
 
 
 AMR_MODE = AgentMode("amr", SYSTEM_PROMPT, FINAL_SYSTEM_PROMPT, SEARCH_LITERATURE.name)
 # Un paso más que AMR: buscar, leer, a veces leer otro artículo y responder (con 5, una
 # búsqueda de más dejaba sin paso para leer el segundo artículo).
 LITERATURE_MODE = AgentMode("literature", LITERATURE_SYSTEM_PROMPT,
-                            LITERATURE_FINAL_SYSTEM_PROMPT, SEARCH_PAPERS.name, max_steps=6)
+                            LITERATURE_FINAL_SYSTEM_PROMPT, SEARCH_PAPERS.name, max_steps=6,
+                            read_tool=READ_PAPER.name, no_evidence=NO_EVIDENCE_PAPERS)
 
 FINAL_NUDGE = "Answer the question now, using only these results and following the rules."
 
@@ -170,6 +184,18 @@ def call_key(call: ToolCall) -> str | None:
 async def _search_limit(max_searches: int, tool: str) -> ToolResult:
     return ToolResult(f"ERROR: at most {max_searches} {tool} calls per question. "
                       "Answer with the abstracts above, or use another tool.", is_error=True)
+
+
+def paper_key(call: ToolCall) -> str | None:
+    """El artículo que pide read_paper, normalizado: "PMID: 123" y "123" son el mismo."""
+    paper = str((call.arguments or {}).get("paper_id") or "").strip().upper()
+    return re.sub(r"^PMID:?\s*", "", paper) or None
+
+
+async def _already_read(paper: str, step: int) -> ToolResult:
+    return ToolResult(f"ERROR: you already read {paper} in step {step}; its passages are above. "
+                      "Each article can be read once: read another article or answer with what "
+                      "you have.", is_error=True)
 
 
 async def _repeated(call: ToolCall, step: int) -> ToolResult:
@@ -276,6 +302,7 @@ class Agent:
         evidence: list[tuple[ToolCall, ToolResult]] = []  # para la vuelta final
         called: dict[str, int] = {}  # llamada (herramienta + argumentos) -> paso en que se hizo
         shown_abstracts: set[str] = set()  # PMIDs que la búsqueda ya mostró
+        read: dict[str, int] = {}  # artículo leído con éxito -> paso (decisión 40)
         # Búsquedas de literatura que devolvieron algo. No cuentan las repetidas, las rechazadas
         # (argumento inventado, fallo de red) ni las vacías: no han enseñado nada al modelo y,
         # si contaran, se quedaría sin búsquedas antes de ver un solo artículo (decisión 37).
@@ -306,8 +333,11 @@ class Agent:
             counted: set[int] = set()  # índices de las búsquedas contadas en este paso
             for i, call in enumerate(turn.tool_calls):
                 key = call_key(call)
+                paper = paper_key(call) if call.name == self.mode.read_tool else None
                 if key is not None and key in called:  # misma herramienta, mismos argumentos
                     pending.append(_repeated(call, called[key]))
+                elif paper is not None and paper in read:
+                    pending.append(_already_read(paper, read[paper]))
                 elif (call.name == self.mode.search_tool
                       and searches >= self.max_literature_searches):
                     pending.append(_search_limit(self.max_literature_searches,
@@ -329,6 +359,12 @@ class Agent:
                     pmids = result.pmids
                     result = drop_seen_abstracts(result, shown_abstracts)
                     shown_abstracts.update(pmids)
+                elif call.name == self.mode.read_tool and not result.is_error:
+                    # Solo las lecturas que trajeron pasajes: si falló (sin texto completo,
+                    # argumento mal escrito), volver a pedirlo bien no es releer.
+                    paper = paper_key(call)
+                    if paper is not None:
+                        read.setdefault(paper, step)
                 # La API exige un mensaje `tool` por cada llamada, también las fallidas.
                 messages.append({"role": "tool", "tool_call_id": call.id,
                                  "content": result.content})
@@ -343,7 +379,8 @@ class Agent:
                 ))
 
         # Guardarraíl, igual que en /ask: una cita solo vale si una herramienta devolvió ese PMID.
-        answer = normalize_citations(strip_tool_markup(turn.text)).strip() or NO_EVIDENCE
+        answer = (normalize_citations(strip_tool_markup(turn.text)).strip()
+                  or self.mode.no_evidence)
         cited = extract_citations(answer)
         return AgentAnswer(
             answer=answer,

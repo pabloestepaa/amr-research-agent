@@ -9,6 +9,8 @@ from pathlib import Path
 import httpx
 
 from amr_agent.agent import AMR_MODE, LITERATURE_MODE, SYSTEM_PROMPT, Agent
+from amr_agent.evals.answers_eval import is_abstention
+from amr_agent.rag import NO_EVIDENCE_PAPERS
 from amr_agent.tools import (
     EFETCH,
     ESEARCH,
@@ -152,6 +154,43 @@ async def test_literature_mode_caps_search_papers_not_read_paper():
     assert sum(str(c.url).startswith(EUROPEPMC_SEARCH) for c in calls) == 2
     blocked = llm.calls[2]["messages"][-2]["content"]
     assert blocked.startswith("ERROR: at most 2 search_papers calls per question")
+
+
+async def test_each_article_is_read_once():
+    # Pregunta real (2026-11-12): leyó el mismo artículo tres veces, cambiando la pregunta o el
+    # número de pasajes, y se quedó sin pasos para probar otro (decisión 40).
+    http, _ = network([epmc_record("11111111")])
+    tools = Toolset([PaperSearchTools(http), ReadPaperTools(http)])
+    llm = ScriptedLLM(
+        tool_turn(("read_paper", {"paper_id": "11111111", "question": "insulin independence"})),
+        tool_turn(("read_paper", {"paper_id": "PMID: 11111111", "question": "percentage",
+                                  "k": 8})),
+        text_turn("ok"))
+    result = await Agent(llm, tools, mode=LITERATURE_MODE).run("?")
+    assert [(s.tool, s.is_error) for s in result.steps] == [
+        ("read_paper", False), ("read_paper", True)]
+    blocked = llm.calls[2]["messages"][-1]["content"]
+    assert blocked.startswith("ERROR: you already read 11111111 in step 1")
+
+
+async def test_a_read_that_failed_can_be_asked_again():
+    http, _ = network([epmc_record("11111111")])
+    tools = Toolset([PaperSearchTools(http), ReadPaperTools(http)])
+    llm = ScriptedLLM(
+        tool_turn(("read_paper", {"paper_id": "11111111", "question": "dose", "pages": 2})),
+        tool_turn(("read_paper", {"paper_id": "11111111", "question": "dose"})),
+        text_turn("ok"))
+    result = await Agent(llm, tools, mode=LITERATURE_MODE).run("?")
+    assert [s.is_error for s in result.steps] == [True, False]  # argumento inventado, luego bien
+
+
+async def test_the_literature_mode_abstains_with_its_own_message():
+    # No tiene índice: "indexed literature" era el mensaje del modo AMR.
+    result = await Agent(ScriptedLLM(text_turn("")), Toolset([]), mode=LITERATURE_MODE).run("?")
+    assert result.answer == NO_EVIDENCE_PAPERS
+    assert is_abstention(result.answer)
+    assert NO_EVIDENCE_PAPERS in LITERATURE_MODE.system_prompt
+    assert NO_EVIDENCE_PAPERS not in AMR_MODE.system_prompt
 
 
 async def test_final_turn_uses_the_mode_prompt():
