@@ -213,13 +213,17 @@
   ol.refs li { margin-bottom: 9px; padding-left: 4px; scroll-margin-top: 16px; border-radius: 4px; }
   ol.refs li::marker { font-weight: 600; color: var(--muted); font-variant-numeric: lining-nums; }
   ol.refs li:target { background: var(--select); box-shadow: 0 0 0 4px var(--select); }
-  ol.refs .src { font: 0.8rem var(--sans); white-space: nowrap; }
-  ol.refs .note { font: 0.8rem var(--sans); color: var(--muted); }
-  ol.refs .note.bad { color: var(--bad); font-weight: 600; }
-  ol.refs .kind { font: 600 0.74rem/1 var(--sans); color: var(--muted); border: 1px solid var(--rule); border-radius: 3px; padding: 2px 5px; white-space: nowrap; vertical-align: 0.1em; }
-  ol.refs ul.quotes { list-style: none; margin: 4px 0 0; padding: 0; }
-  ol.refs ul.quotes li { margin: 4px 0 0; padding: 1px 0 1px 10px; border-left: 2px solid var(--ok); border-radius: 0; }
-  ol.refs ul.quotes li.bad { border-left-color: var(--bad); }
+  :is(ol.refs, .cite-pop) .src { font: 0.8rem var(--sans); white-space: nowrap; }
+  :is(ol.refs, .cite-pop) .note { font: 0.8rem var(--sans); color: var(--muted); }
+  :is(ol.refs, .cite-pop) .note.bad { color: var(--bad); font-weight: 600; }
+  :is(ol.refs, .cite-pop) .kind { font: 600 0.74rem/1 var(--sans); color: var(--muted); border: 1px solid var(--rule); border-radius: 3px; padding: 2px 5px; white-space: nowrap; vertical-align: 0.1em; }
+  :is(ol.refs, .cite-pop) ul.quotes { list-style: none; margin: 4px 0 0; padding: 0; }
+  :is(ol.refs, .cite-pop) ul.quotes li { margin: 4px 0 0; padding: 1px 0 1px 10px; border-left: 2px solid var(--ok); border-radius: 0; }
+  :is(ol.refs, .cite-pop) ul.quotes li.bad { border-left-color: var(--bad); }
+  /* Vista previa de una cita: la referencia y su frase junto al número, sin bajar a References.
+     Sin animación: el único movimiento de la página son las barras de latencia. */
+  .cite-pop { position: absolute; z-index: 20; width: max-content; max-width: min(27rem, calc(100vw - 32px)); padding: 10px 12px 11px; background: var(--paper); color: var(--ink); border: 1px solid var(--rule); border-radius: 4px; box-shadow: 0 10px 28px -10px #15212b4d; font: 0.92rem/1.45 var(--serif); pointer-events: none; }
+  .cite-pop .pop-n { font: 600 0.74rem var(--sans); color: var(--muted); margin-right: 6px; }
   details.more-src { margin-top: 12px; font-size: 0.9rem; }
   details.more-src summary { cursor: pointer; color: var(--muted); min-height: 32px; display: flex; align-items: center; }
   details.more-src ol { margin-top: 6px; color: var(--muted); }
@@ -450,9 +454,10 @@ function renderAnswer(text, refNo, unverified) {
     .replace(/\s*((?:\[PMID:\d+\]\s*)+)/g, (_, group) => {
       const links = [...group.matchAll(/\[PMID:(\d+)\]/g)].map(([, pmid]) => {
         const n = refNo.get(pmid);
+        // Sin `title`: la vista previa ya enseña la referencia y el tooltip del navegador la tapaba.
         return unverified.has(pmid)
-          ? `<a class="unverified" href="#ref-${n}" title="Unverified: no search or tool returned PMID ${pmid}">${n}?</a>`
-          : `<a href="#ref-${n}" title="Reference ${n}: PMID ${pmid}">${n}</a>`;
+          ? `<a class="unverified" href="#ref-${n}" aria-label="Reference ${n}, unverified">${n}?</a>`
+          : `<a href="#ref-${n}" aria-label="Reference ${n}">${n}</a>`;
       });
       return `<sup class="refs-inline">${links.join(",")}</sup> `;
     })
@@ -965,6 +970,69 @@ document.querySelectorAll("ul.examples button").forEach((b) => b.addEventListene
   if (!submit.disabled) submit.focus(); else question.focus();
 }));
 $("kbd").textContent = /Mac|iPhone|iPad/.test(navigator.platform) ? "⌘ Return to send" : "Ctrl + Enter to send";
+
+// --- Vista previa de las citas -------------------------------------------------------------
+// Con el ratón sobre [n], o al llegar con el tabulador, se ve la referencia y, en el modo Papers,
+// la frase que la respalda y si se encontró palabra por palabra. Es una copia de la referencia
+// sin enlaces: un tooltip no tiene nada que pulsar (el PMID se abre desde References). En
+// pantallas táctiles no hay hover: el toque sigue llevando a la referencia, que lo muestra igual.
+const pop = Object.assign(document.createElement("div"), { className: "cite-pop", id: "cite-pop", hidden: true });
+pop.setAttribute("role", "tooltip");
+document.body.append(pop);
+let popFor = null, popTimer = 0;
+const citeLink = (e) => e.target.closest?.(".refs-inline a");
+
+function showPreview(link) {
+  const ref = document.getElementById(link.hash.slice(1));
+  if (!ref) return;
+  const copy = ref.cloneNode(true);
+  copy.querySelectorAll("a").forEach((a) => {
+    const span = Object.assign(document.createElement("span"), { className: a.className });
+    span.append(...a.childNodes);
+    a.replaceWith(span);
+  });
+  const n = Object.assign(document.createElement("span"), { className: "pop-n", textContent: `[${link.hash.replace("#ref-", "")}]` });
+  pop.replaceChildren(n, ...copy.childNodes);
+  pop.hidden = false;
+  // Debajo del número si cabe y, si no, encima; sin salirse de la pantalla (16 px de margen).
+  const r = link.getBoundingClientRect(), vw = document.documentElement.clientWidth;
+  const left = Math.max(16, Math.min(r.left - 12, vw - pop.offsetWidth - 16));
+  const below = r.bottom + 8 + pop.offsetHeight <= innerHeight || r.top < pop.offsetHeight + 8;
+  const top = below ? r.bottom + 8 : r.top - pop.offsetHeight - 8;
+  pop.style.left = `${left + scrollX}px`;
+  pop.style.top = `${top + scrollY}px`;
+  popFor?.removeAttribute("aria-describedby");
+  link.setAttribute("aria-describedby", "cite-pop");
+  popFor = link;
+}
+
+function hidePreview() {
+  clearTimeout(popTimer);
+  pop.hidden = true;
+  popFor?.removeAttribute("aria-describedby");
+  popFor = null;
+}
+
+entry.addEventListener("pointerover", (e) => {
+  const link = citeLink(e);
+  if (!link || e.pointerType === "touch" || link === popFor) return;
+  clearTimeout(popTimer);
+  popTimer = setTimeout(() => showPreview(link), 120);  // que no parpadee al cruzar el texto
+});
+entry.addEventListener("pointerout", (e) => {
+  const link = citeLink(e);
+  if (link && !link.contains(e.relatedTarget)) hidePreview();
+});
+entry.addEventListener("focusin", (e) => {
+  const link = citeLink(e);
+  if (link && link.matches(":focus-visible")) showPreview(link);
+});
+entry.addEventListener("focusout", (e) => { if (citeLink(e)) hidePreview(); });
+entry.addEventListener("click", (e) => { if (citeLink(e)) hidePreview(); });
+document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !pop.hidden) hidePreview(); });
+addEventListener("resize", hidePreview);
+// Una entrada nueva (respuesta, espera o error) se lleva la cita a la que apuntaba.
+new MutationObserver(hidePreview).observe($("entry-body"), { childList: true });
 
 let RECORDED = null;
 try {

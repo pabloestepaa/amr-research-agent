@@ -56,7 +56,9 @@ The API has three ways to ask, which are the three tabs of the demo:
   text from PubMed Central and returns the passages that best match the question. It is meant
   for questions like "what share of ZUMA-1 patients received tocilizumab?", whose answer is in a
   results table and not in the abstract. Each citation comes with the sentence it relies on, and
-  the API checks that sentence word for word against what the tools returned. References also
+  the API checks that sentence word for word against what the tools returned. In the demo,
+  pointing at a citation number, or tabbing to it, shows the reference and that sentence without
+  scrolling down to References. References also
   show the study type from PubMed (phase 2 trial, meta-analysis, review...) and, from 10 up, how
   often the article has been cited.
 

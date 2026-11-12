@@ -701,6 +701,12 @@ English drug names back into a Spanish answer ("mycophenolate mofetil"). A line 
 only the quotes keep the article's language fixed it on the next run. The two questions that
 were refused in decision 41 were refused again, with the same evidence. The full measure comes
 with the next literature run.
+**Follow-up in the demo.** The quote sat at the bottom, under References, far from the claim it
+supports. Pointing at a citation number, or reaching it with the Tab key, now shows a copy of the
+reference: title, study type, the quote and whether it was found word for word. The copy has no
+links, because a tooltip should hold nothing to click, and it is tied to the citation with
+`aria-describedby` so a screen reader reads it too. Escape closes it. Touch screens have no hover,
+so a tap still jumps to the reference, which shows the same thing.
 
 ## 43. Study type and citation count on each Papers reference (2026-11-12)
 **Context.** Consensus labels each paper as a randomized trial, a meta-analysis, a review or
