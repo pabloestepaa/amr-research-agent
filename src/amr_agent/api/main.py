@@ -1,16 +1,19 @@
 """API HTTP con FastAPI. Arrancar en local: `uv run uvicorn amr_agent.api.main:app --reload`."""
 
+import asyncio
 import logging
 import math
 import time
+from collections.abc import AsyncIterable
 from contextlib import AsyncExitStack, asynccontextmanager, contextmanager
 from pathlib import Path
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 
 import httpx
 import openai
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse
+from fastapi.sse import EventSourceResponse, ServerSentEvent
 from mcp import Client
 from pydantic import BaseModel, Field
 
@@ -21,7 +24,7 @@ from amr_agent.api.ratelimit import AskQuota
 from amr_agent.config import get_settings
 from amr_agent.db import apply_schema_async, make_pool
 from amr_agent.embeddings import FastEmbedEmbedder
-from amr_agent.llm import OpenAICompatibleLLM
+from amr_agent.llm import RETRY_WAIT, OpenAICompatibleLLM
 from amr_agent.rag import RagAnswer, RagService, Source
 from amr_agent.retrieval import Retriever, SearchBackend, SearchMode
 from amr_agent.tools import (
@@ -222,21 +225,24 @@ def enforce_agent_quota(
     _check_quota(request, quota)
 
 
-@contextmanager
-def llm_errors():
-    """Traduce los errores del proveedor del LLM a respuestas HTTP con sentido."""
-    try:
-        yield
-    except openai.RateLimitError as exc:
+def llm_http_error(exc: openai.APIError) -> HTTPException:
+    """El error del proveedor del LLM como respuesta HTTP con sentido."""
+    if isinstance(exc, openai.RateLimitError):
         # Groq Free tiene dos límites: tokens por minuto y por día (TPD, ventana móvil de 24 h).
         # Decir "en un minuto" cuando es el diario manda al visitante a fallar otra vez.
         if "per day" in str(exc):
-            raise HTTPException(
-                503, "LLM free-tier daily token limit reached, try again later") from exc
-        raise HTTPException(503, "LLM free-tier rate limit reached, try again in a minute") from exc
+            return HTTPException(503, "LLM free-tier daily token limit reached, try again later")
+        return HTTPException(503, "LLM free-tier rate limit reached, try again in a minute")
+    log.exception("LLM provider error")
+    return HTTPException(502, "LLM provider error")
+
+
+@contextmanager
+def llm_errors():
+    try:
+        yield
     except openai.APIError as exc:
-        log.exception("LLM provider error")
-        raise HTTPException(502, "LLM provider error") from exc
+        raise llm_http_error(exc) from exc
 
 
 class AskRequest(BaseModel):
@@ -289,3 +295,43 @@ async def agent(body: AgentRequest, agent: Annotated[Agent, Depends(get_agent)])
     """
     with llm_errors():
         return await agent.run(body.question)
+
+
+@app.post("/agent/stream", response_class=EventSourceResponse,
+          dependencies=[Depends(get_agent), Depends(enforce_agent_quota)])
+async def agent_stream(
+    body: AgentRequest, agent: Annotated[Agent, Depends(get_agent)]
+) -> AsyncIterable[ServerSentEvent]:
+    """Lo mismo que `/agent`, contado mientras ocurre (Server-Sent Events).
+
+    Eventos: `round` (empieza una llamada al LLM; `final` si es la respuesta forzada sin
+    herramientas), `wait` (espera la cuota del LLM, en segundos), `step` (una herramienta ha
+    terminado: un paso de la trayectoria), `answer` (la respuesta, igual que la de `/agent`) y
+    `error` (`status` y `detail`, los mismos que daría `/agent`). La cuota y los errores
+    anteriores al primer evento (422, 429, 503) son respuestas HTTP normales.
+    """
+    events: asyncio.Queue[ServerSentEvent | None] = asyncio.Queue()
+
+    def emit(event: str, data: Any) -> None:
+        events.put_nowait(ServerSentEvent(event=event, data=data))
+
+    async def run() -> None:
+        # Dentro de la tarea: la variable de contexto solo vale para esta petición.
+        RETRY_WAIT.set(lambda seconds: emit("wait", {"seconds": round(seconds, 1)}))
+        try:
+            emit("answer", await agent.run(body.question, on_event=emit))
+        except openai.APIError as exc:
+            error = llm_http_error(exc)
+            emit("error", {"status": error.status_code, "detail": error.detail})
+        except Exception:  # noqa: BLE001 - con el stream abierto ya no hay código HTTP que dar
+            log.exception("Agent failed while streaming")
+            emit("error", {"status": 500, "detail": "Internal error"})
+        finally:
+            events.put_nowait(None)
+
+    task = asyncio.create_task(run())
+    try:
+        while (event := await events.get()) is not None:
+            yield event
+    finally:
+        task.cancel()  # si el visitante cierra la página, el agente deja de gastar cuota

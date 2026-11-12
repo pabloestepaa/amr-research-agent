@@ -90,7 +90,7 @@ def test_demo_page_is_served(client):
     resp = client.get("/")
     assert resp.status_code == 200
     assert resp.headers["content-type"].startswith("text/html")
-    assert '"/ask"' in resp.text and '"/agent"' in resp.text
+    assert '"/ask"' in resp.text and '"/agent/stream"' in resp.text
     assert resp.headers["cache-control"] == "no-cache"  # sin página vieja tras un deploy
 
 
@@ -196,3 +196,66 @@ def test_agent_rejects_an_unknown_mode(client):
 def test_amr_is_the_default_mode_in_the_schema(client):
     schema = client.get("/openapi.json").json()["components"]["schemas"]["AgentRequest"]
     assert schema["properties"]["mode"]["default"] == "amr"
+
+
+# --- /agent/stream: los pasos en directo (decisión 44) -------------------------------------
+
+def sse_events(text: str) -> list[tuple[str, dict]]:
+    """Los eventos de una respuesta SSE: (nombre, datos), sin los pings."""
+    events = []
+    for frame in text.strip().split("\n\n"):
+        fields = dict(line.split(": ", 1) for line in frame.splitlines()
+                      if line and not line.startswith(":"))
+        if "event" in fields:
+            events.append((fields["event"], json.loads(fields["data"])))
+    return events
+
+
+def test_agent_stream_tells_each_round_and_step_then_the_same_answer(client):
+    resp = client.post("/agent/stream", json={"question": "What does mcr-1 do?"})
+    assert resp.status_code == 200
+    assert resp.headers["content-type"].startswith("text/event-stream")
+    events = sse_events(resp.text)
+    assert [name for name, _ in events] == ["round", "step", "round", "answer"]
+    assert events[0][1] == {"step": 1, "final": False}
+    assert events[1][1]["tool"] == "search_literature" and events[1][1]["pmids"] == ["1001"]
+    answer = AgentAnswer.model_validate(events[-1][1])  # el mismo esquema que /agent
+    assert [c.pmid for c in answer.citations] == ["1001"]
+
+
+def test_agent_stream_reports_llm_errors_as_an_event(client):
+    class RateLimitedLLM:
+        async def chat(self, messages, tools, *, tool_choice="auto"):
+            request = httpx.Request("POST", "https://x")
+            raise openai.RateLimitError(
+                "Rate limit reached: tokens per day", body=None,
+                response=httpx.Response(429, request=request))
+
+    app.dependency_overrides[get_agent] = lambda: Agent(RateLimitedLLM(), Toolset([]))
+    events = sse_events(client.post("/agent/stream", json={"question": "mcr-1?"}).text)
+    assert events[-1] == ("error", {"status": 503, "detail":
+                                    "LLM free-tier daily token limit reached, try again later"})
+
+
+def test_agent_stream_tells_when_it_waits_for_the_llm_quota(client):
+    from amr_agent.llm import RETRY_WAIT
+
+    class SlowLLM:  # el cliente real avisa así antes de dormir (llm.py)
+        async def chat(self, messages, tools, *, tool_choice="auto"):
+            RETRY_WAIT.get()(23.04)
+            return text_turn("mcr-1 confers colistin resistance.")
+
+    app.dependency_overrides[get_agent] = lambda: Agent(SlowLLM(), Toolset([]))
+    events = sse_events(client.post("/agent/stream", json={"question": "mcr-1?"}).text)
+    assert [name for name, _ in events] == ["round", "wait", "answer"]
+    assert events[1][1] == {"seconds": 23.0}
+
+
+def test_agent_stream_keeps_http_errors_before_the_first_event(client):
+    assert client.post("/agent/stream", json={"question": "hi"}).status_code == 422
+    quota = AskQuota(per_ip_per_minute=1, per_day=100)
+    app.dependency_overrides[get_agent_quota] = lambda: quota
+    assert client.post("/agent/stream", json={"question": "mcr-1?"}).status_code == 200
+    assert client.post("/agent/stream", json={"question": "mcr-1?"}).status_code == 429
+    app.state.agent = None
+    assert client.post("/agent/stream", json={"question": "mcr-1?"}).status_code == 503

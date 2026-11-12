@@ -48,6 +48,9 @@ The API has three ways to ask, which are the three tabs of the demo:
 - `POST /agent` (tab *Agent*): the model decides which tools to call and in what order, then
   answers. The response includes the full trajectory: each tool call, its arguments, latency and
   result.
+- `POST /agent/stream`: the same as Server-Sent Events. Each round, each tool call as it
+  finishes and each wait for the LLM quota arrive as they happen, then the answer. The demo uses
+  it to draw the trajectory live.
 - `POST /agent` with `"mode": "literature"` (tab *Papers*, beta): the same loop with two other
   tools. `search_papers` searches all of PubMed live, and `read_paper` reads an article's full
   text from PubMed Central and returns the passages that best match the question. It is meant
@@ -247,7 +250,7 @@ endpoint, tracing is off and the SDK is not imported. See decision 39.
 
 ## Design decisions
 
-All 43 decisions, with context and trade-offs, are in [`docs/decisions.md`](docs/decisions.md).
+All 44 decisions, with context and trade-offs, are in [`docs/decisions.md`](docs/decisions.md).
 The ones that shaped the project most:
 
 | Decision | Why | Trade-off |

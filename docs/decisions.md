@@ -733,3 +733,34 @@ CAR-T, the search returned four reviews and a 12-patient phase 1 trial, and the 
 "about 80–85%" from one review and the phase 1 without saying what either was. The labels in
 the references show it to the reader anyway. The general tasks of the next literature run will
 measure the prompt line.
+
+## 44. Follow the agent live with Server-Sent Events (2026-11-12)
+**Context.** A Papers question takes one to two minutes and an Agent question up to one, and the
+demo showed only a progress bar until the whole answer arrived. Much of that time is the free
+LLM quota: Groq allows 8,000 tokens a minute, and the client waits when a round would go over
+it. Perplexity shows its steps as it works ("searching", "reading"). Here the trajectory was
+already the core of the demo, but only at the end.
+**Decision.**
+- A new endpoint, `POST /agent/stream`, with the same body, quota and early errors (422, 429,
+  503) as `/agent`, answers with Server-Sent Events. `round` comes when each LLM call starts,
+  with `final` set when it is the forced answer without tools. `step` comes when each tool
+  finishes, as the same `ToolStep` as in the trajectory. `wait` reports a pause for the LLM
+  quota, in seconds. `answer` carries the same `AgentAnswer` as `/agent`, and `error` carries
+  the status and message that `/agent` would have returned, since the HTTP status is already
+  sent. `/agent` stays as it was, so the evals and API clients do not change.
+- The answer comes whole at the end and is not streamed token by token. Citations, quotes and
+  their checks can only be done on the full text, and the final call takes 3–5 s.
+- `Agent.run` takes an optional `on_event` callback, and the result is the same with or without
+  it. The quota wait happens inside the LLM client, several layers below the endpoint, so it is
+  reported through a context variable (`llm.RETRY_WAIT`) that only that request's task sees.
+- FastAPI 0.162's own SSE support (`EventSourceResponse`) needs no new dependency. It sends a
+  ping every 15 s, so proxies do not close the connection during a quota wait, and it sets
+  `X-Accel-Buffering: no`. If the visitor leaves, the agent's task is cancelled and stops
+  spending quota.
+- The demo reads the stream with `fetch`, because `EventSource` only does GET. It draws each
+  tool call in its lane as it finishes, with a line saying what the agent is doing now.
+**Result.** In local tests with a real question ("In which species is blaKPC-2 most often
+found?"), both tool calls and "Round 3 · reading the results" were on screen after 2 s, and the
+answer after about 6 s, rendered as before. Four tests cover the endpoint (the event order and
+answer schema, an LLM error as an event, the quota wait, the early HTTP errors) and one the LLM
+client's wait notice. Not checked yet behind Render's proxy.

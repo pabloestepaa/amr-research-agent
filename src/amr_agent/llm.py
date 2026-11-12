@@ -8,6 +8,8 @@ de entorno, sin tocar código.
 import asyncio
 import json
 import time
+from collections.abc import Callable
+from contextvars import ContextVar
 from dataclasses import dataclass, field
 from typing import Any, Literal, Protocol
 
@@ -99,6 +101,13 @@ def retry_delay(exc: Exception, attempt: int) -> float:
     return min(0.5 * 2**attempt, 8.0)
 
 
+# Quién quiere saber que el cliente va a esperar por la cuota (segundos). `/agent/stream` lo
+# usa para decir "esperando 23 s" en vez de dejar la demo quieta (decisión 44). Es una variable
+# de contexto y no un argumento: la espera ocurre dentro de `chat`, varias capas por debajo del
+# endpoint, y cada petición (cada tarea de asyncio) tiene la suya.
+RETRY_WAIT: ContextVar[Callable[[float], None] | None] = ContextVar("retry_wait", default=None)
+
+
 class OpenAICompatibleLLM:
     def __init__(
         self, base_url: str, api_key: str, model: str, timeout_s: float = 30.0,
@@ -131,6 +140,8 @@ class OpenAICompatibleLLM:
                 wait = retry_delay(exc, attempt)
                 if attempt >= self.max_retries or wait > self.max_retry_wait_s:
                     raise
+                if (listener := RETRY_WAIT.get()) is not None:
+                    listener(wait)
                 await asyncio.sleep(wait)
                 attempt += 1
 

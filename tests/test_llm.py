@@ -11,7 +11,7 @@ import httpx2 as httpx
 import openai
 import pytest
 
-from amr_agent.llm import OpenAICompatibleLLM
+from amr_agent.llm import RETRY_WAIT, OpenAICompatibleLLM
 
 BASE = "https://llm.test/v1"
 
@@ -64,6 +64,17 @@ async def test_fails_fast_when_the_server_asks_for_a_long_wait():
         await server.llm(max_retry_wait_s=5).complete("sys", "user")
     assert time.perf_counter() - start < 1
     assert server.call_count == 1
+
+
+async def test_whoever_listens_hears_about_each_wait():
+    # /agent/stream lo usa para decir "esperando la cuota" en la demo (decisión 44).
+    heard: list[float] = []
+    token = RETRY_WAIT.set(heard.append)
+    try:
+        await Server(rate_limited("0.01"), ok("hello")).llm(max_retry_wait_s=5).complete("s", "u")
+    finally:
+        RETRY_WAIT.reset(token)
+    assert heard == [0.01]
 
 
 async def test_gives_up_after_max_retries():

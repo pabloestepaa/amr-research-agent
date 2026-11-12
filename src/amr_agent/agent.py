@@ -12,7 +12,7 @@ import asyncio
 import json
 import re
 import time
-from collections.abc import Awaitable
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any, Literal
 
@@ -245,6 +245,13 @@ async def _repeated(call: ToolCall, step: int) -> ToolResult:
 
 
 StopReason = Literal["answer", "max_steps", "token_budget"]
+# Para seguir al agente en directo (`/agent/stream`, decisión 44): recibe el nombre del evento
+# ("round" al empezar cada llamada al LLM, "step" al terminar cada herramienta) y sus datos.
+EventSink = Callable[[str, dict[str, Any]], None]
+
+
+def _ignore(event: str, data: dict[str, Any]) -> None:
+    pass
 
 
 class ToolStep(BaseModel):
@@ -336,13 +343,16 @@ class Agent:
         # (decisión 31). gpt-oss no deja de buscar aunque se lo pida el prompt: lo cortamos aquí.
         self.max_literature_searches = max_literature_searches
 
-    async def run(self, question: str) -> AgentAnswer:
-        """Responde a la pregunta y deja la trayectoria en una traza (telemetry.py)."""
+    async def run(self, question: str, on_event: EventSink | None = None) -> AgentAnswer:
+        """Responde a la pregunta y deja la trayectoria en una traza (telemetry.py).
+
+        `on_event` recibe cada paso según ocurre; el resultado es el mismo con o sin él.
+        """
         with telemetry.agent_span(
                 question, mode=self.mode.name,
                 provider=getattr(self._llm, "provider", "unknown"),
                 model=getattr(self._llm, "model", "unknown")) as span:
-            result = await self._run(question)
+            result = await self._run(question, on_event or _ignore)
             telemetry.record_agent(
                 span, answer=result.answer, input_tokens=result.usage.prompt_tokens,
                 output_tokens=result.usage.completion_tokens, llm_calls=result.usage.llm_calls,
@@ -352,7 +362,7 @@ class Agent:
                 else None)
         return result
 
-    async def _run(self, question: str) -> AgentAnswer:
+    async def _run(self, question: str, emit: EventSink) -> AgentAnswer:
         t0 = time.perf_counter()
         schemas = [s.to_openai() for s in self._tools.specs()]
         messages: list[dict[str, Any]] = [
@@ -381,9 +391,11 @@ class Agent:
             used = sum((t.prompt_tokens or 0) + (t.completion_tokens or 0) for t in turns)
             if step == self.max_steps or used >= self.token_budget:
                 stop = "max_steps" if step == self.max_steps else "token_budget"
+                emit("round", {"step": step, "final": True})
                 turn = await self._llm.chat(self._final_messages(question, evidence), [],
                                             tool_choice="none")
             else:
+                emit("round", {"step": step, "final": False})
                 turn = await self._llm.chat(messages, schemas)
             turns.append(turn)
             llm_ms += turn.latency_ms
@@ -443,6 +455,7 @@ class Agent:
                     result_chars=len(result.content), pmids=sorted(result.pmids),
                     latency_ms=result.latency_ms, preview=result.content[:300],
                 ))
+                emit("step", steps[-1].model_dump())
 
         # Guardarraíl, igual que en /ask: una cita solo vale si una herramienta devolvió ese PMID.
         answer = normalize_citations(strip_tool_markup(turn.text)).strip()

@@ -231,6 +231,8 @@
   .wait-track i { display: block; height: 100%; width: 0; background: var(--muted); opacity: 0.45; transition: width 1s linear; }
   .pending p { margin: 0 0 6px; }
   .pending .elapsed { font-variant-numeric: tabular-nums; }
+  .live-note { margin: 6px 0 0; font-size: 0.86rem; color: var(--muted); }
+  .live-note + .wait-track { margin-top: 8px; }
 
   .entry-notice { padding: 12px 14px; border-radius: 3px; max-width: 68ch; font-size: 0.95rem; }
   .entry-notice p { margin: 0; }
@@ -408,7 +410,7 @@ const AGENTS = {
   agent: { rounds: 5, budget: "12,000", typical: 60, slowAfter: 70,
     note: "The agent takes 15–60 s and about 5,000–12,000 LLM tokens per question, so it allows one question per minute." },
   papers: { rounds: 6, budget: "16,000", typical: 120, slowAfter: 150,
-    note: "Experimental, not evaluated yet. Papers searches all of PubMed and reads full texts from PubMed Central. A question takes 1–2 min and about 15,000 LLM tokens, so it allows one per minute and five a day for everyone." },
+    note: "In beta. Papers searches all of PubMed and reads full texts from PubMed Central. A question takes 1–2 min and about 15,000 LLM tokens, so it allows one per minute and five a day for everyone." },
 };
 const isAgentKind = (k) => k === "agent" || k === "papers";
 const KIND_LABEL = { ask: "literature mode", agent: "agent mode", papers: "papers mode" };
@@ -538,8 +540,9 @@ function isEmpty(s) {
 
 // Métodos del agente: cada llamada en el carril donde se ejecutó, con la barra = latencia.
 // En el modo Papers todo se ejecuta en la app (PubMed y PMC por HTTP): un solo carril.
-function renderLanes(steps, kind) {
-  if (!steps.length) return '<p class="sub">The agent answered without calling any tools.</p>';
+// `tail`: una fila más al final; mientras el agente trabaja, la que dice qué está haciendo.
+function renderLanes(steps, kind, tail = "") {
+  if (!steps.length && !tail) return '<p class="sub">The agent answered without calling any tools.</p>';
   const single = kind === "papers";
   const max = Math.max(...steps.map((s) => s.latency_ms), 1);
   let prev = null;
@@ -572,7 +575,7 @@ function renderLanes(steps, kind) {
   });
   return `<div class="lanes${single ? " single" : ""}" role="list" aria-label="Tool calls in order">
       ${laneHeads(kind)}
-      ${rows.join("")}
+      ${rows.join("")}${tail}
     </div>`;
 }
 
@@ -745,27 +748,91 @@ function showPending(kind, q) {
     : kind === "agent"
     ? "The agent is choosing tools and reading their results. This usually takes 15–60 s."
     : "Searching the abstracts and writing a cited answer. This usually takes a few seconds.";
+  live = { steps: [], note: "Sending the question…", fill: 0, heard: false };
   const frame = !a ? "" : `<h3>Methods</h3>
-    <p class="sub"><b>Fig. 1.</b> The agent runs up to ${a.rounds} rounds on the server; its tool calls are drawn here${kind === "papers" ? "" : ", each in its lane,"} when it answers.</p>
-    <div class="lanes${kind === "papers" ? " single" : ""}">
-      ${laneHeads(kind)}
-      <div class="lane-n">…</div><div class="cell wait-cell"><div class="wait-track"><i id="wait-fill"></i></div></div>
-    </div>`;
+    <p class="sub"><b>Fig. 1.</b> The agent runs up to ${a.rounds} rounds on the server; its tool calls appear here${kind === "papers" ? "" : ", each in its lane,"} as it makes them.</p>
+    <div id="live-lanes">${liveLanes(kind)}</div>`;
   $("entry-body").innerHTML = `<div class="pending"><p>${what}</p><p class="elapsed" id="elapsed">0 s elapsed</p><p id="slow" hidden></p></div>${frame}`;
   entry.setAttribute("aria-busy", "true");
+  entry.classList.remove("drawn");  // las barras se animan al final, no cada vez que llega un paso
   const t0 = Date.now();
   return setInterval(() => {
     const s = Math.round((Date.now() - t0) / 1000);
     const el = $("elapsed");
     if (el) el.textContent = `${s} s elapsed`;
-    const fill = $("wait-fill");  // tiempo real transcurrido frente a lo habitual del modo
-    if (fill && a) fill.style.width = `${Math.min(100, (s / a.typical) * 100)}%`;
+    live.fill = a ? Math.min(100, (s / a.typical) * 100) : 0;  // tiempo frente a lo habitual
+    const fill = $("wait-fill");
+    if (fill) fill.style.width = `${live.fill}%`;
     const slow = $("slow");
-    if (slow && s >= (a ? a.slowAfter : 12)) {
+    // Con el agente contando lo que hace, el aviso de "servidor despertando" sobra.
+    if (slow && !live.heard && s >= (a ? a.slowAfter : 12)) {
       slow.hidden = false;
       slow.textContent = "Taking longer than usual: the free database or the server may be waking up after a quiet spell. It can take up to a minute more.";
     }
   }, 1000);
+}
+
+// --- El agente en directo (/agent/stream, Server-Sent Events) ----------------------------------
+let live = { steps: [], note: "", fill: 0, heard: false };
+
+function liveLanes(kind) {
+  const tail = `<div class="lane-n">…</div><div class="cell wait-cell"><p class="live-note" id="live-note" aria-live="polite">${escapeHtml(live.note)}</p><div class="wait-track"><i id="wait-fill" style="width:${live.fill}%"></i></div></div>`;
+  return renderLanes(live.steps, kind, tail);
+}
+
+function roundNote({ step, final }) {
+  if (final) return `Round ${step} · the last one: writing the answer from what it found, without tools…`;
+  return step === 1 ? "Round 1 · reading the question and choosing a tool…"
+    : `Round ${step} · reading the results and choosing the next step…`;
+}
+
+// EventSource solo hace GET: el stream se lee con fetch, separando los eventos por línea en blanco.
+async function readEvents(resp, on) {
+  const reader = resp.body.pipeThrough(new TextDecoderStream()).getReader();
+  let buf = "";
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) return;
+    buf += value.replace(/\r\n/g, "\n");
+    let cut;
+    while ((cut = buf.indexOf("\n\n")) >= 0) {
+      const frame = buf.slice(0, cut);
+      buf = buf.slice(cut + 2);
+      let name = "message";
+      const data = [];
+      for (const line of frame.split("\n")) {  // ": ping" (cada 15 s) es un comentario
+        if (line.startsWith("event:")) name = line.slice(6).trim();
+        else if (line.startsWith("data:")) data.push(line.slice(5).replace(/^ /, ""));
+      }
+      if (data.length) on(name, JSON.parse(data.join("\n")));
+    }
+  }
+}
+
+async function followAgent(resp, kind) {
+  let answer = null, failure = null;
+  const redraw = () => { const el = $("live-lanes"); if (el) el.innerHTML = liveLanes(kind); };
+  try {
+    await readEvents(resp, (name, data) => {
+      live.heard = true;
+      const slow = $("slow");
+      if (slow) slow.hidden = true;
+      if (name === "round") { live.note = roundNote(data); redraw(); }
+      else if (name === "wait") {
+        live.note = `Waiting ${Math.round(data.seconds)} s for the free LLM quota, which every visitor shares…`;
+        const el = $("live-note");
+        if (el) el.textContent = live.note;
+      }
+      else if (name === "step") { live.steps.push(data); redraw(); }
+      else if (name === "answer") answer = data;
+      else if (name === "error") failure = data;
+    });
+  } catch {
+    throw { html: "The connection was lost before the answer arrived. Please try again.", cls: "error" };
+  }
+  if (failure) throw problem({ status: failure.status, headers: { get: () => null } }, { detail: failure.detail }, kind);
+  if (!answer) throw { html: "The connection closed before the answer arrived. Please try again.", cls: "error" };
+  return answer;
 }
 
 function bringIntoView() {
@@ -797,7 +864,7 @@ async function ask(event) {
     try {
       const payload = kind === "papers" ? { question: q, mode: "literature" }
         : kind === "agent" ? { question: q } : { question: q, mode };
-      resp = await fetch(kind === "ask" ? "/ask" : "/agent", {
+      resp = await fetch(kind === "ask" ? "/ask" : "/agent/stream", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
@@ -805,8 +872,8 @@ async function ask(event) {
     } catch {
       throw { html: "Couldn't reach the server. If it was asleep it may still be starting: try again in a moment.", cls: "error" };
     }
-    const body = await resp.json().catch(() => ({}));
-    if (!resp.ok) throw problem(resp, body, kind);
+    if (!resp.ok) throw problem(resp, await resp.json().catch(() => ({})), kind);
+    const body = isAgentKind(kind) ? await followAgent(resp, kind) : await resp.json().catch(() => ({}));
     current = { kind, q, body, mode, recorded: null };
     renderEntry(current);
     if (isAgentKind(kind)) cooldown[kind] = started + 60_000;  // la API permite 1 por minuto
