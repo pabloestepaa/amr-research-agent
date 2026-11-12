@@ -6,6 +6,18 @@
 <title>AMR Research Agent</title>
 <meta name="description" content="Ask questions about antimicrobial resistance and get answers cited from PubMed abstracts, let an agent query NCBI's gene catalog through an MCP server, or have it search PubMed and read full-text papers. Every citation is checked.">
 <meta name="theme-color" content="#173a2c">
+<link rel="canonical" href="https://amr-research-agent.onrender.com/">
+<!-- Vista previa al compartir el enlace (LinkedIn, Slack...). La imagen se sirve desde GitHub: docs/
+     no entra en la imagen de Docker. Se rehace con .claude/scripts/render_social.py. -->
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://amr-research-agent.onrender.com/">
+<meta property="og:title" content="AMR Research Agent">
+<meta property="og:description" content="Hybrid RAG over PubMed and a tool-calling agent on an MCP server, with every citation checked against what was retrieved. Live demo with eval results.">
+<meta property="og:image" content="https://raw.githubusercontent.com/pabloestepaa/amr-research-agent/main/docs/img/social-preview.png">
+<meta property="og:image:width" content="1280">
+<meta property="og:image:height" content="640">
+<meta property="og:image:alt" content="AMR Research Agent: an agent answer about mcr-1 with verified citations and its tool calls, next to the eval results">
+<meta name="twitter:card" content="summary_large_image">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=STIX+Two+Text:ital,wght@0,400;0,600;0,700;1,400;1,600&display=swap" rel="stylesheet">
@@ -339,12 +351,13 @@
     <section class="evidence" aria-labelledby="ev-h">
       <h2 id="ev-h">Eval results</h2>
       <dl>
-        <dt>0</dt><dd>invented PMIDs in 64 evaluated answers (42 literature, 22 agent)</dd>
+        <dt>0</dt><dd>invented PMIDs in 75 evaluated answers (42 literature, 22 agent, 11 papers)</dd>
         <dt>0.97</dt><dd>recall@10 of the hybrid search on 36 questions</dd>
         <dt>0.96</dt><dd>of claims supported by the cited abstract, scored by an LLM judge</dd>
         <dt>19/22</dt><dd>agent tasks fully correct (right tools, right arguments, right facts) in the latest run</dd>
+        <dt>10/11</dt><dd>papers tasks fully correct: the fact is only in the full text, so the agent has to find the article and read it</dd>
       </dl>
-      <p class="fig-date">From the eval runs of 5–10 Nov 2026.</p>
+      <p class="fig-date">From the eval runs of 5–12 Nov 2026.</p>
       <p class="links">
         <a href="https://github.com/pabloestepaa/amr-research-agent/blob/main/evals/RESULTS.md">All eval results</a>
         <a href="https://github.com/pabloestepaa/amr-research-agent/blob/main/docs/decisions.md">Design decisions</a>
