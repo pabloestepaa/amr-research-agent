@@ -12,7 +12,8 @@ abstract, and quotes the sentence behind each citation. Every citation is checke
 the tools actually returned, every quote word for word, and evals measure retrieval, answers and
 agent trajectories.
 
-**Live demo: <https://amr-research-agent.onrender.com>** · API docs at
+**Live demo: <https://amr-research-agent.onrender.com>** ·
+[straight to the Papers mode](https://amr-research-agent.onrender.com/?mode=papers) · API docs at
 [`/docs`](https://amr-research-agent.onrender.com/docs)
 <sub>Free tier: after 15 minutes idle, the first request takes 30–60 s while the server wakes up.</sub>
 
@@ -83,13 +84,14 @@ An example from the agent evals (task `multi-01`), which needs two different sou
 > in broiler chickens [PMID:40777829]. *(trimmed)*
 
 The demo page at `/` opens on a recorded agent run, so you can see an answer and its tool calls
-without waiting or spending quota. The Papers tab has its own recorded run. From there you can ask
-your own question in any of the three modes.
+without waiting or spending quota. The Papers tab has its own recorded run, and
+[`/?mode=papers`](https://amr-research-agent.onrender.com/?mode=papers) opens the page on it. From
+there you can ask your own question in any of the three modes.
 
 <details>
 <summary>Screenshot of the Papers mode</summary>
-<p align="center"><img src="docs/img/demo-papers.png" width="720"
-  alt="Papers mode of the demo: a recorded answer on ZUMA-1 (43% of patients received tocilizumab) with the preview of citation 1 open, showing the NEJM phase 2 trial and the sentence from its Results section, found word for word; below, three tool calls, the first one flagged as retried with fewer words"></p>
+<p align="center"><a href="https://amr-research-agent.onrender.com/?mode=papers"><img src="docs/img/demo-papers.png" width="720"
+  alt="Papers mode of the demo: a recorded answer on ZUMA-1 (43% of patients received tocilizumab) with the preview of citation 1 open, showing the NEJM phase 2 trial and the sentence from its Results section, found word for word; below, three tool calls, the first one flagged as retried with fewer words"></a></p>
 </details>
 
 <details>
