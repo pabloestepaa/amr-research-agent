@@ -160,8 +160,11 @@ def agent_span(question: str, *, mode: str, provider: str, model: str) -> Iterat
 
 def record_agent(span: Span, *, answer: str, input_tokens: int, output_tokens: int,
                  llm_calls: int, tool_calls: int, stop_reason: str,
-                 invalid_citations: int) -> None:
+                 invalid_citations: int, quotes: list[Any] | None = None) -> None:
     _set_output(span, answer)
+    if quotes is not None:  # modo Papers: cuántas frases citó y cuántas no están en las fuentes
+        span.set_attributes({"amr_agent.quotes": len(quotes),
+                             "amr_agent.unverified_quotes": sum(not q.verified for q in quotes)})
     span.set_attributes({
         "gen_ai.usage.input_tokens": input_tokens,
         "gen_ai.usage.output_tokens": output_tokens,

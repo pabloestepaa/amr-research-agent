@@ -79,6 +79,8 @@ AGENT_METRICS = (
     ("abstention_accuracy", "Out-of-scope questions correctly refused"),
     ("false_abstention_rate", "In-scope questions wrongly refused (lower is better)"),
     ("citation_validity", "Answers without hallucinated PMIDs"),
+    ("quote_coverage", "Citations with a quote from the article (literature mode)"),
+    ("quote_validity", "Quotes found word for word in what the tools returned (literature mode)"),
     ("agent_errors", "Tasks where the agent crashed, e.g. a provider 400 (lower is better)"),
     ("mean_tool_calls", "Tool calls per task"),
     ("mean_extra_calls", "Unneeded tool calls per task (lower is better)"),

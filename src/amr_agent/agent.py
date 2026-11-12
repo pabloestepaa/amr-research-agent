@@ -20,11 +20,13 @@ from pydantic import BaseModel
 
 from amr_agent import telemetry
 from amr_agent.llm import ChatLLM, ChatTurn, ToolCall
+from amr_agent.quotes import RawQuote, locate, split_quotes
 from amr_agent.rag import NO_EVIDENCE, NO_EVIDENCE_PAPERS, extract_citations, normalize_citations
 from amr_agent.tools import (
     READ_PAPER,
     SEARCH_LITERATURE,
     SEARCH_PAPERS,
+    Excerpt,
     Paper,
     ToolBox,
     ToolResult,
@@ -119,9 +121,24 @@ FINAL_SYSTEM_PROMPT = _final_prompt(ROLE, RULES)
 
 LITERATURE_ROLE = "You are a research assistant for the biomedical literature."
 
+# Modo Papers (decisión 42): la frase que respalda cada cita, para que se vea de dónde sale el
+# dato sin abrir el artículo. El código la busca en lo que devolvieron las herramientas (quotes.py).
+# gpt-oss, con el bloque, a veces sacaba las citas del texto (notas [^1] o una lista de PMIDs).
+QUOTES = """\
+- Put each citation in the text, right after its claim: no footnotes, no list of references.
+- After the answer, write a line "Quotes:" and, for each article you cited, a line with the
+  sentence from its abstract or passages that supports what you say, copied word for word in the
+  language of the article. Only the quotes keep that language: the answer above them follows the
+  language rule below, names of drugs included.
+  [PMID:12345678] "the sentence, exactly as in the tool results"
+  Do not translate or reword it; to shorten it, cut it with "…". The quotes do not replace the
+  citations in the text. Each quote is checked against the tool results. If you reply that you
+  found no evidence, write no quotes.
+"""
+
 LITERATURE_RULES = _rules(
     "You only answer questions about biomedical and life-science research.",
-    no_evidence=NO_EVIDENCE_PAPERS, language=NATIVE_LANGUAGE)
+    QUOTES, no_evidence=NO_EVIDENCE_PAPERS, language=NATIVE_LANGUAGE)
 
 LITERATURE_SYSTEM_PROMPT = f"""{LITERATURE_ROLE}
 Answer the user's question with the tools below. Do not answer from memory.
@@ -167,6 +184,7 @@ class AgentMode:
     # de tokens que se reenvían en cada vuelta.
     read_tool: str | None = None
     no_evidence: str = NO_EVIDENCE
+    quotes: bool = False  # la respuesta trae un bloque "Quotes:" que se comprueba (decisión 42)
 
 
 AMR_MODE = AgentMode("amr", SYSTEM_PROMPT, FINAL_SYSTEM_PROMPT, SEARCH_LITERATURE.name)
@@ -174,7 +192,8 @@ AMR_MODE = AgentMode("amr", SYSTEM_PROMPT, FINAL_SYSTEM_PROMPT, SEARCH_LITERATUR
 # búsqueda de más dejaba sin paso para leer el segundo artículo).
 LITERATURE_MODE = AgentMode("literature", LITERATURE_SYSTEM_PROMPT,
                             LITERATURE_FINAL_SYSTEM_PROMPT, SEARCH_PAPERS.name, max_steps=6,
-                            read_tool=READ_PAPER.name, no_evidence=NO_EVIDENCE_PAPERS)
+                            read_tool=READ_PAPER.name, no_evidence=NO_EVIDENCE_PAPERS,
+                            quotes=True)
 
 FINAL_NUDGE = "Answer the question now, using only these results and following the rules."
 
@@ -241,6 +260,14 @@ class ToolStep(BaseModel):
     preview: str  # comienzo del resultado, para la demo y para depurar
 
 
+class Quote(BaseModel):
+    """Frase del artículo que el modelo da como respaldo de una cita (modo Papers)."""
+
+    text: str
+    verified: bool  # aparece en el abstract o en los pasajes que devolvieron las herramientas
+    section: str | None = None  # dónde: "Abstract", "Results"...; None si no aparece
+
+
 class Citation(BaseModel):
     pmid: str
     url: str
@@ -249,13 +276,24 @@ class Citation(BaseModel):
     title: str | None = None
     journal: str | None = None
     year: int | None = None
+    quotes: list[Quote] = []
 
 
-def _citation(pmid: str, paper: Paper | None) -> Citation:
+def _citation(pmid: str, paper: Paper | None, quotes: list[Quote]) -> Citation:
     url = f"https://pubmed.ncbi.nlm.nih.gov/{pmid}/"
     if paper is None:
-        return Citation(pmid=pmid, url=url)
-    return Citation(pmid=pmid, url=url, title=paper.title, journal=paper.journal, year=paper.year)
+        return Citation(pmid=pmid, url=url, quotes=quotes)
+    return Citation(pmid=pmid, url=url, title=paper.title, journal=paper.journal, year=paper.year,
+                    quotes=quotes)
+
+
+def _check_quotes(raw: list[RawQuote], excerpts: list[Excerpt]) -> dict[str, list[Quote]]:
+    by_pmid: dict[str, list[Quote]] = {}
+    for quote in raw:
+        found = locate(quote, excerpts)
+        by_pmid.setdefault(quote.pmid, []).append(Quote(
+            text=quote.text, verified=found is not None, section=found.section if found else None))
+    return by_pmid
 
 
 class AgentUsage(BaseModel):
@@ -305,7 +343,9 @@ class Agent:
                 span, answer=result.answer, input_tokens=result.usage.prompt_tokens,
                 output_tokens=result.usage.completion_tokens, llm_calls=result.usage.llm_calls,
                 tool_calls=len(result.steps), stop_reason=result.stop_reason,
-                invalid_citations=len(result.invalid_citations))
+                invalid_citations=len(result.invalid_citations),
+                quotes=[q for c in result.citations for q in c.quotes] if self.mode.quotes
+                else None)
         return result
 
     async def _run(self, question: str) -> AgentAnswer:
@@ -328,6 +368,7 @@ class Agent:
         searches = 0
         seen_pmids: set[str] = set()
         papers: dict[str, Paper] = {}  # PMID -> título, revista y año, para las referencias
+        excerpts: list[Excerpt] = []  # abstracts y pasajes: las frases citadas deben estar aquí
         turns: list[ChatTurn] = []
         llm_ms = tools_ms = 0.0
         stop: StopReason = "answer"
@@ -390,6 +431,7 @@ class Agent:
                 evidence.append((call, result))
                 seen_pmids |= result.pmids
                 papers.update((p.pmid, p) for p in result.papers)
+                excerpts.extend(result.excerpts)
                 steps.append(ToolStep(
                     step=step, tool=call.name, arguments=call.arguments,
                     is_error=result.is_error, truncated=result.truncated,
@@ -398,12 +440,20 @@ class Agent:
                 ))
 
         # Guardarraíl, igual que en /ask: una cita solo vale si una herramienta devolvió ese PMID.
-        answer = (normalize_citations(strip_tool_markup(turn.text)).strip()
-                  or self.mode.no_evidence)
-        cited = extract_citations(answer)
+        answer = normalize_citations(strip_tool_markup(turn.text)).strip()
+        # Y una frase solo vale si está en lo que devolvieron las herramientas para ese PMID.
+        raw_quotes: list[RawQuote] = []
+        if self.mode.quotes:
+            answer, raw_quotes = split_quotes(answer)
+        answer = answer or self.mode.no_evidence
+        # Un artículo del que da una frase también está citado, aunque falte en el texto: a veces
+        # gpt-oss pasaba todas las citas al bloque y dejaba notas [^1] (que split_quotes quita).
+        cited = list(dict.fromkeys([*extract_citations(answer), *(q.pmid for q in raw_quotes)]))
+        quotes = _check_quotes(raw_quotes, excerpts)
         return AgentAnswer(
             answer=answer,
-            citations=[_citation(p, papers.get(p)) for p in cited if p in seen_pmids],
+            citations=[_citation(p, papers.get(p), quotes.get(p, [])) for p in cited
+                       if p in seen_pmids],
             invalid_citations=[p for p in cited if p not in seen_pmids],
             steps=steps,
             stop_reason=stop,

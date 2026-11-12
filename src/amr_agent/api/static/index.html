@@ -216,6 +216,9 @@
   ol.refs .src { font: 0.8rem var(--sans); white-space: nowrap; }
   ol.refs .note { font: 0.8rem var(--sans); color: var(--muted); }
   ol.refs .note.bad { color: var(--bad); font-weight: 600; }
+  ol.refs ul.quotes { list-style: none; margin: 4px 0 0; padding: 0; }
+  ol.refs ul.quotes li { margin: 4px 0 0; padding: 1px 0 1px 10px; border-left: 2px solid var(--ok); border-radius: 0; }
+  ol.refs ul.quotes li.bad { border-left-color: var(--bad); }
   details.more-src { margin-top: 12px; font-size: 0.9rem; }
   details.more-src summary { cursor: pointer; color: var(--muted); min-height: 32px; display: flex; align-items: center; }
   details.more-src ol { margin-top: 6px; color: var(--muted); }
@@ -297,7 +300,8 @@
             <a href="https://pypi.org/project/amr-mcp/">amr-mcp</a>, an MCP server I wrote.</li>
           <li>Papers mode is not limited to AMR: the agent searches all of PubMed, then reads the full
             text of the best match from PubMed Central and ranks its paragraphs with BM25, because
-            exact figures are rarely in the abstract.</li>
+            exact figures are rarely in the abstract. Under each reference it quotes the sentence it
+            relied on, and each quote is checked word for word against what it read.</li>
         </ol>
       </details>
 
@@ -484,13 +488,33 @@ function reference(meta, pmid) {
   return `${title}.${journal}${meta.year ? " " + meta.year : ""}. ${link}`;
 }
 
-function renderReferences(order, metaFor, unverified, noteFor) {
+// Modo Papers: la frase del artículo que respalda la cita, comprobada por la API (decisión 42).
+function renderQuotes(quotes) {
+  if (!quotes.length) return "";
+  const where = (s) => s === "Abstract" ? "the abstract" : s === "Full text" ? "the full text" : `the full text (${escapeHtml(s)})`;
+  return `<ul class="quotes">${quotes.map((q) => q.verified
+    ? `<li><q>${italicize(escapeHtml(normalize(q.text)))}</q> <span class="note">Found word for word in ${where(q.section)}.</span></li>`
+    : `<li class="bad"><q>${italicize(escapeHtml(normalize(q.text)))}</q> <span class="note bad">Not found in what the agent read: it may be reworded or invented.</span></li>`).join("")}</ul>`;
+}
+
+function renderQuoteWitness(quotes) {
+  const ok = quotes.filter((q) => q.verified).length;
+  const head = `${ok} of ${plural(quotes.length, "quote", "quotes")} found word for word`;
+  if (ok === quotes.length)
+    return `<p class="witness ok">${CHECK}<span><b>${head}.</b> Each reference below shows the sentence the answer relies on, as it appears in the abstract or full text the agent read.</span></p>`;
+  const rest = quotes.length - ok === 1 ? "The other is not in what the agent read, so it may be reworded or invented."
+    : "The others are not in what the agent read, so they may be reworded or invented.";
+  return `<p class="witness bad">${CROSS}<span><b>${head}.</b> ${rest}</span></p>`;
+}
+
+function renderReferences(order, metaFor, unverified, noteFor, quotesFor = () => []) {
   if (!order.length) return "";
   const items = order.map((pmid, i) => {
     const url = `https://pubmed.ncbi.nlm.nih.gov/${encodeURIComponent(pmid)}/`;
     let body = reference(metaFor(pmid), pmid);
     if (!body) body = `<a class="src" href="${url}" target="_blank" rel="noopener">PMID ${escapeHtml(pmid)}</a> <span class="note">${escapeHtml(noteFor(pmid))}</span>`;
     if (unverified.has(pmid)) body += ' <span class="note bad">Unverified: no search or tool returned this PMID.</span>';
+    body += renderQuotes(quotesFor(pmid));
     return `<li id="ref-${i + 1}">${body}</li>`;
   });
   return `<h3>References</h3><ol class="refs">${items.join("")}</ol>`;
@@ -566,7 +590,10 @@ const STOP = {
 function renderEntry(e) {
   const { kind, q, body, recorded } = e;
   const answer = normalize(body.answer || "");
-  const refOrder = [...new Set([...answer.matchAll(/\[PMID:(\d+)\]/g)].map((m) => m[1]))];
+  // En el modo Papers, un artículo puede estar citado solo en las frases (sin [PMID:x] en el
+  // texto): va al final de las referencias, sin número en el texto.
+  const refOrder = [...new Set([...[...answer.matchAll(/\[PMID:(\d+)\]/g)].map((m) => m[1]),
+    ...(body.citations || []).map((c) => c.pmid), ...(body.invalid_citations || [])])];
   const refNo = new Map(refOrder.map((p, i) => [p, i + 1]));
   const unverified = new Set(body.invalid_citations || []);
   const validCount = refOrder.filter((p) => !unverified.has(p)).length;
@@ -583,6 +610,8 @@ function renderEntry(e) {
   if (NO_EVIDENCE.includes(answer.trim()))
     parts.push(`<p class="witness none">${CHECK}<span>No citations: what was found doesn't answer this, so it says so instead of guessing.</span></p>`);
   else parts.push(renderWitness(kind, validCount, [...unverified]));
+  const quotes = (body.citations || []).flatMap((c) => c.quotes || []);
+  if (quotes.length) parts.push(renderQuoteWitness(quotes));
 
   const lat = body.latency_ms || {};
   if (isAgentKind(kind)) {
@@ -602,7 +631,8 @@ function renderEntry(e) {
       const s = steps.find((x) => x.pmids.includes(pmid));
       return s ? `Returned by ${s.tool}, which gives the PMID without a title.` : "";
     };
-    parts.push(renderReferences(refOrder, (p) => cites.get(p), unverified, fromTool));
+    parts.push(renderReferences(refOrder, (p) => cites.get(p), unverified, fromTool,
+      (p) => (cites.get(p) || {}).quotes || []));
   } else {
     const sources = body.sources || [];
     const mode = { hybrid: "keywords + meaning (hybrid)", vector: "meaning (vector)", keyword: "exact keywords (full-text)" }[e.mode] || e.mode;

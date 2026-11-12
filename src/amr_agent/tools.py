@@ -93,6 +93,16 @@ class Paper:
 
 
 @dataclass(frozen=True)
+class Excerpt:
+    """Texto de un artículo que devolvió una herramienta: contra él se comprueban las frases que
+    cita el modelo (quotes.py, decisión 42)."""
+
+    pmid: str
+    section: str  # "Abstract" o la sección del pasaje que leyó read_paper (Results, Methods...)
+    text: str
+
+
+@dataclass(frozen=True)
 class ToolResult:
     content: str  # lo que lee el modelo
     is_error: bool = False
@@ -100,6 +110,7 @@ class ToolResult:
     truncated: bool = False
     latency_ms: float = 0.0
     papers: tuple[Paper, ...] = ()  # título, revista y año de los PMIDs que los traen
+    excerpts: tuple[Excerpt, ...] = ()  # abstracts y pasajes, sin recortar ni escapar
 
 
 class ToolBox(Protocol):
@@ -352,8 +363,10 @@ class ReadPaperTools:
                 "journal": article.journal, "year": article.year,
                 "passages": [{"section": p.section, "text": p.text} for p in passages]}
         content, truncated = shrink(data, max(MAX_RESULT_CHARS, k * PASSAGE_CHARS))
+        excerpts = tuple(Excerpt(pmid, p.section or "Full text", p.text)
+                         for p in passages) if pmid else ()
         return ToolResult(content=content, pmids=frozenset({pmid}) if pmid else frozenset(),
-                          truncated=truncated, papers=find_papers(data))
+                          truncated=truncated, papers=find_papers(data), excerpts=excerpts)
 
 
 # --- Herramienta remota sin MCP: búsqueda de artículos en vivo ------------------------------
@@ -478,7 +491,9 @@ class PaperSearchTools:
                 "towards your limit.")}))
         content, truncated = shrink({"results": results})
         return ToolResult(content=content, pmids=frozenset(r["pmid"] for r in results),
-                          truncated=truncated, papers=find_papers(results))
+                          truncated=truncated, papers=find_papers(results),
+                          excerpts=tuple(Excerpt(r["pmid"], "Abstract", r["abstract"])
+                                         for r in results if r["abstract"]))
 
 
 def drop_seen_abstracts(result: ToolResult, seen: set[str]) -> ToolResult:

@@ -662,3 +662,42 @@ tocilizumab question was refused under both rules, with the same evidence. A sec
 gpt-oss-20b as a copy editor was tried and dropped: two of four outputs came back empty and the
 rest were unchanged. The full measure comes with the next literature run, which has five Spanish
 tasks.
+
+## 42. Papers answers quote the sentence behind each citation, and the code checks it (2026-11-12)
+**Context.** The Papers mode exists to find an exact figure, but its answers only cited a PMID.
+To check the figure, the reader had to open the article and look for it. The citation check
+(decision 7) only says that a tool returned that PMID, not that the article says what the answer
+claims. Quoting the passage behind each claim was in the first plan for this mode, before
+`read_paper` existed.
+**Decision.**
+- The Papers prompt asks for a "Quotes:" block after the answer: for each cited article, the
+  sentence that supports the claim, copied word for word in the article's language, with the
+  citations still in the text. Only the quotes keep that language.
+- `quotes.py` takes the block apart and looks for each quote in the abstract excerpts and
+  passages that the tools returned for that PMID. It ignores case, spaces, gpt-oss's
+  non-breaking hyphens and the kind of quote marks, and accepts cuts marked with "…" if the
+  pieces appear in order. A quote needs 20 characters without spaces, so "78.6%" alone does not
+  count. The header may be translated ("Citas:") or missing.
+- A quote that is not found stays in the response with `verified: false`, and the demo shows it
+  in red, as it does with unverified PMIDs. Removing it would hide that the model reworded or
+  invented a source.
+- An article that appears only in the quotes still counts as cited.
+- Two other ways were considered. A second call returning JSON would add 3,000–5,000 tokens per
+  question when Groq allows 8,000 a minute. Letting the code find the sentence from the figures
+  in the answer costs nothing, but it attributes instead of checking what the model relied on,
+  and it finds nothing for a claim without figures.
+- Only the Papers mode. The AMR prompt is unchanged byte for byte.
+- The literature eval gets two metrics that do not count towards task success: citations that
+  come with a quote, and quotes found word for word.
+**Result.** Measured with the same real evidence as decision 41 (the search results of five
+questions, final answer call only, ~21,500 tokens in three runs). In the first version all 8
+quotes were verbatim, but in 2 of 3 answers gpt-oss moved its citations out of the text, into
+footnotes (`[^1]`) or a list of PMIDs before the quotes. One answer was left with no
+references. The prompt now asks for citations in the text, and the code drops footnotes and
+those lists. Re-run: 7 of 7 citations in the text, each with a quote, and 6 of 7 quotes found
+word for word. The seventh shortened "Chimeric antigen receptor T-cell therapy (CAR-T cell
+therapy)-associated" to "CAR-T cell-associated" and was flagged. The English quotes pulled
+English drug names back into a Spanish answer ("mycophenolate mofetil"). A line saying that
+only the quotes keep the article's language fixed it on the next run. The two questions that
+were refused in decision 41 were refused again, with the same evidence. The full measure comes
+with the next literature run.

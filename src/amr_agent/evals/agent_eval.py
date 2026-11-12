@@ -70,8 +70,11 @@ def _alternatives(text: str) -> list[str]:
     return [normalize_text(a.strip()) for a in text.split("|") if a.strip()]
 
 
-def score_task(task: AgentTask, result: AgentAnswer) -> dict:
-    """Compara la trayectoria y la respuesta con lo esperado. Sin red ni LLM: se puede testear."""
+def score_task(task: AgentTask, result: AgentAnswer, *, quotes: bool = False) -> dict:
+    """Compara la trayectoria y la respuesta con lo esperado. Sin red ni LLM: se puede testear.
+
+    `quotes`: el modo pide la frase que respalda cada cita (modo Papers, decisión 42).
+    """
     steps = result.steps
     called = {s.tool for s in steps}
     answer = normalize_text(result.answer)
@@ -101,6 +104,13 @@ def score_task(task: AgentTask, result: AgentAnswer) -> dict:
                 if task.relevant_pmids and "read_paper" in expected_names else None)
     abstained = is_abstention(result.answer)
     citations_valid = not result.invalid_citations
+    # Tampoco entran en `success`: dicen si se puede comprobar el dato sin abrir el artículo.
+    quoted = [q for c in result.citations for q in c.quotes]
+    quote_counts = ({"n_citations": len(result.citations),
+                     "citations_quoted": sum(1 for c in result.citations if c.quotes),
+                     "quotes": len(quoted),
+                     "quotes_verified": sum(1 for q in quoted if q.verified)}
+                    if quotes else {})
 
     if task.should_abstain:
         success = abstained and citations_valid
@@ -125,6 +135,7 @@ def score_task(task: AgentTask, result: AgentAnswer) -> dict:
         "should_abstain": task.should_abstain,
         "citations_valid": citations_valid,
         "invalid_citations": result.invalid_citations,
+        **quote_counts,
         "trajectory": [f"{s.step}:{s.tool}({json.dumps(s.arguments, ensure_ascii=False)})"
                        + (" ERROR" if s.is_error else "") for s in steps],
         "n_tool_calls": len(steps),
@@ -174,6 +185,14 @@ def summarize(rows: list[dict]) -> dict:
     # Solo en el modo literatura: en la tabla de AMR sería una fila vacía.
     read = ({"read_hit_rate": rate("read_hit")}
             if any(r.get("read_hit") is not None for r in rows) else {})
+
+    def share(part: str, whole: str) -> float | None:
+        total = sum(r.get(whole) or 0 for r in ran)
+        return round(sum(r.get(part) or 0 for r in ran) / total, 4) if total else None
+
+    quoted = ({"quote_coverage": share("citations_quoted", "n_citations"),
+               "quote_validity": share("quotes_verified", "quotes")}
+              if any("quotes" in r for r in rows) else {})
     return {
         "task_success": rate("success"),
         "tool_selection": rate("tools_ok", in_scope),
@@ -184,6 +203,7 @@ def summarize(rows: list[dict]) -> dict:
         "abstention_accuracy": rate("abstained", out_scope),
         "false_abstention_rate": rate("abstained", in_scope),
         "citation_validity": rate("citations_valid"),
+        **quoted,
         "agent_errors": len(rows) - len(ran),
         "mean_tool_calls": avg("n_tool_calls"),
         "mean_extra_calls": avg("extra_calls"),
@@ -225,7 +245,7 @@ async def _run_tasks(agent, tasks: list[AgentTask], rows: list[dict]) -> bool:
             rows.append(row)
             print(f"[{n}/{len(tasks)}] {task.id} ERROR {row['error']}", flush=True)
             continue
-        row = score_task(task, result)
+        row = score_task(task, result, quotes=agent.mode.quotes)
         rows.append(row)
         print(f"[{n}/{len(tasks)}] {task.id} success={row['success']} "
               f"tools={row['trajectory']} tokens={row['tokens']}", flush=True)

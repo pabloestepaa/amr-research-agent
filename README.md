@@ -8,8 +8,9 @@ over ~3,000 recent PubMed abstracts, and with a tool-calling agent that also que
 gene catalog and sequence records through [`amr-mcp`](https://pypi.org/project/amr-mcp/), an MCP
 server I wrote and published. A third mode, in beta, goes beyond AMR: it searches all of PubMed
 and reads full-text articles to find the figure a question asks for, which is rarely in the
-abstract. Every citation is checked against what the tools actually returned, and evals measure
-retrieval, answers and agent trajectories.
+abstract, and quotes the sentence behind each citation. Every citation is checked against what
+the tools actually returned, every quote word for word, and evals measure retrieval, answers and
+agent trajectories.
 
 **Live demo: <https://amr-research-agent.onrender.com>** · API docs at
 [`/docs`](https://amr-research-agent.onrender.com/docs)
@@ -51,7 +52,8 @@ The API has three ways to ask, which are the three tabs of the demo:
   tools. `search_papers` searches all of PubMed live, and `read_paper` reads an article's full
   text from PubMed Central and returns the passages that best match the question. It is meant
   for questions like "what share of ZUMA-1 patients received tocilizumab?", whose answer is in a
-  results table and not in the abstract.
+  results table and not in the abstract. Each citation comes with the sentence it relies on, and
+  the API checks that sentence word for word against what the tools returned.
 
 An example from the agent evals (task `multi-01`), which needs two different sources:
 
@@ -125,8 +127,9 @@ flowchart TB
 - Papers mode ([`tools.py`](src/amr_agent/tools.py), [`fulltext.py`](src/amr_agent/fulltext.py)):
   PubMed's Best Match ranks the articles and Europe PMC supplies their abstracts in one request.
   `read_paper` fetches the JATS XML with `efetch db=pmc`, keeps paragraphs, figure captions and
-  tables with their section, and ranks them with BM25. Each mode has its own prompt, tools and
-  step limit, so the AMR agent and its evals are untouched.
+  tables with their section, and ranks them with BM25. [`quotes.py`](src/amr_agent/quotes.py)
+  looks for each quoted sentence in those passages and abstracts. Each mode has its own prompt,
+  tools and step limit, so the AMR agent and its evals are untouched.
 - LLM client ([`llm.py`](src/amr_agent/llm.py)): any OpenAI-compatible API through `base_url`.
   It retries rate limits only when the wait is short, so the API fails fast instead of hanging.
 
@@ -242,7 +245,7 @@ endpoint, tracing is off and the SDK is not imported. See decision 39.
 
 ## Design decisions
 
-All 41 decisions, with context and trade-offs, are in [`docs/decisions.md`](docs/decisions.md).
+All 42 decisions, with context and trade-offs, are in [`docs/decisions.md`](docs/decisions.md).
 The ones that shaped the project most:
 
 | Decision | Why | Trade-off |
@@ -250,6 +253,7 @@ The ones that shaped the project most:
 | Postgres + pgvector for text, keywords and vectors | one system to run, transactional upserts, plain SQL; 3,000 abstracts take ~27 MB | no built-in BM25, so keyword ranking needed the document-frequency fix above |
 | No chunking: one row per abstract | abstracts are short and self-contained, and one PMID = one citable source | to revisit if full texts are ingested |
 | Validate citations against what was retrieved | a PMID counts only if retrieval or a tool returned it; the rest go to `invalid_citations` | tolerant parsing has to keep up with each model's citation habits |
+| Papers answers quote their source, checked by code | the reader sees where a figure comes from without opening the article, and a reworded quote is flagged | a few more output tokens; the quote stays in English under a Spanish answer |
 | Hand-written agent loop, no framework | every message sent to the model is visible, and a scripted fake LLM tests the loop | no persistent state or branching graphs, which this agent does not need |
 | `amr-mcp` through a real MCP client in a subprocess | the project shows both sides of MCP; the client works with any MCP server | ~95 MB of the 512 MB budget (the container measures 367 MiB) |
 | Own eval metrics instead of Ragas or DeepEval | each metric is a few tested lines, and the judge prompt is versioned with the code | fewer metrics out of the box |
