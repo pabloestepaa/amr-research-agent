@@ -53,7 +53,9 @@ The API has three ways to ask, which are the three tabs of the demo:
   text from PubMed Central and returns the passages that best match the question. It is meant
   for questions like "what share of ZUMA-1 patients received tocilizumab?", whose answer is in a
   results table and not in the abstract. Each citation comes with the sentence it relies on, and
-  the API checks that sentence word for word against what the tools returned.
+  the API checks that sentence word for word against what the tools returned. References also
+  show the study type from PubMed (phase 2 trial, meta-analysis, review...) and, from 10 up, how
+  often the article has been cited.
 
 An example from the agent evals (task `multi-01`), which needs two different sources:
 
@@ -245,7 +247,7 @@ endpoint, tracing is off and the SDK is not imported. See decision 39.
 
 ## Design decisions
 
-All 42 decisions, with context and trade-offs, are in [`docs/decisions.md`](docs/decisions.md).
+All 43 decisions, with context and trade-offs, are in [`docs/decisions.md`](docs/decisions.md).
 The ones that shaped the project most:
 
 | Decision | Why | Trade-off |

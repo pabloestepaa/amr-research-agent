@@ -154,8 +154,9 @@ How to work:
 2. If the question names no study (e.g. "what share of patients..." about a treatment in
    general), there is no single right article: answer from the abstracts. Give the figures of
    two or three studies with their setting (design, number of patients, follow-up), cite each
-   one and say that results vary between studies. Read an article only if no abstract has a
-   figure.
+   one and say that results vary between studies. Prefer meta-analyses, systematic reviews and
+   trials (study_type) to narrative reviews and case reports, and say which kind each study is.
+   Read an article only if no abstract has a figure.
 3. If the question asks for a detail of a study (a dose, a rate, a number of patients, a
    method) and the abstracts do not give it, call read_paper on the most relevant article with
    full_text true, with the question in English. Each article can be read once: if its passages
@@ -276,6 +277,9 @@ class Citation(BaseModel):
     title: str | None = None
     journal: str | None = None
     year: int | None = None
+    # Modo Papers: tipo de estudio según PubMed y citas en Europe PMC (desde 10), si los hay.
+    study_type: str | None = None
+    cited_by: int | None = None
     quotes: list[Quote] = []
 
 
@@ -284,7 +288,7 @@ def _citation(pmid: str, paper: Paper | None, quotes: list[Quote]) -> Citation:
     if paper is None:
         return Citation(pmid=pmid, url=url, quotes=quotes)
     return Citation(pmid=pmid, url=url, title=paper.title, journal=paper.journal, year=paper.year,
-                    quotes=quotes)
+                    study_type=paper.study_type, cited_by=paper.cited_by, quotes=quotes)
 
 
 def _check_quotes(raw: list[RawQuote], excerpts: list[Excerpt]) -> dict[str, list[Quote]]:
@@ -430,7 +434,8 @@ class Agent:
                                  "content": result.content})
                 evidence.append((call, result))
                 seen_pmids |= result.pmids
-                papers.update((p.pmid, p) for p in result.papers)
+                for p in result.papers:
+                    papers[p.pmid] = p.merge(papers[p.pmid]) if p.pmid in papers else p
                 excerpts.extend(result.excerpts)
                 steps.append(ToolStep(
                     step=step, tool=call.name, arguments=call.arguments,

@@ -21,6 +21,7 @@ from amr_agent.tools import (
     ReadPaperTools,
     Toolset,
     pubmed_term,
+    study_type,
 )
 from tests.fakes import ScriptedLLM, text_turn, tool_turn
 
@@ -284,3 +285,51 @@ async def test_two_searches_in_one_step_count_only_if_they_return_articles():
         text_turn("ok"))
     result = await Agent(llm, Toolset([PaperSearchTools(http)]), mode=LITERATURE_MODE).run("?")
     assert [s.is_error for s in result.steps] == [False, True, False]
+
+
+# --- Tipo de estudio y citas (decisión 43) --------------------------------------------------
+
+def test_study_type_keeps_the_most_informative_label():
+    # Combinaciones reales de Europe PMC (MeSH de PubMed y article-type de PMC mezclados).
+    assert study_type(["Meta-Analysis", "Systematic Review", "review-article"]) == "Meta-analysis"
+    assert study_type(["Clinical Trial, Phase I", "Clinical Trial, Phase II",
+                       "Multicenter Study"]) == "Phase 1/2 trial"
+    assert study_type(["Randomized Controlled Trial",
+                       "Clinical Trial, Phase III"]) == "Phase 3 randomized trial"
+    assert study_type(["Clinical Trial", "Multicenter Study"]) == "Clinical trial"
+    assert study_type(["Scoping Review", "review-article"]) == "Scoping review"
+    assert study_type(["Case Reports", "research-article"]) == "Case report"
+    assert study_type(["Comparative Study", "research-article"]) == "Research article"
+    assert study_type(["Journal Article", "Research Support, Non-U.S. Gov't"]) is None
+
+
+async def test_search_papers_gives_the_study_type_and_only_meaningful_citation_counts():
+    trial, recent = epmc_record("1"), epmc_record("2")
+    trial.update(pubTypeList={"pubType": ["Clinical Trial, Phase II", "Journal Article"]},
+                 citedByCount=1990)
+    recent.update(pubTypeList={"pubType": ["Journal Article"]}, citedByCount=3)
+    http, _ = network([trial, recent])
+    result = await PaperSearchTools(http).call("search_papers", {"query": "CAR-T CRS"})
+    rows = json.loads(result.content)["results"]
+    assert (rows[0]["study_type"], rows[0]["cited_by"]) == ("Phase 2 trial", 1990)
+    assert "study_type" not in rows[1] and "cited_by" not in rows[1]  # sin claves vacías
+
+
+async def test_reading_an_article_keeps_its_study_type_in_the_reference():
+    record = epmc_record("11111111")
+    record.update(pubTypeList={"pubType": ["Clinical Trial, Phase I"]}, citedByCount=25)
+    http, _ = network([record])
+    tools = Toolset([PaperSearchTools(http), ReadPaperTools(http)])
+    llm = ScriptedLLM(
+        tool_turn(("search_papers", {"query": "CAR-T tocilizumab"})),
+        tool_turn(("read_paper", {"paper_id": "11111111", "question": "tocilizumab"})),
+        text_turn("26% received tocilizumab [PMID:11111111]."))
+    result = await Agent(llm, tools, mode=LITERATURE_MODE).run("?")
+    citation = result.citations[0]
+    assert citation.title.startswith("A phase 1 trial")  # el título del texto completo
+    assert (citation.study_type, citation.cited_by) == ("Phase 1 trial", 25)  # y no se pierde
+
+
+def test_the_papers_prompt_prefers_stronger_designs_and_the_amr_prompt_is_unchanged():
+    assert "Prefer meta-analyses, systematic reviews and" in LITERATURE_MODE.system_prompt
+    assert "study_type" not in AMR_MODE.system_prompt

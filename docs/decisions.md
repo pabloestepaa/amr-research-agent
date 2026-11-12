@@ -701,3 +701,35 @@ English drug names back into a Spanish answer ("mycophenolate mofetil"). A line 
 only the quotes keep the article's language fixed it on the next run. The two questions that
 were refused in decision 41 were refused again, with the same evidence. The full measure comes
 with the next literature run.
+
+## 43. Study type and citation count on each Papers reference (2026-11-12)
+**Context.** Consensus labels each paper as a randomized trial, a meta-analysis, a review or
+"highly cited". The Papers mode gave no such signal: in an answer, a figure from a 12-patient
+phase 1 trial looked the same as one from a meta-analysis, and in general questions, which a
+real user asks most, that difference matters. Europe PMC already returns the publication types
+(`pubTypeList`) and a citation count (`citedByCount`) in the request that `search_papers`
+makes, so using them costs no extra request.
+**Decision.**
+- `study_type()` turns PubMed's publication types, and PMC's article types, which are written
+  differently ("Review" and "review-article"), into one label: the most informative of
+  meta-analysis, systematic review, phase N (randomized) trial, clinical trial, guideline,
+  observational study, review, case report, research article and a few more. In 175 results
+  from 7 real searches, about half only said "Journal Article" (MEDLINE has not indexed them
+  yet). Those get no label rather than a generic one.
+- The citation count is shown from 10 up. Most articles in those searches had 0 because they
+  were recent, and "0 citations" next to this year's paper would read as a quality signal it is
+  not. From 10 up it does set a reference trial apart: the first ZUMA-1 report has 4,961.
+- Both go into the `search_papers` results only when present, because empty keys cost tokens in
+  every round. They also go into each `Citation` (`study_type`, `cited_by`) and next to each
+  reference in the demo. Reading the full text no longer wipes them: `Paper.merge` keeps what
+  the search found.
+- One line in the Papers prompt: in general questions, prefer meta-analyses, systematic reviews
+  and trials to narrative reviews and case reports, and say which kind each study is. The AMR
+  prompt is unchanged byte for byte.
+**Result.** Two general questions with live searches, final answer call only (~4,800 tokens).
+On insulin independence after islet transplantation, the answer named each source's kind (a
+cohort, a phase 1/2 trial, registry data). On how often cytokine release syndrome follows
+CAR-T, the search returned four reviews and a 12-patient phase 1 trial, and the answer gave
+"about 80–85%" from one review and the phase 1 without saying what either was. The labels in
+the references show it to the reader anyway. The general tasks of the next literature run will
+measure the prompt line.

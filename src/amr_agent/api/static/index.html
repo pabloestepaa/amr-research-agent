@@ -216,6 +216,7 @@
   ol.refs .src { font: 0.8rem var(--sans); white-space: nowrap; }
   ol.refs .note { font: 0.8rem var(--sans); color: var(--muted); }
   ol.refs .note.bad { color: var(--bad); font-weight: 600; }
+  ol.refs .kind { font: 600 0.74rem/1 var(--sans); color: var(--muted); border: 1px solid var(--rule); border-radius: 3px; padding: 2px 5px; white-space: nowrap; vertical-align: 0.1em; }
   ol.refs ul.quotes { list-style: none; margin: 4px 0 0; padding: 0; }
   ol.refs ul.quotes li { margin: 4px 0 0; padding: 1px 0 1px 10px; border-left: 2px solid var(--ok); border-radius: 0; }
   ol.refs ul.quotes li.bad { border-left-color: var(--bad); }
@@ -300,8 +301,8 @@
             <a href="https://pypi.org/project/amr-mcp/">amr-mcp</a>, an MCP server I wrote.</li>
           <li>Papers mode is not limited to AMR: the agent searches all of PubMed, then reads the full
             text of the best match from PubMed Central and ranks its paragraphs with BM25, because
-            exact figures are rarely in the abstract. Under each reference it quotes the sentence it
-            relied on, and each quote is checked word for word against what it read.</li>
+            exact figures are rarely in the abstract. Each reference shows the study type from PubMed,
+            and the sentence the answer relied on, checked word for word against what it read.</li>
         </ol>
       </details>
 
@@ -485,7 +486,10 @@ function reference(meta, pmid) {
   // PubMed añade a veces la sociedad editora: "Braz J Microbiol : [publication of the ...]".
   const name = meta.journal ? normalize(meta.journal).replace(/\s*:\s*\[.*\]\s*$/, "").replace(/\.$/, "") : "";
   const journal = name ? ` <i>${escapeHtml(name)}</i>` : "";
-  return `${title}.${journal}${meta.year ? " " + meta.year : ""}. ${link}`;
+  // Modo Papers: tipo de estudio (PubMed) y citas (Europe PMC, la API solo las da desde 10).
+  const kind = [meta.study_type, meta.cited_by ? plural(meta.cited_by, "citation", "citations") : ""]
+    .filter(Boolean).map(escapeHtml).join(" · ");
+  return `${title}.${journal}${meta.year ? " " + meta.year : ""}. ${kind ? `<span class="kind">${kind}</span> ` : ""}${link}`;
 }
 
 // Modo Papers: la frase del artículo que respalda la cita, comprobada por la API (decisión 42).

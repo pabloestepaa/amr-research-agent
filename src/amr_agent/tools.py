@@ -90,6 +90,15 @@ class Paper:
     title: str
     journal: str | None = None
     year: int | None = None
+    study_type: str | None = None  # "Phase 2 trial", "Meta-analysis"... (modo Papers)
+    cited_by: int | None = None  # citas en Europe PMC, solo desde MIN_CITED_BY
+
+    def merge(self, other: "Paper") -> "Paper":
+        """Los datos de `other` que faltan aquí: read_paper no trae el tipo de estudio que dio
+        search_papers, y no debe borrarlo al leer el artículo."""
+        return replace(self, **{f: getattr(other, f) for f in ("journal", "year", "study_type",
+                                                                "cited_by")
+                                if getattr(self, f) is None and getattr(other, f) is not None})
 
 
 @dataclass(frozen=True)
@@ -199,9 +208,12 @@ def find_papers(obj: Any) -> tuple[Paper, ...]:
                 if not isinstance(year, int):  # amr-mcp da "pubdate": "2016 Feb"
                     match = re.match(r"\d{4}", str(node.get("pubdate") or ""))
                     year = int(match.group()) if match else None
-                journal = node.get("journal")
+                journal, kind, cited = (node.get(k) for k in ("journal", "study_type",
+                                                              "cited_by"))
                 papers.append(Paper(str(pmid), title.strip(),
-                                    journal if isinstance(journal, str) else None, year))
+                                    journal if isinstance(journal, str) else None, year,
+                                    kind if isinstance(kind, str) else None,
+                                    cited if isinstance(cited, int) else None))
             stack.extend(v for v in node.values() if isinstance(v, dict | list))
         elif isinstance(node, list):
             stack.extend(node)
@@ -375,8 +387,10 @@ SEARCH_PAPERS = ToolSpec(
     name="search_papers",
     description=(
         "Search PubMed for articles on any biomedical topic, ranked by PubMed's Best Match. "
-        "Returns title, journal, year, a short abstract, the PMID and whether the full text is "
-        "in PubMed Central (full_text: true means read_paper can read it). Write the query in "
+        "Returns title, journal, year, the study type when PubMed has it (study_type), the "
+        "citation count when it is 10 or more (cited_by), a short abstract, the PMID and whether "
+        "the full text is in PubMed Central (full_text: true means read_paper can read it). "
+        "Write the query in "
         "English as a few keywords (e.g. 'ELARA tisagenlecleucel follicular lymphoma'), not as a "
         "sentence: every word must match."
     ),
@@ -401,6 +415,43 @@ EUROPEPMC_SEARCH = "https://www.ebi.ac.uk/europepmc/webservices/rest/search"
 # (decisión 40). Recortado caben 5 artículos en ~1.000 tokens (Groq Free: 8.000 tokens/min para
 # toda la pregunta); el recorte se queda con las frases que mejor encajan con la consulta.
 SEARCH_ABSTRACT_CHARS = 700
+# Las citas que cuenta Europe PMC. La búsqueda trae sobre todo artículos recientes, y en 175 de
+# 7 búsquedas reales casi todos tenían 0: un "0 citas" en un artículo de este año parecería una
+# señal de mala calidad. Desde 10 sí distingue un ensayo de referencia (TRANSCEND: 1.990).
+MIN_CITED_BY = 10
+# El tipo de publicación de PubMed (MeSH) y el de PMC (JATS) lo escriben distinto: "Review" y
+# "review-article". Casi la mitad de los artículos solo dice "Journal Article" (MEDLINE aún no
+# los ha clasificado): sin etiqueta mejor que una genérica.
+TRIAL_PHASES = {"clinical trial, phase i": "1", "clinical trial, phase ii": "2",
+                "clinical trial, phase iii": "3", "clinical trial, phase iv": "4"}
+OTHER_STUDY_TYPES = (
+    ({"practice guideline", "guideline"}, "Guideline"),
+    ({"observational study"}, "Observational study"),
+    ({"scoping review"}, "Scoping review"),
+    ({"review", "review-article"}, "Review"),
+    ({"case reports", "case-report", "case-study"}, "Case report"),
+    ({"letter"}, "Letter"), ({"editorial"}, "Editorial"), ({"comment"}, "Comment"),
+    ({"preprint"}, "Preprint"),
+    ({"research-article"}, "Research article"),
+)
+
+
+def study_type(pub_types: list[str]) -> str | None:
+    """La etiqueta más informativa: metaanálisis > revisión sistemática > ensayo > el resto."""
+    types = {t.strip().lower() for t in pub_types}
+    if "meta-analysis" in types:
+        return "Meta-analysis"
+    if types & {"systematic review", "systematic-review"}:
+        return "Systematic review"
+    phases = sorted({TRIAL_PHASES[t] for t in types if t in TRIAL_PHASES})
+    randomized = "randomized controlled trial" in types
+    if phases:
+        return f"Phase {'/'.join(phases)} {'randomized trial' if randomized else 'trial'}"
+    if randomized:
+        return "Randomized trial"
+    if types & {"clinical trial", "controlled clinical trial"}:
+        return "Clinical trial"
+    return next((label for keys, label in OTHER_STUDY_TYPES if types & keys), None)
 # PubMed lee "CAR T" como un autor ("car t"[Author]): "GD2 CAR T H3K27M glioma" daba 3 artículos
 # irrelevantes y con "CAR T" entre comillas, 15 con el ensayo bueno el 2.º. "CAR T-cell" no va al
 # autor, pero expande "car" a coches y proteínas. Todas las variantes pasan a la frase "CAR T".
@@ -474,10 +525,16 @@ class PaperSearchTools:
             abstract = re.sub(r"<[^>]+>", " ", r.get("abstractText") or "")
             abstract = re.sub(r"\s+", " ", abstract).strip()
             year = r.get("pubYear")
+            kind = study_type((r.get("pubTypeList") or {}).get("pubType") or [])
+            cited = r.get("citedByCount")
             results.append({
                 "pmid": r["pmid"], "title": (r.get("title") or "").strip(),
                 "journal": ((r.get("journalInfo") or {}).get("journal") or {}).get("title"),
                 "year": int(year) if str(year).isdigit() else None,
+                # Solo si los hay: cada clave vacía son tokens en cada vuelta.
+                **({"study_type": kind} if kind else {}),
+                **({"cited_by": cited} if isinstance(cited, int) and cited >= MIN_CITED_BY
+                   else {}),
                 # En PMC aunque no sea de licencia abierta (p. ej. manuscritos de autor del NIH):
                 # efetch db=pmc devuelve su texto completo y read_paper lo puede leer.
                 "full_text": r.get("inPMC") == "Y",
