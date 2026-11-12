@@ -74,7 +74,7 @@ An example from the agent evals (task `multi-01`), which needs two different sou
 > in broiler chickens [PMID:40777829]. *(trimmed)*
 
 The demo page at `/` opens on a recorded agent run, so you can see an answer and its tool calls
-without waiting or spending quota. From there you can ask your own question in either mode.
+without waiting or spending quota. From there you can ask your own question in any of the three modes.
 
 <details>
 <summary>Screenshot of the literature (RAG) mode</summary>
@@ -172,10 +172,11 @@ cephalosporins; myricetin is a polyphenol). The third is a search that added "20
 query and missed the relevant abstract.
 
 **Papers agent** (9 cell-therapy questions whose answer is only in the full text, 2 out of scope):
-7/11 in the first run, after fixing the evaluator. Both out-of-scope questions were refused and
-no answer cited a PMID that no tool had returned, but it costs ~9,000 tokens and ~40 s per
-question. In every remaining failure the right article never came up in a search (the `CAR T`
-problem below). The fix is in, and the run that measures it is pending.
+10/11 in the latest run, up from 7/11 in the first. Both out-of-scope questions were refused, no
+answer cited a PMID that no tool had returned and no tool call failed; a question costs ~6,400
+tokens and ~33 s (~9,000 and ~42 s in the first run). The failure left is a search: PubMed requires
+every keyword to match, and the agent's four long queries for a MAGE-A4 trial returned nothing,
+while "autologous T cell therapy MAGE-A4 solid cancers" finds the article first.
 
 Before the agent, `read_paper` was measured on its own. It finds the passage with the answer
 in the top 8 for 0.92 of the LitQA2 questions (FutureHouse, 131 with open full text) and in the
@@ -207,7 +208,8 @@ Each of these problems looked fine by eye and only showed up in the numbers:
 - The Papers agent missed articles that a quoted search puts in the first two results. PubMed
   translates `CAR T` into `car t[Author]`, a search for an author named "Car T", so most
   cell-therapy queries matched unrelated papers. The query now sends `"CAR T"` as a phrase. Replaying the agent's own
-  recorded queries against PubMed, two of the four missing articles came up.
+  recorded queries against PubMed, two of the four missing articles came up. In the next run the
+  right article came up in 8 of 9 tasks, against 5 of 9 before.
 - One failure was the evaluator's fault: a correct answer failed because `gpt-oss` writes
   "Escherichia coli" with a narrow no-break space. Facts are now compared after Unicode
   normalisation.

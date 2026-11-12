@@ -543,7 +543,15 @@ otherwise: in the four real failures the right article never appeared in any sea
 - Not done yet: retrying an empty search with fewer words. The two remaining failures (ft-04,
   ft-07) are queries with too many words, which is the model's choice; the next run says whether
   that needs a code change or a prompt change.
-**Result.** Pending the next run (it costs a day of quota).
+**Result.** Second run on 2026-11-12, with every tool response recorded again: 10/11, against
+7/11 for the first run after re-scoring. The right article came up in 8 of 9 tasks (5 before):
+ft-03 and ft-05 as the replay predicted, and ft-07 because the model chose a shorter query this
+time. No tool call failed (24 % of them before, all `k` against `top_k`). Tokens per
+task fell from ~9,000 to ~6,400, the median latency from 42 s to 33 s, and one task hit the step
+limit instead of four. The failure left, ft-04, is the empty-search problem: four long queries
+returned nothing, while "autologous T cell therapy MAGE-A4 solid cancers" puts the article
+("Autologous T cell therapy for MAGE-A4(+) solid cancers in HLA-A*02(+) patients") first. The
+automatic retry with fewer words is still not done.
 
 ## 39. Traces with OpenTelemetry's GenAI conventions, sent to Langfuse (2026-11-11)
 **Context.** In production the only window into the agent was one startup log line and the

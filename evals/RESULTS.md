@@ -53,39 +53,36 @@ Generator: `openai/gpt-oss-120b` · judge: `openai/gpt-oss-20b` · 42 questions 
 
 ## Agent — literature
 
-Model: `openai/gpt-oss-120b` · 11 tasks · max 6 steps, 12,000 token budget · tool responses: replay (0 replayed, 29 live)
+Model: `openai/gpt-oss-120b` · 11 tasks · max 6 steps, 12,000 token budget · tool responses: refresh (0 replayed, 27 live)
 
 | metric | value |
 |---|---|
-| Task success (every check below passed) | 0.64 |
+| Task success (every check below passed) | 0.91 |
 | Called the tools the task needs | 0.89 |
 | Called them with the right arguments (e.g. the WP_ accession) | — |
-| Answer contains the verifiable facts (drug class, top species...) | 0.56 |
-| A search found the relevant article | 0.56 |
-| read_paper read the relevant article (literature mode) | 0.56 |
+| Answer contains the verifiable facts (drug class, top species...) | 0.89 |
+| A search found the relevant article | 0.89 |
+| read_paper read the relevant article (literature mode) | 0.78 |
 | Out-of-scope questions correctly refused | 1.00 |
-| In-scope questions wrongly refused (lower is better) | 0.44 |
+| In-scope questions wrongly refused (lower is better) | 0.11 |
 | Answers without hallucinated PMIDs | 1.00 |
 | Tasks where the agent crashed, e.g. a provider 400 (lower is better) | 0 |
-| Tool calls per task | 3.45 |
+| Tool calls per task | 2.45 |
 | Unneeded tool calls per task (lower is better) | 0.00 |
-| Tool calls that returned an error (lower is better) | 0.24 |
-| Tasks stopped by the step or token limit (lower is better) | 0.36 |
-| Tokens per task | 9044.27 |
-| p50 latency (ms) | 41795.70 |
+| Tool calls that returned an error (lower is better) | 0.00 |
+| Tasks stopped by the step or token limit (lower is better) | 0.09 |
+| Tokens per task | 6398.55 |
+| p50 latency (ms) | 32510.40 |
 
 Task success by category:
 
 | full_text (n=9) | out_of_scope (n=2) |
 |---|---|
-| 0.56 | 1.00 |
+| 0.89 | 1.00 |
 
 Failed tasks:
 
-- `ft-03`: 1:search_papers({"full_text_only": false, "query": "GD2-CAR T cells H3K27M diffuse midline glioma manufacturing automated system", "top_k": 5}) ERROR → 2:search_papers({"full_text_only": false, "k": 10, "query": "GD2-CAR T cells H3K27M diffuse midline glioma manufacturing automated system"}) → 3:search_papers({"full_text_only": false, "k": 10, "query": "GD2 CAR T H3K27M glioma"}) → 4:read_paper({"k": 10, "paper_id": "34964902", "question": "automated system used to manufacture GD2-CAR T cells"}) → 5:search_papers({"full_text_only": false, "k": 10, "query": "GD2 CAR T cells H3K27M diffuse midline glioma clinical trial manufacturing automated system"})
-- `ft-04`: 1:search_papers({"full_text_only": false, "query": "autologous T cells MAGE-A4 HLA-A*02 phase 1 solid cancers", "top_k": 5}) ERROR → 2:search_papers({"full_text_only": false, "k": 10, "query": "autologous T cells MAGE-A4 HLA-A*02 phase 1 solid cancers"}) → 3:search_papers({"full_text_only": false, "k": 10, "query": "MAGE-A4 TCR phase 1"}) → 4:search_papers({"full_text_only": false, "k": 10, "query": "MAGE-A4 TCR-transduced autologous T cells phase 1 HLA-A*02 solid tumor"}) → 5:search_papers({"full_text_only": false, "k": 10, "query": "MAGE-A4 TCR autologous T cells phase 1"})
-- `ft-05`: 1:search_papers({"full_text_only": false, "query": "intracerebroventricular B7-H3 CAR T cells diffuse intrinsic pontine glioma phase 1", "top_k": 5}) ERROR → 2:search_papers({"full_text_only": false, "k": 10, "query": "intracerebroventricular B7-H3 CAR T cells diffuse intrinsic pontine glioma phase 1"}) → 3:read_paper({"k": 10, "paper_id": "41639009", "question": "median time from diagnosis to death or last follow-up diffuse intrinsic pontine glioma intracerebroventricular B7-H3 CAR T cells"}) → 4:search_papers({"full_text_only": true, "k": 10, "query": "BrainChild-03 intracerebroventricular B7-H3 CAR T cells DIPG phase 1 median time from diagnosis to death"}) → 5:search_papers({"full_text_only": true, "k": 10, "query": "BrainChild-03 B7-H3 CAR T DIPG"})
-- `ft-07`: 1:search_papers({"full_text_only": false, "query": "TRANSCEND FL lisocabtagene maraleucel follicular lymphoma phase 2 overall survival", "top_k": 5}) ERROR → 2:search_papers({"full_text_only": false, "k": 5, "query": "TRANSCEND FL lisocabtagene maraleucel follicular lymphoma phase 2 overall survival"}) → 3:read_paper({"k": 10, "paper_id": "42462111", "question": "one-year overall survival"}) → 4:search_papers({"full_text_only": false, "k": 5, "query": "TRANSCEND FL primary analysis lisocabtagene maraleucel overall survival 12 months"}) → 5:read_paper({"k": 10, "paper_id": "42462111", "question": "12-month overall survival"})
+- `ft-04`: 1:search_papers({"full_text_only": false, "query": "MAGE-A4 autologous T cells HLA-A*02 phase 1 solid cancers", "top_k": 5}) → 2:search_papers({"full_text_only": false, "query": "MAGE-A4 TCR T cells phase 1 HLA-A*02 solid tumor", "top_k": 10}) → 3:search_papers({"full_text_only": false, "query": "ADP-A2M4 phase 1", "top_k": 10}) → 4:search_papers({"full_text_only": false, "query": "MAGE-A4 ADP-A2M4 phase 1", "top_k": 10}) → 5:search_papers({"full_text_only": false, "query": "MAGE-A4 TCR", "top_k": 10})
 
 ## Retrieval — retrieval full
 
