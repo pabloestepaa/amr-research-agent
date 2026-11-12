@@ -5,7 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>AMR Research Agent</title>
 <meta name="description" content="Ask questions about antimicrobial resistance and get answers cited from PubMed abstracts, let an agent query NCBI's gene catalog through an MCP server, or have it search PubMed and read full-text papers. Every citation is checked.">
-<meta name="theme-color" content="#173a2c">
+<meta name="theme-color" content="#173a2c" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#10291f" media="(prefers-color-scheme: dark)">
 <link rel="canonical" href="https://amr-research-agent.onrender.com/">
 <!-- Vista previa al compartir el enlace (LinkedIn, Slack...). La imagen se sirve desde GitHub: docs/
      no entra en la imagen de Docker. Se rehace con .claude/scripts/render_social.py. -->
@@ -58,6 +59,9 @@
   a:hover { text-decoration-thickness: 2px; }
   :focus-visible { outline: 2px solid var(--link); outline-offset: 2px; border-radius: 3px; }
   .vh { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+  /* Salto a la pregunta: solo se ve al llegar con el tabulador */
+  .skip { position: absolute; left: 16px; top: 8px; z-index: 30; padding: 8px 12px; background: var(--paper); color: var(--link); border-radius: 4px; font-weight: 600; }
+  .skip:not(:focus) { width: 1px; height: 1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
   code, pre { font-family: var(--mono); }
   p, dd, li { text-wrap: pretty; }
 
@@ -109,7 +113,8 @@
     .tabs label:has(input:checked) { background: #2f6b4f; color: #f2f7f4; }
     .tabs label:has(input:checked) small { color: #cfe3d7; }
   }
-  .link-btn { font: inherit; color: var(--link); background: none; border: 0; padding: 0; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
+  .link-btn { font: inherit; color: var(--link); background: none; border: 0; padding: 0; text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 2px; cursor: pointer; }
+  .link-btn:hover { text-decoration-thickness: 2px; }
 
   /* Avisos junto al botón (límites, errores) */
   .status { margin: 12px 0 0; padding: 10px 12px; border-radius: 3px; font-size: 0.9rem; }
@@ -232,7 +237,8 @@
   .pending { color: var(--muted); font-size: 0.95rem; max-width: 60ch; }
   .wait-cell { grid-column: 2 / 4; min-height: 56px; }
   .wait-track { height: 6px; margin-top: 18px; border-radius: 3px; background: var(--ground); overflow: hidden; }
-  .wait-track i { display: block; height: 100%; width: 0; background: var(--muted); opacity: 0.45; transition: width 1s linear; }
+  /* transform y no width: no recoloca nada al avanzar (la barra crece cada segundo) */
+  .wait-track i { display: block; height: 100%; width: 100%; transform: scaleX(0); transform-origin: left center; background: var(--muted); opacity: 0.45; transition: transform 1s linear; }
   .pending p { margin: 0 0 6px; }
   .pending .elapsed { font-variant-numeric: tabular-nums; }
   .live-note { margin: 6px 0 0; font-size: 0.86rem; color: var(--muted); }
@@ -253,6 +259,9 @@
     .drawn .bar i { animation: draw 700ms cubic-bezier(0.16, 1, 0.3, 1) both; animation-delay: calc(var(--i, 0) * 70ms + 120ms); }
   }
   @keyframes draw { from { transform: scaleX(0.04); } to { transform: scaleX(1); } }
+  @media (prefers-reduced-motion: reduce) {
+    .wait-track i, details > summary::before { transition: none; }
+  }
 
   @media (max-width: 900px) {
     .layout { display: flex; flex-direction: column; padding: 18px 16px 32px; gap: 22px; }
@@ -277,9 +286,10 @@
 </style>
 </head>
 <body>
+<a class="skip" href="#question">Skip to the question</a>
 <header class="shell">
   <div class="shell-in">
-    <h1>AMR Research Agent</h1>
+    <h1 translate="no">AMR Research Agent</h1>
     <span class="by">by <a href="https://github.com/pabloestepaa">Pablo Estepa</a> · <a href="https://www.linkedin.com/in/pabloestepa/">LinkedIn</a></span>
     <nav aria-label="Project">
       <a href="https://github.com/pabloestepaa/amr-research-agent">Source code</a>
@@ -321,7 +331,7 @@
         </fieldset>
         <label for="question" class="vh">Your question</label>
         <textarea id="question" name="question" maxlength="500" autocomplete="off"
-          placeholder="e.g. In which species is blaKPC-2 most often found?" aria-describedby="lang-note mode-note log-note"></textarea>
+          placeholder="e.g. In which species is blaKPC-2 most often found?" aria-describedby="mode-note log-note"></textarea>
         <p class="field-note lang" id="lang-note" hidden>The search index is English-only, so English questions find more. The answer will still be in your language.</p>
         <div class="opts" id="search-opts" hidden>
           <label for="mode">Search by</label>
@@ -352,7 +362,7 @@
       <ul class="examples" id="examples-agent" aria-labelledby="ex-h">
         <li><button type="button">What drug class does mcr-1 confer resistance to, and in which species is it most often found?</button></li>
         <li><button type="button">Which carbapenemase gene families are in the NCBI catalog, and what does recent literature say about KPC?</button></li>
-        <li><button type="button">¿En qué especies se ha secuenciado más blaNDM-1?</button></li>
+        <li><button type="button" lang="es">¿En qué especies se ha secuenciado más blaNDM-1?</button></li>
       </ul>
       <ul class="examples" id="examples-papers" aria-labelledby="ex-h" hidden>
         <li><button type="button">Which drugs do patients take after islet transplantation to prevent rejection?</button></li>
@@ -416,9 +426,9 @@ const BUTTON = { ask: "Search the literature", agent: "Ask the agent", papers: "
 // Lo que cambia entre los dos agentes: rondas, presupuesto y lo que tarda.
 const AGENTS = {
   agent: { rounds: 5, budget: "12,000", typical: 60, slowAfter: 70,
-    note: "The agent takes 15–60 s and about 5,000–12,000 LLM tokens per question, so it allows one question per minute." },
+    note: "The agent takes 15–60\u00a0s and about 5,000–12,000 LLM tokens per question, so it allows one question per minute." },
   papers: { rounds: 6, budget: "16,000", typical: 120, slowAfter: 150,
-    note: "In beta. Papers searches all of PubMed and reads full texts from PubMed Central. A question takes 1–2 min and about 15,000 LLM tokens, so it allows one per minute and five a day for everyone." },
+    note: "In beta. Papers searches all of PubMed and reads full texts from PubMed Central. A question takes 1–2\u00a0min and about 15,000 LLM tokens, so it allows one per minute and five a day for everyone." },
 };
 const isAgentKind = (k) => k === "agent" || k === "papers";
 const KIND_LABEL = { ask: "literature mode", agent: "agent mode", papers: "papers mode" };
@@ -427,7 +437,7 @@ function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
 const fmt = (n) => Number(n).toLocaleString("en-US");
-const seconds = (ms) => (ms / 1000).toFixed(1) + " s";
+const seconds = (ms) => (ms / 1000).toFixed(1) + "\u00a0s";
 const plural = (n, one, many) => `${fmt(n)} ${n === 1 ? one : many}`;
 
 // gpt-oss escribe espacios finos (U+202F) y guiones que no cortan (U+2011): se ven como espacios
@@ -445,7 +455,7 @@ const GENES = /\b(?:bla[A-Z][A-Za-z]*(?:-\d+)?|mcr-\d+(?:\.\d+)?|qnr[A-Z]\d*|tet
 function italicize(html) {
   // Solo en el texto, nunca dentro de etiquetas (que aquí solo son <strong>/<em>).
   return html.split(/(<[^>]+>)/).map((part) => part.startsWith("<") ? part
-    : part.replace(SPECIES, '<i class="sp">$&</i>').replace(GENES, '<i class="gene">$&</i>')).join("");
+    : part.replace(SPECIES, '<i class="sp" translate="no">$&</i>').replace(GENES, '<i class="gene" translate="no">$&</i>')).join("");
 }
 
 // El texto se escapa ANTES de darle formato: la respuesta del LLM nunca se inserta como HTML tal
@@ -489,9 +499,11 @@ function renderWitness(kind, nValid, unverified) {
   return `<p class="witness bad">${CROSS}<span><b>${nValid} of ${plural(total, "citation", "citations")} verified.</b> ${unverified.map((p) => "PMID " + escapeHtml(p)).join(", ")} ${unverified.length === 1 ? "was" : "were"} not returned by ${by}, so the claim${unverified.length === 1 ? "" : "s"} citing ${unverified.length === 1 ? "it" : "them"} can't be trusted.</span></p>`;
 }
 
+// El enlace a PubMed abre otra pestaña y lo dice (solo para lectores de pantalla).
+const pmidLink = (pmid) => `<a class="src" href="https://pubmed.ncbi.nlm.nih.gov/${encodeURIComponent(pmid)}/" target="_blank" rel="noopener">PMID ${escapeHtml(pmid)}<span class="vh"> (opens in a new tab)</span></a>`;
+
 function reference(meta, pmid) {
-  const url = `https://pubmed.ncbi.nlm.nih.gov/${encodeURIComponent(pmid)}/`;
-  const link = `<a class="src" href="${url}" target="_blank" rel="noopener">PMID ${escapeHtml(pmid)}</a>`;
+  const link = pmidLink(pmid);
   if (!meta || !meta.title) return null;
   const title = italicize(escapeHtml(normalize(meta.title).replace(/\.$/, "")));
   // PubMed añade a veces la sociedad editora: "Braz J Microbiol : [publication of the ...]".
@@ -525,9 +537,8 @@ function renderQuoteWitness(quotes) {
 function renderReferences(order, metaFor, unverified, noteFor, quotesFor = () => []) {
   if (!order.length) return "";
   const items = order.map((pmid, i) => {
-    const url = `https://pubmed.ncbi.nlm.nih.gov/${encodeURIComponent(pmid)}/`;
     let body = reference(metaFor(pmid), pmid);
-    if (!body) body = `<a class="src" href="${url}" target="_blank" rel="noopener">PMID ${escapeHtml(pmid)}</a> <span class="note">${escapeHtml(noteFor(pmid))}</span>`;
+    if (!body) body = `${pmidLink(pmid)} <span class="note">${escapeHtml(noteFor(pmid))}</span>`;
     if (unverified.has(pmid)) body += ' <span class="note bad">Unverified: no search or tool returned this PMID.</span>';
     body += renderQuotes(quotesFor(pmid));
     return `<li id="ref-${i + 1}">${body}</li>`;
@@ -574,8 +585,8 @@ function renderLanes(steps, kind, tail = "") {
     const width = Math.max(3, Math.round((s.latency_ms / max) * 100));
     const call = `<div class="call ${mcp ? "mcp" : "app"}${s.is_error ? " error" : ""}" style="--i:${i}">
       <span class="where">via amr-mcp</span>
-      <code><b>${escapeHtml(s.tool)}</b>(${escapeHtml(args)})</code>
-      <div class="bar"><span class="track"><i style="width:${width}%"></i></span><span class="label">${fmt(Math.round(s.latency_ms))} ms · ${what} ${flags}</span></div>
+      <code translate="no"><b>${escapeHtml(s.tool)}</b>(${escapeHtml(args)})</code>
+      <div class="bar"><span class="track"><i style="width:${width}%"></i></span><span class="label">${fmt(Math.round(s.latency_ms))} ms · ${what} ${flags}</span></div>
       <details><summary>Result</summary><pre>${escapeHtml(s.preview)}${s.result_chars > s.preview.length ? "…" : ""}</pre></details>
     </div>`;
     const cont = s.step === prev ? " cont" : "";
@@ -586,7 +597,9 @@ function renderLanes(steps, kind, tail = "") {
       + (mcp ? `<div class="cell empty${cont}"></div><div class="cell mcp-side${cont}">${call}</div>`
              : `<div class="cell${cont}">${call}</div><div class="cell empty mcp-side${cont}"></div>`);
   });
-  return `<div class="lanes${single ? " single" : ""}" role="list" aria-label="Tool calls in order">
+  // role="group" y no "list": la rejilla mezcla números, cabeceras y celdas vacías, y una lista
+  // anunciaría un número de elementos que no son las llamadas.
+  return `<div class="lanes${single ? " single" : ""}" role="group" aria-label="Tool calls in order">
       ${laneHeads(kind)}
       ${rows.join("")}${tail}
     </div>`;
@@ -625,8 +638,11 @@ function renderEntry(e) {
   if (body.usage) meta.push(`${escapeHtml(body.usage.model)} on Groq`);
   $("entry-meta").innerHTML = `<span>${meta.join(" · ")}</span>`;
   $("entry-q").innerHTML = italicize(escapeHtml(normalize(q)));
+  setLang($("entry-q"), q);
 
-  const parts = [`<div class="answer">${renderAnswer(answer, refNo, unverified)}</div>`];
+  // La respuesta sale en el idioma de la pregunta; el resto de la entrada, en inglés.
+  const lang = SPANISH.test(q) ? ' lang="es"' : "";
+  const parts = [`<div class="answer"${lang}>${renderAnswer(answer, refNo, unverified)}</div>`];
   if (NO_EVIDENCE.includes(answer.trim()))
     parts.push(`<p class="witness none">${CHECK}<span>No citations: what was found doesn't answer this, so it says so instead of guessing.</span></p>`);
   else parts.push(renderWitness(kind, validCount, [...unverified]));
@@ -658,7 +674,7 @@ function renderEntry(e) {
     const mode = { hybrid: "keywords + meaning (hybrid)", vector: "meaning (vector)", keyword: "exact keywords (full-text)" }[e.mode] || e.mode;
     const gen = lat.generation ? `; ${escapeHtml(body.usage ? body.usage.model : "the LLM")} wrote the answer from them in ${seconds(lat.generation)}` : "";
     const tokens = body.usage ? ` · ${fmt(body.usage.prompt_tokens + body.usage.completion_tokens)} tokens` : "";
-    parts.push(`<h3>Methods</h3><p class="methods-rag">Searched ~3,000 abstracts by ${mode} and kept the top ${sources.length} in ${fmt(Math.round(lat.retrieval || 0))} ms${gen}${tokens}.</p>`);
+    parts.push(`<h3>Methods</h3><p class="methods-rag">Searched ~3,000 abstracts by ${mode} and kept the top ${sources.length} in ${fmt(Math.round(lat.retrieval || 0))}\u00a0ms${gen}${tokens}.</p>`);
     const bySrc = new Map(sources.map((s) => [s.pmid, s]));
     parts.push(renderReferences(refOrder, (p) => bySrc.get(p), unverified, () => ""));
     const rest = sources.filter((s) => !refNo.has(s.pmid));
@@ -684,6 +700,7 @@ function renderEntry(e) {
 function renderFailure(kind, q, err) {
   $("entry-meta").innerHTML = `<span><b>Your question</b> · ${KIND_LABEL[kind]} · not answered</span>`;
   $("entry-q").innerHTML = italicize(escapeHtml(normalize(q)));
+  setLang($("entry-q"), q);
   const back = current ? ` <button type="button" class="link-btn" data-act="restore">Show the previous entry</button>.` : "";
   $("entry-body").innerHTML = `<div class="entry-notice ${err.cls || "error"}"><p>${err.html || escapeHtml(String(err.message || err))}</p>`
     + `<p class="countdown" data-countdown="${kind}"></p></div><p class="next">Your question is still in the box above.${back}</p>`;
@@ -709,11 +726,11 @@ function syncButton() {
   if (busy) { submit.disabled = true; return; }
   document.querySelectorAll("[data-countdown]").forEach((el) => {
     const s = Math.ceil((cooldown[el.dataset.countdown] - Date.now()) / 1000);
-    el.textContent = s > 0 ? `You can ask again in ${s} s.` : (cooldown[el.dataset.countdown] ? "You can ask again now." : "");
+    el.textContent = s > 0 ? `You can ask again in ${s}\u00a0s.` : (cooldown[el.dataset.countdown] ? "You can ask again now." : "");
   });
   if (left > 0) {
     submit.disabled = true;
-    submit.textContent = `Next question in ${left} s`;
+    submit.textContent = `Next question in ${left}\u00a0s`;
     return;
   }
   submit.disabled = false;
@@ -750,6 +767,7 @@ function syncMode() {
   question.placeholder = PLACEHOLDER[kind];
   syncLang();
   syncButton();
+  syncUrl(kind);
   // Mientras se vea una grabación (nadie ha preguntado aún), cada pestaña de agente enseña la suya.
   const rec = RECORDINGS[kind];
   if (!busy && current?.recorded && rec && current !== rec) {
@@ -758,33 +776,56 @@ function syncMode() {
   }
 }
 
+// La pestaña va en la URL (?mode=literature|papers; Agent es la de por defecto y no lo lleva),
+// para poder enlazar el modo Papers directamente. Los nombres son los de las pestañas.
+const URL_MODE = { ask: "literature", agent: "agent", papers: "papers" };
+function syncUrl(kind) {
+  const url = new URL(location.href);
+  if (kind === "agent") url.searchParams.delete("mode"); else url.searchParams.set("mode", URL_MODE[kind]);
+  if (url.href !== location.href) history.replaceState(history.state, "", url);
+}
+function kindFromUrl() {
+  const want = new URLSearchParams(location.search).get("mode");
+  return Object.keys(URL_MODE).find((k) => URL_MODE[k] === want) || null;
+}
+
 const SPANISH = /[¿¡ñáéíóú]|\b(qué|cuál|cómo|dónde|genes? de|resistencia|especies?|bacterias)\b/i;
-function syncLang() { $("lang-note").hidden = isAgent() || !SPANISH.test(question.value); }
+function syncLang() {
+  $("lang-note").hidden = isAgent() || !SPANISH.test(question.value);
+  // aria-describedby lee también las notas ocultas: solo apunta a las que se ven.
+  question.setAttribute("aria-describedby",
+    ["lang-note", "mode-note", "log-note"].filter((id) => !$(id).hidden).join(" "));
+}
+// Pregunta y respuesta en español se marcan como tales, para que el lector de pantalla cambie de voz.
+function setLang(el, text) {
+  if (SPANISH.test(text)) el.lang = "es"; else el.removeAttribute("lang");
+}
 
 function showPending(kind, q) {
   $("entry-meta").innerHTML = `<span><b>Your question</b> · ${KIND_LABEL[kind]} · working</span>`;
   $("entry-q").innerHTML = italicize(escapeHtml(normalize(q)));
+  setLang($("entry-q"), q);
   const a = AGENTS[kind];
   const what = kind === "papers"
-    ? "The agent is searching PubMed and reading full texts. This usually takes 1–2 minutes, partly waiting for the free LLM quota."
+    ? "The agent is searching PubMed and reading full texts. This usually takes 1–2\u00a0minutes, partly waiting for the free LLM quota."
     : kind === "agent"
-    ? "The agent is choosing tools and reading their results. This usually takes 15–60 s."
+    ? "The agent is choosing tools and reading their results. This usually takes 15–60\u00a0s."
     : "Searching the abstracts and writing a cited answer. This usually takes a few seconds.";
   live = { steps: [], note: "Sending the question…", fill: 0, heard: false };
   const frame = !a ? "" : `<h3>Methods</h3>
     <p class="sub"><b>Fig. 1.</b> The agent runs up to ${a.rounds} rounds on the server; its tool calls appear here${kind === "papers" ? "" : ", each in its lane,"} as it makes them.</p>
     <div id="live-lanes">${liveLanes(kind)}</div>`;
-  $("entry-body").innerHTML = `<div class="pending"><p>${what}</p><p class="elapsed" id="elapsed">0 s elapsed</p><p id="slow" hidden></p></div>${frame}`;
+  $("entry-body").innerHTML = `<div class="pending"><p>${what}</p><p class="elapsed" id="elapsed">0\u00a0s elapsed</p><p id="slow" hidden></p></div>${frame}`;
   entry.setAttribute("aria-busy", "true");
   entry.classList.remove("drawn");  // las barras se animan al final, no cada vez que llega un paso
   const t0 = Date.now();
   return setInterval(() => {
     const s = Math.round((Date.now() - t0) / 1000);
     const el = $("elapsed");
-    if (el) el.textContent = `${s} s elapsed`;
+    if (el) el.textContent = `${s}\u00a0s elapsed`;
     live.fill = a ? Math.min(100, (s / a.typical) * 100) : 0;  // tiempo frente a lo habitual
     const fill = $("wait-fill");
-    if (fill) fill.style.width = `${live.fill}%`;
+    if (fill) fill.style.transform = `scaleX(${live.fill / 100})`;
     const slow = $("slow");
     // Con el agente contando lo que hace, el aviso de "servidor despertando" sobra.
     if (slow && !live.heard && s >= (a ? a.slowAfter : 12)) {
@@ -798,9 +839,15 @@ function showPending(kind, q) {
 let live = { steps: [], note: "", fill: 0, heard: false };
 
 function liveLanes(kind) {
-  const tail = `<div class="lane-n">…</div><div class="cell wait-cell"><p class="live-note" id="live-note" aria-live="polite">${escapeHtml(live.note)}</p><div class="wait-track"><i id="wait-fill" style="width:${live.fill}%"></i></div></div>`;
+  // Sin aria-live aquí: esta fila se rehace con cada paso y un lector de pantalla no anuncia de
+  // forma fiable una región que se acaba de crear. Lo anuncia #status (announce), que no cambia.
+  const tail = `<div class="lane-n">…</div><div class="cell wait-cell"><p class="live-note" id="live-note">${escapeHtml(live.note)}</p><div class="wait-track"><i id="wait-fill" style="transform:scaleX(${live.fill / 100})"></i></div></div>`;
   return renderLanes(live.steps, kind, tail);
 }
+
+// Lo que hace el agente, para lectores de pantalla: #status está fuera de la entrada, que lleva
+// aria-busy mientras espera (y eso puede silenciar lo que cambia dentro).
+const announce = (text) => setStatus(escapeHtml(text), "sr");
 
 function roundNote({ step, final }) {
   if (final) return `Round ${step} · the last one: writing the answer from what it found, without tools…`;
@@ -839,11 +886,12 @@ async function followAgent(resp, kind) {
       live.heard = true;
       const slow = $("slow");
       if (slow) slow.hidden = true;
-      if (name === "round") { live.note = roundNote(data); redraw(); }
+      if (name === "round") { live.note = roundNote(data); redraw(); announce(live.note); }
       else if (name === "wait") {
-        live.note = `Waiting ${Math.round(data.seconds)} s for the free LLM quota, which every visitor shares…`;
+        live.note = `Waiting ${Math.round(data.seconds)} s for the free LLM quota, which every visitor shares…`;
         const el = $("live-note");
         if (el) el.textContent = live.note;
+        announce(live.note);
       }
       else if (name === "step") { live.steps.push(data); redraw(); }
       else if (name === "answer") answer = data;
@@ -987,7 +1035,7 @@ document.querySelectorAll("ul.examples button").forEach((b) => b.addEventListene
   syncLang();
   if (!submit.disabled) submit.focus(); else question.focus();
 }));
-$("kbd").textContent = /Mac|iPhone|iPad/.test(navigator.platform) ? "⌘ Return to send" : "Ctrl + Enter to send";
+$("kbd").textContent = /Mac|iPhone|iPad/.test(navigator.platform) ? "⌘\u00a0Return to send" : "Ctrl\u00a0+\u00a0Enter to send";
 
 // --- Vista previa de las citas -------------------------------------------------------------
 // Con el ratón sobre [n], o al llegar con el tabulador, se ve la referencia y, en el modo Papers,
@@ -1004,6 +1052,7 @@ function showPreview(link) {
   const ref = document.getElementById(link.hash.slice(1));
   if (!ref) return;
   const copy = ref.cloneNode(true);
+  copy.querySelectorAll(".vh").forEach((el) => el.remove());  // en la vista previa no hay enlaces
   copy.querySelectorAll("a").forEach((a) => {
     const span = Object.assign(document.createElement("span"), { className: a.className });
     span.append(...a.childNodes);
@@ -1064,7 +1113,10 @@ for (const [kind, id] of [["agent", "recorded"], ["papers", "recorded-papers"]])
 function recordingFor(kind) { return RECORDINGS[kind] || RECORDINGS.agent || null; }
 if (RECORDINGS.agent) { current = RECORDINGS.agent; renderEntry(current); }
 else $("entry-q").textContent = "Ask a question to see a cited answer here.";
-syncMode();  // por si el navegador recuerda el modo al recargar
+// La URL manda; sin ?mode= vale lo que recuerde el navegador al recargar (o Agent).
+const fromUrl = kindFromUrl();
+if (fromUrl) form.querySelector(`input[value="${fromUrl}"]`).checked = true;
+syncMode();
 </script>
 </body>
 </html>
