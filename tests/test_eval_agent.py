@@ -292,3 +292,8 @@ def test_a_general_task_passes_with_cited_figures_and_fails_if_it_refuses():
     steps = [step("search_papers", query="islet transplantation", pmids=["10911004"])]
     assert score_task(general, answer("7 of 7 patients (100%) [PMID:10911004].", steps))["success"]
     assert not score_task(general, answer(NO_EVIDENCE_PAPERS, steps))["success"]
+
+
+def test_spanish_decimal_commas_match_the_expected_figures():
+    assert normalize_text("el 92,0 % y el 78,6%") == "el 92.0% y el 78.6%"
+    assert normalize_text("1,000 patients") == "1,000 patients"  # miles en inglés: sin tocar

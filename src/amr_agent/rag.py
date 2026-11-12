@@ -27,11 +27,14 @@ Rules:
 #   【PMID:123】 o ［PMID:123］   corchetes de ancho completo
 #   【3†PMID:123】                el formato de citas de su herramienta de navegación
 #   (PMID 123)                   entre paréntesis
+#   【19104407†L1-L4】            el PMID como número de navegación (2026-11-12): con 5 cifras o
+#                                más es un PMID; los números de navegación son pequeños (【2】)
 # Las aceptamos y las normalizamos a [PMID:123]: así la respuesta es consistente y, sobre todo,
 # esas citas pasan por la validación (una cita que no se reconoce tampoco se comprueba).
 CITATION_RE = re.compile(
     r"[\[【［]\s*(?:\d+\s*†\s*)?PMID\s*[:：]\s*(\d+)\s*(?:†[^\]】］]*)?[\]】］]"
     r"|\(\s*PMID\s*[:：]?\s*(\d+)\s*\)"
+    r"|【\s*(\d{5,9})\s*(?:†[^】]*)?】"
 )
 # Varios PMIDs en un mismo corchete (cat-05): 【PMID:11470367, PMID:37255469】 o [PMID:1; 2].
 CITATION_LIST_RE = re.compile(
@@ -45,8 +48,12 @@ BARE_REF_RE = re.compile(r"[ \t]*【\s*(?:\d+\s*(?:†[^】]*)?|\{[^】]*\})\s*�
 def normalize_citations(text: str) -> str:
     text = CITATION_LIST_RE.sub(
         lambda m: "".join(f"[PMID:{p}]" for p in re.findall(r"\d+", m.group(1))), text)
-    text = CITATION_RE.sub(lambda m: f"[PMID:{m.group(1) or m.group(2)}]", text)
+    text = CITATION_RE.sub(lambda m: f"[PMID:{_pmid(m)}]", text)
     return BARE_REF_RE.sub("", text)
+
+
+def _pmid(m: re.Match[str]) -> str:
+    return m.group(1) or m.group(2) or m.group(3)
 
 
 class Source(BaseModel):
@@ -94,7 +101,7 @@ def format_sources(hits: list[Hit]) -> str:
 
 def extract_citations(text: str) -> list[str]:
     text = normalize_citations(text)  # para que cuenten también las listas de PMIDs
-    pmids = (m.group(1) or m.group(2) for m in CITATION_RE.finditer(text))
+    pmids = (_pmid(m) for m in CITATION_RE.finditer(text))
     return list(dict.fromkeys(pmids))  # únicos y en orden de aparición
 
 

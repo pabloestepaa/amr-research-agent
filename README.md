@@ -242,7 +242,7 @@ endpoint, tracing is off and the SDK is not imported. See decision 39.
 
 ## Design decisions
 
-All 40 decisions, with context and trade-offs, are in [`docs/decisions.md`](docs/decisions.md).
+All 41 decisions, with context and trade-offs, are in [`docs/decisions.md`](docs/decisions.md).
 The ones that shaped the project most:
 
 | Decision | Why | Trade-off |
@@ -303,7 +303,8 @@ Limitations:
 - The corpus is small and recent: ~3,000 abstracts from 2022–2026, with no full texts.
 - The Papers mode can only read articles that are in PubMed Central, 70 % of those in LitQA2.
   It is in beta: it searches the live PubMed, which needs precise keywords, and the eval only
-  has 9 in-scope tasks, written from articles and not yet by a real user.
+  has 9 in-scope tasks, written from articles and not yet by a real user. Answers in Spanish
+  still keep some English acronyms, such as CRS for *síndrome de liberación de citocinas*.
 - The embeddings are English-only, so questions in other languages retrieve worse. The agent is
   told to query the literature in English, which helps.
 - The eval sets are small (36 retrieval questions, 42 answers, 22 agent tasks, 11 Papers tasks): enough to catch

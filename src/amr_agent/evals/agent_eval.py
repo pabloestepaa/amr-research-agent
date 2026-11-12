@@ -60,7 +60,10 @@ def normalize_text(text: str) -> str:
     """
     text = HYPHENS_RE.sub("-", unicodedata.normalize("NFKC", text))
     text = re.sub(r"\s+", " ", text).lower()
-    return re.sub(r"(\d) %", r"\1%", text)
+    text = re.sub(r"(\d) %", r"\1%", text)
+    # Coma decimal (español): "78,6%" = "78.6%". Solo con 1-2 decimales, para no tocar los miles
+    # en inglés ("1,000 patients").
+    return re.sub(r"(\d),(\d{1,2})(?!\d)", r"\1.\2", text)
 
 
 def _alternatives(text: str) -> list[str]:

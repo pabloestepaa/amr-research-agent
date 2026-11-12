@@ -31,10 +31,29 @@ from amr_agent.tools import (
     drop_seen_abstracts,
 )
 
+LANGUAGE = "- Answer in the language of the question. Be concise: at most two short paragraphs."
 
-def _rules(scope: str, extra: str = "", no_evidence: str = NO_EVIDENCE) -> str:
-    """Reglas comunes a los dos modos; cambia el ámbito, el mensaje de abstención y AMR añade
-    cómo citar el catálogo."""
+# Modo Papers (decisión 41). gpt-oss contesta en español pero piensa en inglés, y se nota:
+# "estéril de esteroides" (steroid-free), "mycophenolate mofetil" sin traducir, "indución",
+# "AML" por LMA. Los ejemplos salen de esas respuestas; para medirlo hubo además dos preguntas de
+# otros temas (docs/decisions.md).
+NATIVE_LANGUAGE = """\
+- Answer in the language of the question. If it is not English, write it as a native scientific
+  writer of that language would, not as a translation of the English sources:
+  - Every word in that language. Translate the names of drugs, procedures, diseases and
+    outcomes to their standard form (in Spanish: "micofenolato de mofetilo", "globulina
+    antitimocítica", "sin corticoides" for steroid-free, "supervivencia global").
+  - Acronyms: for diseases and outcomes, the one used in that language, spelled out the first
+    time (in Spanish: "leucemia mieloide aguda (LMA)", not AML). Keep as they are the names of
+    genes, proteins, drugs, trials and products (IL-6, CD19, ZUMA-1, CAR-T).
+  - Reread the answer before giving it: fix spelling and any English word or word order left.
+- Be concise: at most two short paragraphs."""
+
+
+def _rules(scope: str, extra: str = "", no_evidence: str = NO_EVIDENCE,
+           language: str = LANGUAGE) -> str:
+    """Reglas comunes a los dos modos; cambia el ámbito, el mensaje de abstención, la regla de
+    idioma y AMR añade cómo citar el catálogo."""
     return f"""Rules:
 - {scope} For anything else (writing
   code, general knowledge, news, weather...) do not call any tool and reply exactly:
@@ -46,7 +65,7 @@ def _rules(scope: str, extra: str = "", no_evidence: str = NO_EVIDENCE) -> str:
   themselves: those come from the results. If the results answer only part of it, answer that
   part and say what is missing.
 - Only if no tool result is about the question, reply exactly: "{no_evidence}"
-- Answer in the language of the question. Be concise: at most two short paragraphs."""
+{language}"""
 
 
 def _final_prompt(role: str, rules: str) -> str:
@@ -102,7 +121,7 @@ LITERATURE_ROLE = "You are a research assistant for the biomedical literature."
 
 LITERATURE_RULES = _rules(
     "You only answer questions about biomedical and life-science research.",
-    no_evidence=NO_EVIDENCE_PAPERS)
+    no_evidence=NO_EVIDENCE_PAPERS, language=NATIVE_LANGUAGE)
 
 LITERATURE_SYSTEM_PROMPT = f"""{LITERATURE_ROLE}
 Answer the user's question with the tools below. Do not answer from memory.

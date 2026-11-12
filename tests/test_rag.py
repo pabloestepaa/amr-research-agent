@@ -48,6 +48,14 @@ def test_several_pmids_in_one_bracket_become_separate_citations():
     assert extract_citations(text) == ["11470367", "37255469", "5", "6"]
 
 
+def test_a_pmid_written_as_a_browsing_reference_is_kept_as_a_citation():
+    # Modo Papers, 2026-11-12: "【19104407†L1-L4】" se borraba como referencia suelta y la
+    # respuesta se quedaba sin citas. Con 5 cifras o más es un PMID; 【2】 sigue siendo navegación.
+    text = "Tacrolimus y sirolimus【19104407†L1-L4】【26288226】, ver【2】."
+    assert normalize_citations(text) == "Tacrolimus y sirolimus[PMID:19104407][PMID:26288226], ver."
+    assert extract_citations(text) == ["19104407", "26288226"]
+
+
 def test_browsing_positions_in_json_are_removed():
     # /agent en Render, 2026-11-11: la posición del resultado en vez de un PMID.
     text = ('Carbapenems【{"cursor":0,"loc":0}】 and '

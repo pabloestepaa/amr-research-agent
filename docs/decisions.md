@@ -630,3 +630,35 @@ registry's note that insulin independence beyond ten years is exceptional, both 
 still read the registry article first and used all six steps (17,000 tokens, 69 s), so the
 prompt alone does not stop it from reading. The full literature run is pending (~100,000
 tokens, not on the same day as the answer eval).
+
+## 41. Papers answers in the user's language, written as a native would (2026-11-12)
+**Context.** The second real question ("¿Qué medicamentos tiene que tomar un paciente después de
+un trasplante de islotes para evitar el rechazo?") got a good answer with four citations, but its
+Spanish read like a translation: "estéril de esteroides" for *steroid-free*, "mycophenolate
+mofetil" left in English, "inducion" misspelled. The Langfuse trace shows that the model wrote it
+that way; nothing in the app rewrites the text. The rule only said "Answer in the language of the
+question".
+**Decision.**
+- In the Papers mode, an answer that is not in English has to read as if a native scientific
+  writer of that language wrote it. Every word is in that language, with the standard names of
+  drugs, procedures, diseases and outcomes. Disease and outcome acronyms are the local ones,
+  spelled out the first time ("leucemia mieloide aguda (LMA)", not AML), while gene, protein,
+  drug, trial and product names stay as they are (IL-6, CD19, ZUMA-1, CAR-T). The model rereads
+  the answer before giving it. The Spanish examples come from the defects above.
+- The AMR mode keeps its one-line rule and its prompt is unchanged byte for byte, so its eval
+  still holds. Its users write in English, and changing it would mean another AMR run.
+- `normalize_citations` keeps a PMID that gpt-oss writes as a browsing reference,
+  `【19104407†L1-L4】`. Five digits or more is a PMID; browsing numbers are small (`【2】`). Before,
+  these were removed as bare references, so the answer lost its citations and they skipped
+  validation.
+- The evaluator reads a decimal comma as a point, so "83,3 %" matches "83.3%".
+**Result.** Measured without the agent loop, to spend little quota: the tool results of five real
+runs went to the final answer call, once with each rule. Three were the questions the examples
+came from and two were on other topics (chronic graft-versus-host disease, neurological effects
+of CAR-T). With the new rule the drug names are translated ("micofenolato de mofetilo") and AML
+became "leucemia mieloide aguda". Some English is left: CRS and cGVHD stay as they are (Spanish
+texts use SLC and EICH), and one new calque appeared ("agentes depleción‑T‑celular"). The
+tocilizumab question was refused under both rules, with the same evidence. A second pass with
+gpt-oss-20b as a copy editor was tried and dropped: two of four outputs came back empty and the
+rest were unchanged. The full measure comes with the next literature run, which has five Spanish
+tasks.

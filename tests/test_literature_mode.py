@@ -203,6 +203,13 @@ async def test_final_turn_uses_the_mode_prompt():
     assert final_system.startswith("You are a research assistant for the biomedical literature.")
 
 
+def test_only_the_papers_mode_asks_for_native_writing():
+    # Decisión 41: la regla de idioma larga solo en Papers; el prompt AMR no cambia.
+    assert "native" in LITERATURE_MODE.system_prompt
+    assert "native" in LITERATURE_MODE.final_system_prompt
+    assert "native" not in AMR_MODE.system_prompt
+
+
 def test_amr_mode_is_the_default_and_keeps_its_prompt():
     assert AMR_MODE.system_prompt is SYSTEM_PROMPT
     assert AMR_MODE.search_tool == "search_literature"
