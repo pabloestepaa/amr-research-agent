@@ -763,7 +763,10 @@ already the core of the demo, but only at the end.
 found?"), both tool calls and "Round 3 · reading the results" were on screen after 2 s, and the
 answer after about 6 s, rendered as before. Four tests cover the endpoint (the event order and
 answer schema, an LLM error as an event, the quota wait, the early HTTP errors) and one the LLM
-client's wait notice. Not checked yet behind Render's proxy.
+client's wait notice. Behind Render's proxy (2026-11-12, same question), each event arrived as
+it happened: the first round at 0.4 s, `get_amr_gene` at 1.0 s, `get_protein_hosts` at 3.6 s and
+the answer at 4.2 s, against 4.0 s measured by the server. The proxy does not pass
+`X-Accel-Buffering` on to the client, but it does not buffer the stream either.
 
 ## 45. An empty PubMed search retries itself with fewer words (2026-11-12)
 **Context.** The only failure left in the second literature eval (decision 38) was ft-04. PubMed
