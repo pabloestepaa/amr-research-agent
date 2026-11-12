@@ -452,6 +452,8 @@ def study_type(pub_types: list[str]) -> str | None:
     if types & {"clinical trial", "controlled clinical trial"}:
         return "Clinical trial"
     return next((label for keys, label in OTHER_STUDY_TYPES if types & keys), None)
+
+
 # PubMed lee "CAR T" como un autor ("car t"[Author]): "GD2 CAR T H3K27M glioma" daba 3 artículos
 # irrelevantes y con "CAR T" entre comillas, 15 con el ensayo bueno el 2.º. "CAR T-cell" no va al
 # autor, pero expande "car" a coches y proteínas. Todas las variantes pasan a la frase "CAR T".
@@ -460,6 +462,51 @@ CAR_T_RE = re.compile(r'(?<!")\bCAR[\s-]T(?:[\s-](cells?)\b|\b)(?!")', re.IGNORE
 
 def pubmed_term(query: str) -> str:
     return CAR_T_RE.sub(lambda m: '"CAR T"' + (f" {m[1]}" if m[1] else ""), query)
+
+
+# Reintento con menos palabras (decisión 45). PubMed exige que estén todas y el modelo mezcla el
+# estudio con el dato que busca ("... HLA-A*02 phase 1 solid cancers"): en las dos evals de
+# literatura, 18 de las 38 búsquedas grabadas dieron 0 artículos. El modelo pone delante el
+# ensayo, el fármaco y la enfermedad, y detrás el detalle; las palabras genéricas no distinguen un
+# estudio de otro.
+# Una palabra, o una frase entre comillas pegada o no a otra (GD2-"CAR T").
+QUERY_TOKEN_RE = re.compile(r'[^\s"]*"[^"]*"[^\s"]*|\S+')
+GENERIC_WORDS = frozenset("""
+    phase i ii iii iv trial trials clinical study studies cohort randomized randomised open-label
+    multicenter multicentre pivotal final interim analysis analyses update updated results report
+    follow-up long-term year years month months week weeks day days one two three four five ten
+    patients patient adults participants subjects cases
+    efficacy safety response responses rate rates duration median mean overall survival time
+    incidence proportion percentage number toxicity toxicities adverse event events grade dose
+    doses outcome outcomes
+    cells cell t t-cell t-cells
+    a an the of in on at to for from with by and or vs versus after before during what how many
+    which
+""".split())
+NUMBER_RE = re.compile(r"\d+(?:[.,]\d+)?%?|(?:\d+|one|two|three|four|five|ten)-(?:year|month|"
+                       r"week|day)s?")
+# Con las 18 búsquedas vacías grabadas: las 4 primeras y luego las 2 primeras encuentran el
+# artículo en 14 (las otras 4 llevan palabras que el artículo no tiene); quitando la última
+# palabra cada vez, 12 con casi el doble de peticiones.
+RETRY_WORDS = (4, 2)
+
+
+def _generic(word: str) -> bool:
+    w = word.lower().strip(",.;:()[]")
+    # "*" es el comodín de PubMed: "HLA-A*02" no encuentra el artículo que lo lleva en el título.
+    return w in GENERIC_WORDS or bool(NUMBER_RE.fullmatch(w)) or "*" in w
+
+
+def shorter_queries(query: str) -> list[str]:
+    """Versiones más cortas de una consulta sin resultados, en el orden en que se prueban."""
+    words = QUERY_TOKEN_RE.findall(pubmed_term(query))
+    kept = [w for w in words if not _generic(w)] or words
+    out: list[str] = []
+    for n in RETRY_WORDS:
+        shorter = " ".join(kept[:n])
+        if shorter != " ".join(words) and shorter not in out:
+            out.append(shorter)
+    return out
 
 
 class PaperSearchTools:
@@ -479,6 +526,21 @@ class PaperSearchTools:
 
     def specs(self) -> list[ToolSpec]:
         return [SEARCH_PAPERS]
+
+    async def _search(self, query: str, k: int, full_text_only: bool) -> list[dict[str, Any]]:
+        try:
+            pmids = await self._pubmed_ids(query, k, full_text_only)
+            records = await self._europepmc(
+                f"({' OR '.join(f'EXT_ID:{p}' for p in pmids)}) AND SRC:MED", k) if pmids else []
+            by_pmid = {r["pmid"]: r for r in records}
+            return [by_pmid[p] for p in pmids if p in by_pmid]  # en el orden de PubMed
+        except (httpx.HTTPError, RuntimeError, ValueError):
+            # Respaldo: solo título y abstract, porque Europe PMC también busca en el texto
+            # completo y entonces ganan las revisiones que lo nombran todo de pasada.
+            fallback = f"TITLE_ABS:({query}) AND SRC:MED"
+            if full_text_only:
+                fallback += " AND IN_PMC:y"
+            return await self._europepmc(fallback, k)
 
     async def _pubmed_ids(self, query: str, k: int, full_text_only: bool) -> list[str]:
         query = pubmed_term(query)
@@ -506,19 +568,13 @@ class PaperSearchTools:
             return _error("'query' must have at least 3 characters")
         k = max(1, min(int(arguments.get("top_k") or 5), 8))
         full_text_only = arguments.get("full_text_only") is True
-        try:
-            pmids = await self._pubmed_ids(query, k, full_text_only)
-            records = await self._europepmc(
-                f"({' OR '.join(f'EXT_ID:{p}' for p in pmids)}) AND SRC:MED", k) if pmids else []
-            by_pmid = {r["pmid"]: r for r in records}
-            records = [by_pmid[p] for p in pmids if p in by_pmid]  # en el orden de PubMed
-        except (httpx.HTTPError, RuntimeError, ValueError):
-            # Respaldo: solo título y abstract, porque Europe PMC también busca en el texto
-            # completo y entonces ganan las revisiones que lo nombran todo de pasada.
-            fallback = f"TITLE_ABS:({query}) AND SRC:MED"
-            if full_text_only:
-                fallback += " AND IN_PMC:y"
-            records = await self._europepmc(fallback, k)
+        records = await self._search(query, k, full_text_only)
+        tried: list[str] = []
+        if not records:
+            for shorter in shorter_queries(query):
+                tried.append(shorter)
+                if records := await self._search(shorter, k, full_text_only):
+                    break
 
         results = []
         for r in records:
@@ -538,15 +594,22 @@ class PaperSearchTools:
                 # En PMC aunque no sea de licencia abierta (p. ej. manuscritos de autor del NIH):
                 # efetch db=pmc devuelve su texto completo y read_paper lo puede leer.
                 "full_text": r.get("inPMC") == "Y",
+                # Con la consulta del modelo, también tras el reintento: el detalle que busca
+                # ("duration of response") elige las frases del abstract.
                 "abstract": abstract_excerpt(abstract, query, SEARCH_ABSTRACT_CHARS),
             })
         if not results:
-            # PubMed exige que estén todas las palabras: una consulta larga suele dar 0.
+            note = "no matching articles: PubMed needs every keyword to match."
+            if tried:  # que no repita las que ya se probaron
+                note += f" Shorter versions found nothing either ({' | '.join(tried)})."
             return ToolResult(content=_dumps({"results": [], "note": (
-                "no matching articles: PubMed needs every keyword to match. Try fewer keywords, "
-                "e.g. the trial or therapy name and the disease. This search did not count "
-                "towards your limit.")}))
-        content, truncated = shrink({"results": results})
+                f"{note} Try fewer or other keywords, e.g. the trial or therapy name and the "
+                "disease. This search did not count towards your limit.")}))
+        # La nota va delante: el modelo (y la demo, que enseña el principio del resultado) ve
+        # que la búsqueda que funcionó no es la suya.
+        found = ({"note": "no article matched every keyword; these are the results for a "
+                          f"shorter query: {tried[-1]}"} if tried else {})
+        content, truncated = shrink({**found, "results": results})
         return ToolResult(content=content, pmids=frozenset(r["pmid"] for r in results),
                           truncated=truncated, papers=find_papers(results),
                           excerpts=tuple(Excerpt(r["pmid"], "Abstract", r["abstract"])

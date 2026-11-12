@@ -551,7 +551,7 @@ task fell from ~9,000 to ~6,400, the median latency from 42 s to 33 s, and one t
 limit instead of four. The failure left, ft-04, is the empty-search problem: four long queries
 returned nothing, while "autologous T cell therapy MAGE-A4 solid cancers" puts the article
 ("Autologous T cell therapy for MAGE-A4(+) solid cancers in HLA-A*02(+) patients") first. The
-automatic retry with fewer words is still not done.
+automatic retry with fewer words came next (decision 45).
 
 ## 39. Traces with OpenTelemetry's GenAI conventions, sent to Langfuse (2026-11-11)
 **Context.** In production the only window into the agent was one startup log line and the
@@ -764,3 +764,44 @@ found?"), both tool calls and "Round 3 · reading the results" were on screen af
 answer after about 6 s, rendered as before. Four tests cover the endpoint (the event order and
 answer schema, an LLM error as an event, the quota wait, the early HTTP errors) and one the LLM
 client's wait notice. Not checked yet behind Render's proxy.
+
+## 45. An empty PubMed search retries itself with fewer words (2026-11-12)
+**Context.** The only failure left in the second literature eval (decision 38) was ft-04. PubMed
+requires every word of a query to match, and the agent's four queries for a MAGE-A4 trial
+returned nothing. The tool's note already said "try fewer keywords", and the model kept adding
+them. Across both literature runs, 18 of the 38 recorded `search_papers` calls returned no
+article. The model puts the study first (trial, drug, target, disease) and the detail it is
+after last ("... tumor lysis syndrome grade 3", "... manufacturing automated system"), which
+the Papers prompt already asks it not to put in the search (decision 34).
+**Options.** Five ways were replayed on the 18 empty searches against live PubMed, without the
+LLM, counting how often the article the task is about came back:
+- Drop the last word until something comes back: 10 of 18, three extra requests on average.
+- Drop the most common word first, counting each word in PubMed: 10 of 18, with 15 requests on
+  average. The words that break a query are rare ones, such as `HLA-A*02`, so they go last.
+- Join the words with OR and let Best Match rank them: 6 of 18.
+- Remove the generic words, then drop the last word: 12 of 18, two extra requests.
+- Remove the generic words, then keep the first four words, then the first two: 14 of 18, about
+  one extra request.
+**Decision.**
+- When a search comes back empty, `search_papers` retries by itself with the last option
+  (`shorter_queries`). Generic words are those that describe the question and do not tell one
+  study from another: trial design ("phase", "trial", "randomized"), time ("2-year",
+  "follow-up"), outcomes ("median", "overall survival", "grade"), patients, and "T cells", which
+  nearly every cell-therapy article mentions. Words with `*` are generic too, because PubMed
+  reads the asterisk as a wildcard: `HLA-A*02` never matches the article whose title has it. A
+  quoted phrase such as `"CAR T"` counts as one word.
+- At most two extra searches, so an empty search costs at most three PubMed requests. A retry
+  costs no LLM step and no tokens, and a short query with nothing to drop is not retried.
+- The result starts with a note that names the query that worked, because it is not the one the
+  model wrote. If the shorter queries fail too, the note lists them so the model does not try
+  them again. The abstract excerpt is still chosen with the model's full query, whose last words
+  are the detail it wants.
+- The word list is fixed and was written while looking at these 18 queries. Its categories are
+  general, but the next eval is a fairer test than these numbers.
+**Result.** With the tool's own code against live PubMed and Europe PMC, every one of the 18
+searches now returns articles, and the right article is among them in 14. The other four
+contain words the article does not have: "ADP-A2M4" (the product's development code; the
+article calls it afami-cel), "TCR-transduced" and "TCR". For ft-04, the agent's first query becomes "MAGE-A4 autologous
+solid cancers", with the article first. Known limit: numbers are dropped as generic, so "type 2
+diabetes" loses its "2" (only in a retry). Not yet measured with the agent: that is the next
+literature eval.

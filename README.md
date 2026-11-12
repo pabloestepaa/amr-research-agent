@@ -131,6 +131,7 @@ flowchart TB
   when a limit is hit the model is asked for a final answer with the evidence it has.
 - Papers mode ([`tools.py`](src/amr_agent/tools.py), [`fulltext.py`](src/amr_agent/fulltext.py)):
   PubMed's Best Match ranks the articles and Europe PMC supplies their abstracts in one request.
+  A search with no results is retried with fewer words before the model sees it.
   `read_paper` fetches the JATS XML with `efetch db=pmc`, keeps paragraphs, figure captions and
   tables with their section, and ranks them with BM25. [`quotes.py`](src/amr_agent/quotes.py)
   looks for each quoted sentence in those passages and abstracts. Each mode has its own prompt,
@@ -184,7 +185,10 @@ query and missed the relevant abstract.
 answer cited a PMID that no tool had returned and no tool call failed; a question costs ~6,400
 tokens and ~33 s (~9,000 and ~42 s in the first run). The failure left is a search: PubMed requires
 every keyword to match, and the agent's four long queries for a MAGE-A4 trial returned nothing,
-while "autologous T cell therapy MAGE-A4 solid cancers" finds the article first.
+while "autologous T cell therapy MAGE-A4 solid cancers" finds the article first. An empty search
+now retries itself without the generic words, keeping the first four. Replayed on the 18 empty
+searches of both runs, the right article came back in 14; the other four have words the article
+does not contain (decision 45). The agent has not been re-run with it yet.
 
 Before the agent, `read_paper` was measured on its own. It finds the passage with the answer
 in the top 8 for 0.92 of the LitQA2 questions (FutureHouse, 131 with open full text) and in the
@@ -250,7 +254,7 @@ endpoint, tracing is off and the SDK is not imported. See decision 39.
 
 ## Design decisions
 
-All 44 decisions, with context and trade-offs, are in [`docs/decisions.md`](docs/decisions.md).
+All 45 decisions, with context and trade-offs, are in [`docs/decisions.md`](docs/decisions.md).
 The ones that shaped the project most:
 
 | Decision | Why | Trade-off |

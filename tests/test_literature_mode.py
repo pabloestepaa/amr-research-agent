@@ -21,6 +21,7 @@ from amr_agent.tools import (
     ReadPaperTools,
     Toolset,
     pubmed_term,
+    shorter_queries,
     study_type,
 )
 from tests.fakes import ScriptedLLM, text_turn, tool_turn
@@ -115,6 +116,53 @@ async def test_search_papers_sends_the_car_t_phrase_to_pubmed():
     await PaperSearchTools(http).call(
         "search_papers", {"query": "B7-H3 CAR T DIPG", "full_text_only": True})
     assert calls[0].url.params["term"] == '(B7-H3 "CAR T" DIPG) AND "pubmed pmc"[sb]'
+
+
+# --- Reintento con menos palabras (decisión 45) ---------------------------------------------
+
+def test_shorter_queries_drop_generic_words_and_keep_the_study_first():
+    # Consultas reales de la eval de literatura que dieron 0 artículos.
+    assert shorter_queries("MAGE-A4 autologous T cells HLA-A*02 phase 1 solid cancers") == [
+        "MAGE-A4 autologous solid cancers", "MAGE-A4 autologous"]  # "*" es el comodín
+    assert shorter_queries("EPCORE NHL-1 epcoritamab large B-cell lymphoma 2-year follow-up "
+                           "tumor lysis syndrome grade 3") == [
+        "EPCORE NHL-1 epcoritamab large", "EPCORE NHL-1"]
+    assert shorter_queries("GD2 CAR T cells H3K27M diffuse midline glioma manufacturing") == [
+        'GD2 "CAR T" H3K27M diffuse', 'GD2 "CAR T"']  # la frase cuenta como una palabra
+    assert shorter_queries("ADP-A2M4 phase 1") == ["ADP-A2M4"]
+    assert shorter_queries("ZUMA-1 CRS") == []  # nada que quitar: no se repite la búsqueda
+
+
+async def test_search_papers_retries_an_empty_query_with_fewer_words():
+    terms: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if str(request.url).startswith(ESEARCH):
+            terms.append(request.url.params["term"])
+            ids = [] if "phase" in terms[-1] else ["11111111"]
+            return httpx.Response(200, json={"esearchresult": {"count": str(len(ids)),
+                                                                "idlist": ids}})
+        return httpx.Response(200, json={"resultList": {"result": [epmc_record("11111111")]}})
+
+    http = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    result = await PaperSearchTools(http).call(
+        "search_papers", {"query": "MAGE-A4 autologous T cells phase 1 solid cancers"})
+    assert terms == ["MAGE-A4 autologous T cells phase 1 solid cancers",
+                     "MAGE-A4 autologous solid cancers"]
+    assert result.pmids == {"11111111"}
+    # La nota va delante: el modelo sabe que la búsqueda que funcionó no es la suya.
+    assert result.content.startswith('{"note":"no article matched every keyword; these are the '
+                                     'results for a shorter query: MAGE-A4 autologous solid')
+
+
+async def test_when_the_shorter_queries_fail_too_the_model_is_told_which_were_tried():
+    http, calls = network([])
+    result = await PaperSearchTools(http).call(
+        "search_papers", {"query": "MAGE-A4 autologous T cells phase 1 solid cancers"})
+    assert len(calls) == 3  # la suya y dos más cortas; sin PMIDs no se pregunta a Europe PMC
+    note = json.loads(result.content)["note"]
+    assert note.startswith("no matching articles")
+    assert "(MAGE-A4 autologous solid cancers | MAGE-A4 autologous)" in note
 
 
 # --- El agente en modo literatura -----------------------------------------------------------
