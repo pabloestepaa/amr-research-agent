@@ -355,7 +355,7 @@
         <li><button type="button">¿En qué especies se ha secuenciado más blaNDM-1?</button></li>
       </ul>
       <ul class="examples" id="examples-papers" aria-labelledby="ex-h" hidden>
-        <li><button type="button">In the ZUMA-1 trial of axicabtagene ciloleucel, what percentage of patients received tocilizumab?</button></li>
+        <li><button type="button">Which drugs do patients take after islet transplantation to prevent rejection?</button></li>
       </ul>
     </section>
 
@@ -398,6 +398,10 @@
 <!-- Ejecución real del agente, grabada en local el 2026-11-06 con `POST /agent`: así la página
      enseña el mecanismo sin gastar cuota. -->
 <script type="application/json" id="recorded">{"question":"What drug class does mcr-1 confer resistance to, and what does recent literature report about colistin resistance in poultry?","recorded_on":"6 Nov 2026","response":{"answer":"The mcr‑1 gene encodes a phosphoethanolamine‑lipid A transferase that confers resistance to colistin, a member of the polymyxin (colistin) drug class [PMID:26603172].\n\nRecent studies show that colistin resistance is widespread in poultry. A 2025 survey of commercial chickens reported phenotypic colistin resistance in 78.6 % of isolates and detected mcr‑1 in 42 % of the samples, highlighting the high burden of colistin‑resistant E. coli in poultry production [PMID:40956559].","citations":[{"pmid":"26603172","url":"https://pubmed.ncbi.nlm.nih.gov/26603172/","title":"Emergence of plasmid-mediated colistin resistance mechanism MCR-1 in animals and human beings in China: a microbiological and molecular biological study.","journal":"The Lancet. Infectious diseases","year":2016},{"pmid":"40956559","url":"https://pubmed.ncbi.nlm.nih.gov/40956559/","title":"Molecular detection and prevalence of colistin-resistant Escherichia coli in poultry and humans: a one health perspective.","journal":"Brazilian journal of microbiology : [publication of the Brazilian Society for Microbiology]","year":2025}],"invalid_citations":[],"steps":[{"step":1,"tool":"search_amr_genes","arguments":{"drug_class":"polymyxin","query":"mcr-1"},"is_error":false,"truncated":false,"result_chars":45,"pmids":[],"latency_ms":16.0,"preview":"{\"total_matches\":0,\"returned\":0,\"results\":[]}"},{"step":2,"tool":"search_amr_genes","arguments":{"query":"mcr-1"},"is_error":false,"truncated":false,"result_chars":5535,"pmids":["26603172","27401575","29091227","30053115","32908612","33822965","34091039"],"latency_ms":11.9,"preview":"{\"total_matches\":46,\"returned\":25,\"results\":[{\"allele\":\"mcr-1.1\",\"gene_family\":\"mcr-1\",\"product_name\":\"phosphoethanolamine--lipid A transferase MCR-1.1\",\"type\":\"AMR\",\"class\":\"COLISTIN\",\"subclass\":\"COLISTIN\",\"refseq_protein_accession\":\"WP_049589868.1\",\"pubmed_reference\":\"26603172\"},{\"allele\":\"mcr-1.1"},{"step":3,"tool":"get_pubmed_references","arguments":{"pmids":["26603172"]},"is_error":false,"truncated":false,"result_chars":422,"pmids":["26603172"],"latency_ms":227.7,"preview":"{\"articles\":[{\"pmid\":\"26603172\",\"title\":\"Emergence of plasmid-mediated colistin resistance mechanism MCR-1 in animals and human beings in China: a microbiological and molecular biological study.\",\"journal\":\"The Lancet. Infectious diseases\",\"pubdate\":\"2016 Feb\",\"authors\":[\"Liu YY\",\"Wang Y\",\"Walsh TR\""},{"step":4,"tool":"search_literature","arguments":{"k":5,"query":"colistin resistance poultry 2023"},"is_error":false,"truncated":true,"result_chars":5334,"pmids":["40298502","40956559","41644657","42119341","42840664"],"latency_ms":23.2,"preview":"{\"results\":[{\"pmid\":\"40956559\",\"title\":\"Molecular detection and prevalence of colistin-resistant Escherichia coli in poultry and humans: a one health perspective.\",\"journal\":\"Brazilian journal of microbiology : [publication of the Brazilian Society for Microbiology]\",\"year\":2025,\"abstract\":\"Multidru"}],"stop_reason":"max_steps","usage":{"model":"openai/gpt-oss-120b","llm_calls":5,"prompt_tokens":11579,"completion_tokens":711},"latency_ms":{"llm":4588.2,"tools":279.6,"total":4868.5}}}</script>
+
+<!-- Ejecución real del modo Papers, grabada en local el 2026-11-12 con `POST /agent` y
+     "mode": "literature": se ve al pasar a la pestaña Papers, sin esperar 1–2 minutos. -->
+<script type="application/json" id="recorded-papers">{"question":"In the ZUMA-1 trial of axicabtagene ciloleucel, what percentage of patients received tocilizumab?","recorded_on":"12 Nov 2026","response":{"answer":"In the registrational ZUMA‑1 phase 2 trial, tocilizumab was administered to 43 % of the patients who received axicabtagene ciloleucel [PMID:29226797].","citations":[{"pmid":"29226797","url":"https://pubmed.ncbi.nlm.nih.gov/29226797/","title":"Axicabtagene Ciloleucel CAR T-Cell Therapy in Refractory Large B-Cell Lymphoma","journal":"The New England journal of medicine","year":2017,"study_type":"Phase 2 trial","cited_by":4961,"quotes":[{"text":"Forty‑three percent of patients received tocilizumab and 27% received glucocorticoids for the management of the cytokine release syndrome, neurologic events, or both…","verified":true,"section":"Results > Safety > Primary Analysis"}]}],"invalid_citations":[],"steps":[{"step":1,"tool":"search_papers","arguments":{"full_text_only":false,"query":"ZUMA-1 axicabtagene ciloleucel tocilizumab percentage patients","top_k":5},"is_error":false,"truncated":false,"result_chars":4704,"pmids":["34296427","38177222","39187161","39240498","42119568"],"latency_ms":1377.0,"preview":"{\"note\":\"no article matched every keyword; these are the results for a shorter query: ZUMA-1 axicabtagene ciloleucel tocilizumab\",\"results\":[{\"pmid\":\"39187161\",\"title\":\"Tocilizumab Prophylaxis Following Axicabtagene Ciloleucel in Relapsed or Refractory Large B-Cell Lymphoma.\",\"journal\":\"Transplantat"},{"step":2,"tool":"search_papers","arguments":{"full_text_only":false,"query":"ZUMA-1 axicabtagene ciloleucel trial results","top_k":5},"is_error":false,"truncated":false,"result_chars":4028,"pmids":["29226797","32401634","34296427","38635762","41231109"],"latency_ms":641.8,"preview":"{\"results\":[{\"pmid\":\"29226797\",\"title\":\"Axicabtagene Ciloleucel CAR T-Cell Therapy in Refractory Large B-Cell Lymphoma.\",\"journal\":\"The New England journal of medicine\",\"year\":2017,\"study_type\":\"Phase 2 trial\",\"cited_by\":4961,\"full_text\":true,\"abstract\":\"Background In a phase 1 trial, axicabtagene c"},{"step":3,"tool":"read_paper","arguments":{"k":10,"paper_id":"29226797","question":"percentage of patients received tocilizumab"},"is_error":false,"truncated":false,"result_chars":8054,"pmids":["29226797"],"latency_ms":647.9,"preview":"{\"pmid\":\"29226797\",\"pmcid\":\"PMC5882485\",\"title\":\"Axicabtagene Ciloleucel CAR T-Cell Therapy in Refractory Large B-Cell Lymphoma\",\"journal\":\"The New England journal of medicine\",\"year\":2017,\"passages\":[{\"section\":\"Results > Safety > Primary Analysis\",\"text\":\"Neurologic events occurred in 65 patients "}],"stop_reason":"answer","usage":{"model":"openai/gpt-oss-120b","llm_calls":4,"prompt_tokens":13751,"completion_tokens":623},"latency_ms":{"llm":47343.7,"tools":2671.1,"total":50017.3}}}</script>
 
 <script>
 "use strict";
@@ -481,8 +485,8 @@ function renderWitness(kind, nValid, unverified) {
   const total = nValid + unverified.length;
   if (total === 0) return "";
   if (!unverified.length)
-    return `<p class="witness ok">${CHECK}<span><b>${nValid} of ${total} citations verified.</b> Each PMID was returned by ${by} in this run, not taken from the model's memory.</span></p>`;
-  return `<p class="witness bad">${CROSS}<span><b>${nValid} of ${total} citations verified.</b> ${unverified.map((p) => "PMID " + escapeHtml(p)).join(", ")} ${unverified.length === 1 ? "was" : "were"} not returned by ${by}, so the claim${unverified.length === 1 ? "" : "s"} citing ${unverified.length === 1 ? "it" : "them"} can't be trusted.</span></p>`;
+    return `<p class="witness ok">${CHECK}<span><b>${nValid} of ${plural(total, "citation", "citations")} verified.</b> Each PMID was returned by ${by} in this run, not taken from the model's memory.</span></p>`;
+  return `<p class="witness bad">${CROSS}<span><b>${nValid} of ${plural(total, "citation", "citations")} verified.</b> ${unverified.map((p) => "PMID " + escapeHtml(p)).join(", ")} ${unverified.length === 1 ? "was" : "were"} not returned by ${by}, so the claim${unverified.length === 1 ? "" : "s"} citing ${unverified.length === 1 ? "it" : "them"} can't be trusted.</span></p>`;
 }
 
 function reference(meta, pmid) {
@@ -561,7 +565,11 @@ function renderLanes(steps, kind, tail = "") {
       : s.tool === "search_papers" ? plural(s.pmids.length, "article", "articles")
       : s.tool === "read_paper" ? `full-text passages, ${fmt(s.result_chars)} chars`
       : `${fmt(s.result_chars)} chars`;
+    // search_papers repite sola una búsqueda vacía con menos palabras (decisión 45) y lo dice
+    // al principio del resultado.
+    const retried = s.tool === "search_papers" && s.preview.startsWith('{"note":"no article matched every keyword');
     const flags = [s.is_error ? '<span class="flag err">error</span>' : "", isEmpty(s) ? '<span class="flag warn">no matches</span>' : "",
+      retried ? '<span class="flag warn">retried with fewer words</span>' : "",
       s.truncated ? '<span class="flag warn">trimmed to fit</span>' : ""].join(" ");
     const width = Math.max(3, Math.round((s.latency_ms / max) * 100));
     const call = `<div class="call ${mcp ? "mcp" : "app"}${s.is_error ? " error" : ""}" style="--i:${i}">
@@ -657,10 +665,13 @@ function renderEntry(e) {
     if (rest.length)
       parts.push(`<details class="more-src"><summary>${rest.length === sources.length ? "Retrieved" : "Also retrieved"}, not cited (${rest.length})</summary><ol class="refs">${rest.map((s) => `<li>${reference(s, s.pmid)}</li>`).join("")}</ol></details>`);
   }
-  if (!recorded && RECORDED)
-    parts.push(`<p class="next"><button type="button" class="link-btn" data-act="ask-again">Ask another question</button> or <button type="button" class="link-btn" data-act="recorded">see the recorded agent run</button>.</p>`);
-  if (recorded)
-    parts.push(`<p class="next">This run was recorded. <button type="button" class="link-btn" data-act="agent">Ask the agent your own question</button> (one per minute), or <button type="button" class="link-btn" data-act="literature">search the literature</button>.</p>`);
+  const rec = recordingFor(kind);
+  if (!recorded && rec)
+    parts.push(`<p class="next"><button type="button" class="link-btn" data-act="ask-again">Ask another question</button> or <button type="button" class="link-btn" data-act="recorded">see the recorded ${rec.kind === "papers" ? "Papers" : "agent"} run</button>.</p>`);
+  if (recorded && kind === "papers")
+    parts.push(`<p class="next">This run was recorded. <button type="button" class="link-btn" data-act="own" data-kind="papers">Ask your own question</button> (one per minute, five a day for everyone), or <button type="button" class="link-btn" data-act="own" data-kind="agent">try the AMR agent</button>.</p>`);
+  else if (recorded)
+    parts.push(`<p class="next">This run was recorded. <button type="button" class="link-btn" data-act="own" data-kind="agent">Ask the agent your own question</button> (one per minute), or <button type="button" class="link-btn" data-act="literature">search the literature</button>.</p>`);
   const bodyEl = $("entry-body");
   bodyEl.innerHTML = parts.join("");
   entry.classList.remove("drawn");
@@ -739,6 +750,12 @@ function syncMode() {
   question.placeholder = PLACEHOLDER[kind];
   syncLang();
   syncButton();
+  // Mientras se vea una grabación (nadie ha preguntado aún), cada pestaña de agente enseña la suya.
+  const rec = RECORDINGS[kind];
+  if (!busy && current?.recorded && rec && current !== rec) {
+    current = rec;
+    renderEntry(current);
+  }
 }
 
 const SPANISH = /[¿¡ñáéíóú]|\b(qué|cuál|cómo|dónde|genes? de|resistencia|especies?|bacterias)\b/i;
@@ -905,7 +922,7 @@ function problem(resp, body, kind) {
   const detail = typeof body.detail === "string" ? body.detail : "";
   const wait = Number(resp.headers.get("Retry-After")) || 60;
   if (resp.status === 429 && /daily/i.test(detail))
-    return { html: `The demo's daily question budget is used up (the free LLM quota is shared). It resets within a day. Meanwhile, <button type="button" class="link-btn" data-act="recorded">see the recorded agent run</button>.`, cls: "limit" };
+    return { html: `The demo's daily question budget is used up (the free LLM quota is shared). It resets within a day. Meanwhile, <button type="button" class="link-btn" data-act="recorded">see a recorded run</button>.`, cls: "limit" };
   if (resp.status === 429) {
     cooldown[kind] = Date.now() + wait * 1000;
     return { html: isAgentKind(kind)
@@ -913,7 +930,7 @@ function problem(resp, body, kind) {
       : "That's five questions in a minute.", cls: "limit", until: cooldown[kind] };
   }
   if (resp.status === 503 && /daily/i.test(detail))
-    return { html: `The free LLM token budget for today is nearly used up (it's shared by every visitor and frees up gradually over the day). Try again later. Meanwhile, <button type="button" class="link-btn" data-act="recorded">see the recorded agent run</button>.`, cls: "limit" };
+    return { html: `The free LLM token budget for today is nearly used up (it's shared by every visitor and frees up gradually over the day). Try again later. Meanwhile, <button type="button" class="link-btn" data-act="recorded">see a recorded run</button>.`, cls: "limit" };
   if (resp.status === 503 && /rate limit/i.test(detail)) {
     cooldown[kind] = Date.now() + 60_000;
     return { html: `The free LLM quota for this minute is used up (it's shared by every visitor). Try again in a minute${isAgentKind(kind) ? ', or <button type="button" class="link-btn" data-act="literature">switch to Literature mode</button>, which needs far fewer tokens' : ""}.`, cls: "limit", until: cooldown[kind] };
@@ -926,9 +943,10 @@ function problem(resp, body, kind) {
 }
 
 function onAct(e) {
-  const act = e.target.closest("[data-act]")?.dataset.act;
-  if (act === "agent") {
-    form.querySelector('input[value="agent"]').checked = true;
+  const el = e.target.closest("[data-act]");
+  const act = el?.dataset.act;
+  if (act === "own") {
+    form.querySelector(`input[value="${el.dataset.kind}"]`).checked = true;
     syncMode();
     question.focus();
     question.scrollIntoView({ behavior: reduceMotion ? "auto" : "smooth", block: "center" });
@@ -947,8 +965,8 @@ function onAct(e) {
   } else if (act === "ask-again") {
     question.focus({ preventScroll: true });
     question.scrollIntoView({ behavior: reduceMotion ? "auto" : "smooth", block: "center" });
-  } else if (act === "recorded" && RECORDED) {
-    current = RECORDED;
+  } else if (act === "recorded" && recordingFor(kindNow())) {
+    current = recordingFor(kindNow());
     renderEntry(current);
     bringIntoView();
   }
@@ -1034,12 +1052,17 @@ addEventListener("resize", hidePreview);
 // Una entrada nueva (respuesta, espera o error) se lleva la cita a la que apuntaba.
 new MutationObserver(hidePreview).observe($("entry-body"), { childList: true });
 
-let RECORDED = null;
-try {
-  const rec = JSON.parse($("recorded").textContent);
-  RECORDED = { kind: "agent", q: rec.question, body: rec.response, recorded: rec.recorded_on };
-} catch { /* sin grabación: la entrada queda vacía hasta la primera pregunta */ }
-if (RECORDED) { current = RECORDED; renderEntry(current); }
+// Una ejecución grabada por agente: la página arranca con la del agente AMR y la pestaña Papers
+// enseña la suya. Literature no tiene: sus respuestas tardan segundos.
+const RECORDINGS = {};
+for (const [kind, id] of [["agent", "recorded"], ["papers", "recorded-papers"]]) {
+  try {
+    const rec = JSON.parse($(id).textContent);
+    RECORDINGS[kind] = { kind, q: rec.question, body: rec.response, recorded: rec.recorded_on };
+  } catch { /* sin esa grabación */ }
+}
+function recordingFor(kind) { return RECORDINGS[kind] || RECORDINGS.agent || null; }
+if (RECORDINGS.agent) { current = RECORDINGS.agent; renderEntry(current); }
 else $("entry-q").textContent = "Ask a question to see a cited answer here.";
 syncMode();  // por si el navegador recuerda el modo al recargar
 </script>

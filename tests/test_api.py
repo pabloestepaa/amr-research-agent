@@ -94,13 +94,17 @@ def test_demo_page_is_served(client):
     assert resp.headers["cache-control"] == "no-cache"  # sin página vieja tras un deploy
 
 
-def test_demo_page_embeds_a_valid_recorded_agent_run(client):
+@pytest.mark.parametrize("script_id", ["recorded", "recorded-papers"])
+def test_demo_page_embeds_valid_recorded_runs(client, script_id):
     html = client.get("/").text
-    start = '<script type="application/json" id="recorded">'
+    start = f'<script type="application/json" id="{script_id}">'
     blob = html.split(start, 1)[1].split("</script>", 1)[0]
     recorded = json.loads(blob)
     assert recorded["question"] and recorded["recorded_on"]
-    AgentAnswer.model_validate(recorded["response"])  # mismo esquema que devuelve /agent
+    answer = AgentAnswer.model_validate(recorded["response"])  # mismo esquema que /agent
+    assert answer.citations and not answer.invalid_citations
+    if script_id == "recorded-papers":  # la grabación tiene que enseñar frases comprobadas
+        assert all(q.verified for c in answer.citations for q in c.quotes)
 
 
 def test_ask_is_rate_limited_per_ip(client):

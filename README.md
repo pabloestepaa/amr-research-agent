@@ -83,7 +83,14 @@ An example from the agent evals (task `multi-01`), which needs two different sou
 > in broiler chickens [PMID:40777829]. *(trimmed)*
 
 The demo page at `/` opens on a recorded agent run, so you can see an answer and its tool calls
-without waiting or spending quota. From there you can ask your own question in any of the three modes.
+without waiting or spending quota. The Papers tab has its own recorded run. From there you can ask
+your own question in any of the three modes.
+
+<details>
+<summary>Screenshot of the Papers mode</summary>
+<p align="center"><img src="docs/img/demo-papers.png" width="720"
+  alt="Papers mode of the demo: a recorded answer on ZUMA-1 (43% of patients received tocilizumab) with the preview of citation 1 open, showing the NEJM phase 2 trial and the sentence from its Results section, found word for word; below, three tool calls, the first one flagged as retried with fewer words"></p>
+</details>
 
 <details>
 <summary>Screenshot of the literature (RAG) mode</summary>
