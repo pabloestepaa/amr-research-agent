@@ -829,7 +829,7 @@ searches now returns articles, and the right article is among them in 14. The ot
 contain words the article does not have: "ADP-A2M4" (the product's development code; the
 article calls it afami-cel), "TCR-transduced" and "TCR". For ft-04, the agent's first query becomes "MAGE-A4 autologous
 solid cancers", with the article first. Known limit: numbers are dropped as generic, so "type 2
-diabetes" loses its "2" (only in a retry). Not yet measured with the agent: that is the next
+diabetes" loses its "2" (only in a retry; fixed with decision 47). Not yet measured with the agent: that is the next
 literature eval.
 **Measured (2026-11-13, decision 46).** 7 of the 18 searches in the run matched nothing as
 written, and the retry found articles for all seven. ft-04's first query became "MAGE-A4
@@ -912,6 +912,8 @@ descriptions.
   there is no memory and nothing changes.
 - An article can be read twice per question (`AgentMode.max_reads`); the third read gets an
   error that names the earlier steps. Identical calls are still refused (decision 30).
+- The retry with fewer words (decision 45) keeps a number after "type" or "class" with that
+  word, so "type 2 diabetes" and "class II HLA" no longer lose their number.
 - The Papers prompt says the same things in fewer words: one sentence per rule where there were
   two, the examples measured in decision 41 kept. The `read_paper` description no longer says
   when to use it, which the prompt already does, and `search_papers` loses its query example,
@@ -921,6 +923,46 @@ descriptions.
 **Result.** Without the LLM, against NCBI: for ft-04, the second read with the agent's own
 question from the eval now returns the "median DoR was 25.6 weeks" paragraph, with no passage
 repeated. For gen-03 the second read returns other figures from the review, but not the one asked
-for, which that review does not give: there the search is what failed. Three new tests, and the read-once test rewritten. Not yet
+for, which that review does not give: there the search is what failed. Four new tests, and the read-once test rewritten. Not yet
 measured with the agent: the next literature run will measure this, decision 46 and the
 16,000-token budget together.
+
+## 48. Refusals in the question's language, and saying why (2026-11-13)
+**Context.** Both agents refuse with a fixed English sentence ("I could not find evidence for this
+in the indexed literature." in the AMR mode, "...in the articles I found." in the Papers mode).
+The sentence did three jobs at once: it was what the user read, the signal the evals look for,
+and the signal the demo uses to show "No citations". It had three problems. It stayed in English
+for Spanish questions, because the prompt's "reply exactly" wins over "answer in the language of
+the question". It said "I could not find evidence" for questions it had not searched at all, such
+as "¿Cuál es la capital de Australia?". And it did not say what it had looked at: in gen-03 the
+agent read a review on chronic graft-versus-host disease twice, and the user only saw the
+sentence. The trajectories separate the two cases cleanly: in the last runs, the 5 out-of-scope
+refusals made no tool call and the 4 refusals for lack of evidence made 3 or 4.
+**Options.**
+- Ask the model to translate the sentence. It would paraphrase it, the evals and the demo would
+  stop recognising it, and the prompt would change.
+- A marker plus the model's own explanation in the user's language. It works in any language and
+  explains better, but it changes the prompt (only possible in the Papers mode, since the AMR
+  prompt must not change), costs tokens, needs a new eval run, and a forgotten marker turns a
+  refusal into an answer.
+- Keep the sentence as the model's signal and let the code write the message.
+**Decision.** The last option. The model's prompt and output are unchanged. When the answer
+contains the sentence and cites nothing, `abstention.py` replaces it:
+- With no tool call, out of scope: "I only answer questions about biomedical and life-science
+  research, so I did not search for this." Each mode names its own scope.
+- With tool calls, not found: the mode's sentence, then the queries it searched and the articles
+  it read in full, taken from the trajectory, without failed calls.
+- In Spanish when the question is, detected with the same expression the demo already used for
+  the `lang` attribute (now shared and with a few more words); English otherwise. In English the
+  not-found message still starts with the old sentence.
+`AgentAnswer` gains `abstained` and `abstention` (`out_of_scope` or `not_found`), with defaults so
+the recorded runs in the demo stay valid. The agent eval reads the field, or the sentence in
+answers built by hand or saved before, so its numbers stay comparable. The demo shows a different
+"No citations" note for each case. An answer that cites sources and also contains the sentence
+is a partial answer and is left as it is. `/ask` keeps the fixed sentence: it has no tools to
+tell the cases apart.
+**Result.** Against Groq, "¿Cuál es la capital de Australia?" in the Papers mode now gets "Solo
+respondo preguntas sobre investigación biomédica y de ciencias de la vida, así que no he buscado
+nada sobre esto." at no extra cost. Eleven new tests. Only two languages are covered, the ones of
+the users this demo has.
+

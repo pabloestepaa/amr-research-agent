@@ -19,6 +19,7 @@ from typing import Any, Literal
 from pydantic import BaseModel
 
 from amr_agent import telemetry
+from amr_agent.abstention import AbstentionKind, abstention_message, is_abstention
 from amr_agent.llm import ChatLLM, ChatTurn, ToolCall
 from amr_agent.quotes import RawQuote, locate, split_quotes
 from amr_agent.rag import NO_EVIDENCE, NO_EVIDENCE_PAPERS, extract_citations, normalize_citations
@@ -183,6 +184,9 @@ class AgentMode:
     read_tool: str | None = None
     max_reads: int = 2
     no_evidence: str = NO_EVIDENCE
+    # Ámbito, en inglés y en español, para el mensaje de "fuera de ámbito" (decisión 48).
+    topic: tuple[str, str] = ("antimicrobial resistance research",
+                              "investigación sobre resistencia a los antimicrobianos")
     quotes: bool = False  # la respuesta trae un bloque "Quotes:" que se comprueba (decisión 42)
 
 
@@ -192,6 +196,8 @@ AMR_MODE = AgentMode("amr", SYSTEM_PROMPT, FINAL_SYSTEM_PROMPT, SEARCH_LITERATUR
 LITERATURE_MODE = AgentMode("literature", LITERATURE_SYSTEM_PROMPT,
                             LITERATURE_FINAL_SYSTEM_PROMPT, SEARCH_PAPERS.name, max_steps=6,
                             read_tool=READ_PAPER.name, no_evidence=NO_EVIDENCE_PAPERS,
+                            topic=("biomedical and life-science research",
+                                   "investigación biomédica y de ciencias de la vida"),
                             quotes=True)
 
 FINAL_NUDGE = "Answer the question now, using only these results and following the rules."
@@ -321,6 +327,10 @@ class AgentAnswer(BaseModel):
     stop_reason: StopReason
     usage: AgentUsage
     latency_ms: dict[str, float]
+    # Si no respondió y por qué (decisión 48). Con valor por defecto: las grabaciones de la demo
+    # son anteriores y deben seguir siendo válidas.
+    abstained: bool = False
+    abstention: AbstentionKind | None = None
 
 
 class Agent:
@@ -467,6 +477,13 @@ class Agent:
         # Un artículo del que da una frase también está citado, aunque falte en el texto: a veces
         # gpt-oss pasaba todas las citas al bloque y dejaba notas [^1] (que split_quotes quita).
         cited = list(dict.fromkeys([*extract_citations(answer), *(q.pmid for q in raw_quotes)]))
+        abstained = is_abstention(answer)
+        kind: AbstentionKind | None = None
+        if abstained:
+            # Sin herramientas = ni lo intentó: estaba fuera de ámbito (o eso decidió el modelo).
+            kind = "not_found" if steps else "out_of_scope"
+            if not cited:  # con citas sería una respuesta parcial que la menciona: no se toca
+                answer = self._abstention(kind, question, steps)
         quotes = _check_quotes(raw_quotes, excerpts)
         return AgentAnswer(
             answer=answer,
@@ -483,7 +500,20 @@ class Agent:
             ),
             latency_ms={"llm": round(llm_ms, 1), "tools": round(tools_ms, 1),
                         "total": round((time.perf_counter() - t0) * 1000, 1)},
+            abstained=abstained,
+            abstention=kind,
         )
+
+    def _abstention(self, kind: AbstentionKind, question: str, steps: list[ToolStep]) -> str:
+        """El mensaje de abstención, con lo que buscó y leyó de verdad (sin llamadas fallidas)."""
+        ok = [s for s in steps if not s.is_error]
+        searched = list(dict.fromkeys(
+            str(q) for s in ok if s.tool == self.mode.search_tool
+            and (q := (s.arguments or {}).get("query"))))
+        read = list(dict.fromkeys(s.pmids[0] for s in ok
+                                  if s.tool == self.mode.read_tool and s.pmids))
+        return abstention_message(kind, question=question, topic=self.mode.topic,
+                                  no_evidence=self.mode.no_evidence, searched=searched, read=read)
 
     def _final_messages(self, question: str,
                         evidence: list[tuple[ToolCall, ToolResult]]) -> list[dict[str, Any]]:

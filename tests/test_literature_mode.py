@@ -9,7 +9,6 @@ from pathlib import Path
 import httpx
 
 from amr_agent.agent import AMR_MODE, LITERATURE_MODE, SYSTEM_PROMPT, Agent
-from amr_agent.evals.answers_eval import is_abstention
 from amr_agent.rag import NO_EVIDENCE_PAPERS
 from amr_agent.tools import (
     EFETCH,
@@ -278,8 +277,7 @@ async def test_a_read_that_failed_can_be_asked_again():
 async def test_the_literature_mode_abstains_with_its_own_message():
     # No tiene índice: "indexed literature" era el mensaje del modo AMR.
     result = await Agent(ScriptedLLM(text_turn("")), Toolset([]), mode=LITERATURE_MODE).run("?")
-    assert result.answer == NO_EVIDENCE_PAPERS
-    assert is_abstention(result.answer)
+    assert result.abstained and "biomedical and life-science research" in result.answer
     assert NO_EVIDENCE_PAPERS in LITERATURE_MODE.system_prompt
     assert NO_EVIDENCE_PAPERS not in AMR_MODE.system_prompt
 

@@ -643,7 +643,12 @@ function renderEntry(e) {
   // La respuesta sale en el idioma de la pregunta; el resto de la entrada, en inglés.
   const lang = SPANISH.test(q) ? ' lang="es"' : "";
   const parts = [`<div class="answer"${lang}>${renderAnswer(answer, refNo, unverified)}</div>`];
-  if (NO_EVIDENCE.includes(answer.trim()))
+  // Los agentes dicen si se abstuvieron y por qué (decisión 48); /ask y las grabaciones
+  // antiguas, solo con la frase fija.
+  const refusal = body.abstention || (NO_EVIDENCE.includes(answer.trim()) ? "not_found" : null);
+  if (refusal === "out_of_scope")
+    parts.push(`<p class="witness none">${CHECK}<span>No citations: the question is outside what this mode covers, so it searched nothing.</span></p>`);
+  else if (refusal)
     parts.push(`<p class="witness none">${CHECK}<span>No citations: what was found doesn't answer this, so it says so instead of guessing.</span></p>`);
   else parts.push(renderWitness(kind, validCount, [...unverified]));
   const quotes = (body.citations || []).flatMap((c) => c.quotes || []);
@@ -789,7 +794,8 @@ function kindFromUrl() {
   return Object.keys(URL_MODE).find((k) => URL_MODE[k] === want) || null;
 }
 
-const SPANISH = /[¿¡ñáéíóú]|\b(qué|cuál|cómo|dónde|genes? de|resistencia|especies?|bacterias)\b/i;
+// La misma detección que la API (abstention.py), que escribe la abstención en ese idioma.
+const SPANISH = /[¿¡ñáéíóú]|\b(qué|cuál|cómo|dónde|cuántos?|cuántas?|genes? de|resistencia|especies?|bacterias|pacientes|porcentaje|tratamiento)\b/i;
 function syncLang() {
   $("lang-note").hidden = isAgent() || !SPANISH.test(question.value);
   // aria-describedby lee también las notas ocultas: solo apunta a las que se ven.

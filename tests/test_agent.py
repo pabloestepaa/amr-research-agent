@@ -53,7 +53,9 @@ async def test_answers_directly_when_no_tool_is_needed():
     llm = ScriptedLLM(text_turn(NO_EVIDENCE))
     async with toolset() as tools:
         result = await Agent(llm, tools).run("What is the capital of France?")
-    assert result.answer == NO_EVIDENCE
+    # Sin herramientas, la frase del modelo pasa a "fuera de ámbito" (decisión 48).
+    assert result.answer.startswith("I only answer questions about antimicrobial resistance")
+    assert (result.abstained, result.abstention) == (True, "out_of_scope")
     assert result.steps == [] and result.stop_reason == "answer"
     assert llm.calls[0]["tool_choice"] == "auto"
     assert len(llm.calls[0]["tools"]) == 5  # search_literature + 4 de amr-mcp
@@ -211,7 +213,7 @@ async def test_empty_final_text_becomes_the_abstention_message():
     llm = ScriptedLLM(text_turn(""))
     async with toolset() as tools:
         result = await Agent(llm, tools).run("?")
-    assert result.answer == NO_EVIDENCE
+    assert result.abstained and result.abstention == "out_of_scope"
 
 
 async def test_an_identical_call_is_not_run_again():

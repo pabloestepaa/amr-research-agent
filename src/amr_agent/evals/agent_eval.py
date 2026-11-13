@@ -29,8 +29,9 @@ import time
 import unicodedata
 from itertools import chain
 
+from amr_agent.abstention import is_abstention
 from amr_agent.agent import LITERATURE_MODE, AgentAnswer
-from amr_agent.evals.answers_eval import is_abstention, is_daily_limit
+from amr_agent.evals.answers_eval import is_daily_limit
 from amr_agent.evals.dataset import (
     AGENT_GOLDEN_PATH,
     CASSETTE_PATH,
@@ -102,7 +103,8 @@ def score_task(task: AgentTask, result: AgentAnswer, *, quotes: bool = False) ->
     # fallo fue de búsqueda, de lectura o de redacción.
     read_hit = (bool(read_pmids & set(task.relevant_pmids))
                 if task.relevant_pmids and "read_paper" in expected_names else None)
-    abstained = is_abstention(result.answer)
+    # El campo (decisión 48) o, en respuestas construidas a mano o antiguas, la frase.
+    abstained = result.abstained or is_abstention(result.answer)
     citations_valid = not result.invalid_citations
     # Tampoco entran en `success`: dicen si se puede comprobar el dato sin abrir el artículo.
     quoted = [q for c in result.citations for q in c.quotes]

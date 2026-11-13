@@ -139,7 +139,11 @@ flowchart TB
 - Agent ([`agent.py`](src/amr_agent/agent.py), [`tools.py`](src/amr_agent/tools.py)): a loop of
   about fifty lines. Tools are the literature search plus four `amr-mcp` tools reached through a
   real MCP client. Results are trimmed to 6,000 characters, independent calls run in parallel, and
-  when a limit is hit the model is asked for a final answer with the evidence it has.
+  when a limit is hit the model is asked for a final answer with the evidence it has. To refuse,
+  the model writes a fixed English sentence; the code turns it into a message in the question's
+  language (English or Spanish) that says whether the question was out of scope or what it
+  searched and read without finding an answer
+  ([`abstention.py`](src/amr_agent/abstention.py)).
 - Papers mode ([`tools.py`](src/amr_agent/tools.py), [`fulltext.py`](src/amr_agent/fulltext.py)):
   PubMed's Best Match ranks the articles and Europe PMC supplies their abstracts in one request.
   A search with no results is retried with fewer words before the model sees it.
@@ -284,7 +288,7 @@ endpoint, tracing is off and the SDK is not imported. See decision 39.
 
 ## Design decisions
 
-All 47 decisions, with context and trade-offs, are in [`docs/decisions.md`](docs/decisions.md).
+All 48 decisions, with context and trade-offs, are in [`docs/decisions.md`](docs/decisions.md).
 The ones that shaped the project most:
 
 | Decision | Why | Trade-off |

@@ -95,8 +95,7 @@ async def test_a_refusal_needs_no_quotes():
     http, _ = network([])
     llm = ScriptedLLM(text_turn("I could not find evidence for this in the articles I found."))
     result = await Agent(llm, Toolset([PaperSearchTools(http)]), mode=LITERATURE_MODE).run("?")
-    assert result.answer == "I could not find evidence for this in the articles I found."
-    assert result.citations == []
+    assert result.abstained and result.citations == []
 
 
 def test_only_the_papers_mode_asks_for_quotes():
