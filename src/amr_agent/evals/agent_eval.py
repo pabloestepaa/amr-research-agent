@@ -328,9 +328,10 @@ async def run_literature(tasks: list[AgentTask], cassette_mode: str,
         tools = Toolset([PaperSearchTools(http, s.ncbi_api_key, s.ncbi_email),
                          ReadPaperTools(http, s.ncbi_api_key, s.ncbi_email)])
         cassette = CassetteTools(tools, LITERATURE_CASSETTE_PATH, cassette_mode)
-        # Mismo presupuesto de tokens que la API: medir si cabe es parte de la eval.
+        # Mismo presupuesto de tokens que la API (`literature_agent` en api/main.py): medir si cabe
+        # es parte de la eval. Hasta el 2026-11-13 usaba el del agente AMR (12.000, no 16.000).
         agent = Agent(llm, Toolset([cassette]), mode=LITERATURE_MODE,
-                      token_budget=s.agent_token_budget)
+                      token_budget=s.literature_token_budget)
         try:
             complete = await _run_tasks(agent, tasks, rows)
         finally:

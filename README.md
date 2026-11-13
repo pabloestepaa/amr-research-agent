@@ -32,8 +32,8 @@ agent trajectories.
 - To find a fact inside a full-text article, `read_paper` ranks its paragraphs with BM25, with
   no embeddings and no index. On LitQA2, the passage that holds the answer is in the top 8 for
   92 % of the questions.
-- A PMID only counts as a citation if a tool returned it. In 42 RAG answers and 22 agent tasks,
-  no answer cited a PMID that no tool had returned.
+- A PMID only counts as a citation if a tool returned it. In 42 RAG answers, 22 agent tasks and
+  14 Papers tasks, no answer cited a PMID that no tool had returned.
 - Evals run at three levels: retrieval on every push, with thresholds that fail CI; answers,
   scored by an LLM judge; and agent trajectories, checked with deterministic rules against
   recorded tool responses.
@@ -144,7 +144,9 @@ flowchart TB
   PubMed's Best Match ranks the articles and Europe PMC supplies their abstracts in one request.
   A search with no results is retried with fewer words before the model sees it.
   `read_paper` fetches the JATS XML with `efetch db=pmc`, keeps paragraphs, figure captions and
-  tables with their section, and ranks them with BM25. [`quotes.py`](src/amr_agent/quotes.py)
+  tables with their section, and ranks them with BM25. The passages share a fixed budget by rank,
+  so a long paragraph is cut to its best sentences instead of pushing the others out.
+  [`quotes.py`](src/amr_agent/quotes.py)
   looks for each quoted sentence in those passages and abstracts. Each mode has its own prompt,
   tools and step limit, so the AMR agent and its evals are untouched.
 - LLM client ([`llm.py`](src/amr_agent/llm.py)): any OpenAI-compatible API through `base_url`.
@@ -161,7 +163,7 @@ are in [`evals/RESULTS.md`](evals/RESULTS.md).
 | Retrieval | recall@k, MRR, nDCG@10 per search mode | 36 reviewed questions, local embeddings, no LLM | every push; CI fails below [thresholds](evals/thresholds.json) |
 | Answers | faithfulness, relevance, citation validity, abstention | RAG + an LLM judge from a different model (`gpt-oss-20b`) | manual or weekly |
 | Agent | right tools, right arguments, facts in the answer, refusals, cost | 22 reviewed tasks, deterministic rules, recorded tool responses | manual |
-| Papers agent | found and read the right article, the fact in the answer, refusals, cost | 11 tasks, each a figure that is in a full text but not in its abstract | manual |
+| Papers agent | found and read the right article, the fact in the answer, quotes found word for word, refusals, cost | 14 tasks: 9 figures that are in a full text but not in its abstract, 3 general questions, 2 out of scope | manual |
 
 **Retrieval** (full corpus, 2,999 abstracts, 36 questions):
 
@@ -191,15 +193,21 @@ answers in other words (an ESBL-producing strain is resistant to
 cephalosporins; myricetin is a polyphenol). The third is a search that added "2023 2024" to its
 query and missed the relevant abstract.
 
-**Papers agent** (9 cell-therapy questions whose answer is only in the full text, 2 out of scope):
-10/11 in the latest run, up from 7/11 in the first. Both out-of-scope questions were refused, no
-answer cited a PMID that no tool had returned and no tool call failed; a question costs ~6,400
-tokens and ~33 s (~9,000 and ~42 s in the first run). The failure left is a search: PubMed requires
-every keyword to match, and the agent's four long queries for a MAGE-A4 trial returned nothing,
-while "autologous T cell therapy MAGE-A4 solid cancers" finds the article first. An empty search
-now retries itself without the generic words, keeping the first four. Replayed on the 18 empty
-searches of both runs, the right article came back in 14; the other four have words the article
-does not contain (decision 45). The agent has not been re-run with it yet.
+**Papers agent** (9 cell-therapy questions whose answer is only in the full text, 3 general
+questions such as the share of patients who stop needing insulin after an islet transplant, 2
+out of scope): 12/14 in the latest run, and 10/11 again on the tasks of the earlier runs (7/11 in
+the first). The right article came up in all 9 full-text tasks (8 of 9 before): 7 of 18 searches
+matched nothing as written, and the retry with fewer words (decision 45) found articles for all
+seven. All 10 citations came with a quote, and all 10 quotes were found word for word in what the
+tools returned. Both out-of-scope questions were refused and no answer cited a PMID that no tool
+had returned. Cost went up: ~8,900 tokens per task on the same tasks, against ~6,400, because
+decisions 40 to 43 added about 550 tokens to a prompt that every round sends again, and ~65 s per
+question at the median, mostly waiting for the per-minute quota. Both failures stopped at the
+token limit after reading an article whose passages lacked the figure. One paper writes "median
+DoR" and BM25 put that paragraph 11th for the agent's question; a shorter question would have
+reached it, but each article can be read once (decision 40). The other search found only reviews
+without figures. This run had the AMR agent's 12,000-token budget instead of the 16,000 of the
+deployed Papers agent; the eval now uses the API's (decision 46).
 
 Before the agent, `read_paper` was measured on its own. It finds the passage with the answer
 in the top 8 for 0.92 of the LitQA2 questions (FutureHouse, 131 with open full text) and in the
@@ -233,6 +241,13 @@ Each of these problems looked fine by eye and only showed up in the numbers:
   cell-therapy queries matched unrelated papers. The query now sends `"CAR T"` as a phrase. Replaying the agent's own
   recorded queries against PubMed, two of the four missing articles came up. In the next run the
   right article came up in 8 of 9 tasks, against 5 of 9 before.
+- `read_paper` gave the model fewer passages than it asked for. A paragraph is never split, so one
+  can run to 3,000 characters, and when the result went over its size limit the trimming cut the
+  list of passages in half. In a failed task the figure was in the fifth of five passages, after a
+  2,665-character paragraph. On LitQA2, more than half of the reads were cut, and the answer
+  reached the model for 0.87 of the questions while BM25 had it in the top 8 for 0.92. The
+  passages now share a budget by rank, the long ones cut to their best sentences: 0.92 arrive,
+  with 12% more text (decision 46).
 - One failure was the evaluator's fault: a correct answer failed because `gpt-oss` writes
   "Escherichia coli" with a narrow no-break space. Facts are now compared after Unicode
   normalisation.
@@ -265,7 +280,7 @@ endpoint, tracing is off and the SDK is not imported. See decision 39.
 
 ## Design decisions
 
-All 45 decisions, with context and trade-offs, are in [`docs/decisions.md`](docs/decisions.md).
+All 46 decisions, with context and trade-offs, are in [`docs/decisions.md`](docs/decisions.md).
 The ones that shaped the project most:
 
 | Decision | Why | Trade-off |
@@ -309,7 +324,7 @@ export DATABASE_URL_EVAL=postgresql://localhost/amr_agent_eval
 uv run amr-eval-retrieval --load-corpus --check   # as in CI
 uv run amr-eval-answers                           # ~150k tokens, ~25 min on Groq Free
 uv run amr-eval-agent --load-corpus               # ~130k tokens
-uv run amr-eval-agent --mode literature           # Papers agent, no database, ~100k tokens
+uv run amr-eval-agent --mode literature           # Papers agent, no database, ~140k tokens
 uv run amr-eval-report                            # rewrites evals/RESULTS.md
 ```
 
@@ -331,7 +346,7 @@ Limitations:
   still keep some English acronyms, such as CRS for *síndrome de liberación de citocinas*.
 - The embeddings are English-only, so questions in other languages retrieve worse. The agent is
   told to query the literature in English, which helps.
-- The eval sets are small (36 retrieval questions, 42 answers, 22 agent tasks, 11 Papers tasks): enough to catch
+- The eval sets are small (36 retrieval questions, 42 answers, 22 agent tasks, 14 Papers tasks): enough to catch
   regressions and compare options, but not for tight confidence intervals. The keyword threshold
   (10 %) was tuned on the same questions it is measured on.
 - Results are not deterministic: even at temperature 0, the same agent task can take a different

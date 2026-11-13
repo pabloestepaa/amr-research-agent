@@ -178,15 +178,16 @@ SENTENCE_END_RE = re.compile(
     r"(?<=[.!?])(?<!\bvs\.)(?<!\be\.g\.)(?<!\bi\.e\.)(?<!\bal\.)\s*(?=[A-Z(\[])")
 
 
-def abstract_excerpt(abstract: str, query: str, limit: int) -> str:
-    """Las frases del abstract que mejor encajan con la consulta, en su orden y sin pasar de
-    `limit` caracteres; "…" donde se ha quitado algo (decisión 40).
+def excerpt(text: str, query: str, limit: int) -> str:
+    """Las frases de `text` que mejor encajan con la consulta, en su orden y sin pasar de
+    `limit` caracteres; "…" donde se ha quitado algo. Se usa con los abstracts de search_papers
+    (decisión 40) y con los pasajes largos de read_paper (decisión 46).
 
     Cortar por el principio dejaba fuera los resultados: en una pregunta real sobre trasplante
     de islotes, el "78.6%" estaba en el carácter 1.046 de un abstract de 1.892."""
-    if len(abstract) <= limit:
-        return abstract
-    sentences = [x.strip() for x in SENTENCE_END_RE.split(abstract) if x.strip()]
+    if len(text) <= limit:
+        return text
+    sentences = [x.strip() for x in SENTENCE_END_RE.split(text) if x.strip()]
     keep: set[int] = set()
     used = 0
     for i in bm25_rank(query, sentences):
@@ -194,8 +195,8 @@ def abstract_excerpt(abstract: str, query: str, limit: int) -> str:
             continue  # una frase muy larga no tapa a las siguientes
         keep.add(i)
         used += len(sentences[i]) + 2
-    if not keep:  # ni una frase cabe: el principio, como antes
-        return abstract[:limit] + "…"
+    if not keep:  # ni una frase cabe (p. ej. una tabla sin puntos): el principio
+        return text[:limit] + "…"
     parts, prev = [], -1
     for i in sorted(keep):
         if i != prev + 1:
@@ -207,7 +208,29 @@ def abstract_excerpt(abstract: str, query: str, limit: int) -> str:
     return " ".join(parts)
 
 
+# Texto de read_paper: k × PASSAGE_TEXT_CHARS en total, repartido por puesto (decisión 46).
+PASSAGE_TEXT_CHARS = 1000
+MIN_PASSAGE_CHARS = 400
+
+
 def best_passages(article: Article, question: str, k: int) -> list[Block]:
+    """Los `k` trozos que mejor encajan con la pregunta, todos dentro de un presupuesto fijo.
+
+    Un párrafo largo no se parte al trocear, así que un pasaje puede tener 3.000 caracteres.
+    Antes se mandaban enteros y el recorte del resultado partía la lista por la mitad: en la
+    eval de literatura el dato estaba en el 5.º de 5, detrás de un párrafo de 2.665 caracteres.
+    Ahora el presupuesto se reparte por puesto (decisión 46): cada pasaje va entero si deja al
+    menos MIN_PASSAGE_CHARS a cada uno de los que vienen detrás y, si no, con sus frases más
+    relevantes. Los primeros, que son los que más aciertan, casi nunca se tocan.
+    """
     passages = chunk(article.blocks)
     order = bm25_rank(question, [f"{p.section} {p.text}" for p in passages])
-    return [passages[i] for i in order[:k]]
+    chosen = [passages[i] for i in order[:k]]
+    left = k * PASSAGE_TEXT_CHARS
+    out = []
+    for i, p in enumerate(chosen):
+        allow = max(MIN_PASSAGE_CHARS, left - MIN_PASSAGE_CHARS * (len(chosen) - i - 1))
+        text = excerpt(p.text, question, allow)
+        out.append(Block(p.section, text))
+        left -= len(text)
+    return out

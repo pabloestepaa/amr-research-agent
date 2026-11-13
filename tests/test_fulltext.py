@@ -6,7 +6,17 @@ from pathlib import Path
 import httpx
 import pytest
 
-from amr_agent.fulltext import Block, abstract_excerpt, bm25_rank, chunk, parse_jats, tokenize
+from amr_agent.fulltext import (
+    PASSAGE_TEXT_CHARS,
+    Article,
+    Block,
+    best_passages,
+    bm25_rank,
+    chunk,
+    excerpt,
+    parse_jats,
+    tokenize,
+)
 from amr_agent.tools import EFETCH, IDCONV, READ_PAPER, ReadPaperTools
 
 XML = (Path(__file__).parent / "fixtures" / "pmc_article.xml").read_bytes()
@@ -94,6 +104,42 @@ async def test_read_paper_returns_best_passage_with_section_and_citation():
     assert result.papers[0].year == 2024
 
 
+LONG_BEST = " ".join(f"Tocilizumab dose {i} was given to patients in cohort {i}."
+                     for i in range(60))
+FILLER = "Filler sentence about something else entirely. " * 30
+
+
+def test_best_passages_keep_the_best_whole_and_shorten_the_rest_to_fit():
+    # Decisión 46: un párrafo largo no se parte al trocear. Antes iba entero y el recorte del
+    # resultado tiraba los últimos pasajes; ahora el presupuesto se reparte por puesto.
+    blocks = [Block("Results > Dosing", LONG_BEST)] + [
+        Block(f"Section {i}", f"Tocilizumab was mentioned once in section {i}. {FILLER}")
+        for i in range(6)]
+    article = Article(pmcid="PMC1", pmid="1", title="T", journal=None, year=None,
+                      blocks=tuple(blocks))
+    passages = best_passages(article, "tocilizumab dose", 5)
+    assert len(passages) == 5
+    assert passages[0].text == LONG_BEST  # el mejor, entero aunque tenga ~3.000 caracteres
+    assert all(len(p.text) < len(FILLER) for p in passages[1:])  # los demás, acortados...
+    assert all("Tocilizumab was mentioned once" in p.text for p in passages[1:])  # ...con lo útil
+    assert sum(len(p.text) for p in passages) <= 5 * PASSAGE_TEXT_CHARS + 20
+
+
+async def test_read_paper_returns_every_passage_asked_for_even_with_a_long_paragraph():
+    # Caso real (eval de literatura, ft-04): el dato estaba en el 5.º de 5 pasajes, detrás de un
+    # párrafo de 2.665 caracteres, y el recorte devolvía solo los 3 primeros.
+    secs = [("Dosing", LONG_BEST)] + [(f"S{i}", f"Tocilizumab once in section {i}. {FILLER}")
+                                      for i in range(4)]
+    xml = XML.replace(b"</body>", b"".join(
+        b"<sec><title>%s</title><p>%s</p></sec>" % (t.encode(), p.encode()) for t, p in secs)
+        + b"</body>")
+    handler, _ = ncbi(xml)
+    result = await tools_with(handler).call(
+        "read_paper", {"paper_id": "PMC9999999", "question": "tocilizumab dose", "k": 5})
+    assert not result.truncated
+    assert len(json.loads(result.content)["passages"]) == 5
+
+
 async def test_read_paper_accepts_a_pmid_and_caches_the_article():
     handler, calls = ncbi()
     tools = tools_with(handler)
@@ -133,14 +179,14 @@ def test_read_paper_schema_has_its_limits_in_the_description():
     assert "maximum" not in k and "maximum 8" in k["description"]
 
 
-def test_abstract_excerpt_keeps_the_sentences_that_match_the_query():
+def test_excerpt_keeps_the_sentences_that_match_the_query():
     # Caso real (decisión 40): la cifra estaba al final y el recorte por el principio la quitaba.
     abstract = ("Objective To analyse islet and pancreas transplantation in one centre. "
                 + "Background sentence about the history of the field. " * 12
                 + "Insulin independence occurred in 78.6% and 92.5% in ITx and PTx recipients "
                   "(26.7% vs. 0% in a subset, P = 0.09). "
                 + "Conclusions Both procedures are safe.")
-    excerpt = abstract_excerpt(abstract, "islet transplantation insulin independence", 300)
-    assert "78.6%" in excerpt and "26.7% vs. 0% in a subset" in excerpt  # sin cortar en "vs."
-    assert len(excerpt) <= 300 and excerpt.endswith("…")
-    assert abstract_excerpt("Short abstract.", "anything", 300) == "Short abstract."
+    short = excerpt(abstract, "islet transplantation insulin independence", 300)
+    assert "78.6%" in short and "26.7% vs. 0% in a subset" in short  # sin cortar en "vs."
+    assert len(short) <= 300 and short.endswith("…")
+    assert excerpt("Short abstract.", "anything", 300) == "Short abstract."

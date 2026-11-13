@@ -630,6 +630,12 @@ registry's note that insulin independence beyond ten years is exceptional, both 
 still read the registry article first and used all six steps (17,000 tokens, 69 s), so the
 prompt alone does not stop it from reading. The full literature run is pending (~100,000
 tokens, not on the same day as the answer eval).
+**Measured (2026-11-13, decision 46).** The three general tasks passed 2 of 3. The user's question
+got the 78.6% from the single-centre cohort, cited and with its quote, and the CAR-T question a
+pooled 98% for cytokine release syndrome of any grade and 9% for grade 3 or higher. The third, on
+chronic graft-versus-host disease, found only reviews without figures and refused. In two tasks
+the agent tried to read an article a second time and was stopped. In ft-04 the second question
+was shorter and would have ranked the figure higher.
 
 ## 41. Papers answers in the user's language, written as a native would (2026-11-12)
 **Context.** The second real question ("¿Qué medicamentos tiene que tomar un paciente después de
@@ -662,6 +668,11 @@ tocilizumab question was refused under both rules, with the same evidence. A sec
 gpt-oss-20b as a copy editor was tried and dropped: two of four outputs came back empty and the
 rest were unchanged. The full measure comes with the next literature run, which has five Spanish
 tasks.
+**Measured (2026-11-13, decision 46).** Three of the five Spanish tasks were answered, and the
+answers read as Spanish written by a scientist ("supervivencia global a los 12 meses",
+"independencia de insulina", decimal commas). The other two were refusals, one out of scope and
+one the chronic GVHD question (decision 40). The refusal is a fixed English sentence, because the
+evaluator and the demo match it exactly, so a Spanish question gets an English refusal.
 
 ## 42. Papers answers quote the sentence behind each citation, and the code checks it (2026-11-12)
 **Context.** The Papers mode exists to find an exact figure, but its answers only cited a PMID.
@@ -701,6 +712,8 @@ English drug names back into a Spanish answer ("mycophenolate mofetil"). A line 
 only the quotes keep the article's language fixed it on the next run. The two questions that
 were refused in decision 41 were refused again, with the same evidence. The full measure comes
 with the next literature run.
+**Measured (2026-11-13, decision 46).** All 10 citations in the run's answers came with a quote,
+and all 10 quotes were found word for word in what the tools returned.
 **Follow-up in the demo.** The quote sat at the bottom, under References, far from the claim it
 supports. Pointing at a citation number, or reaching it with the Tab key, now shows a copy of the
 reference: title, study type, the quote and whether it was found word for word. The copy has no
@@ -739,6 +752,9 @@ CAR-T, the search returned four reviews and a 12-patient phase 1 trial, and the 
 "about 80–85%" from one review and the phase 1 without saying what either was. The labels in
 the references show it to the reader anyway. The general tasks of the next literature run will
 measure the prompt line.
+**Measured (2026-11-13, decision 46).** Both general answers named the kind of study: "una
+cohorte grande de un solo centro" for insulin independence, "a pooled analysis" for cytokine
+release syndrome.
 
 ## 44. Follow the agent live with Server-Sent Events (2026-11-12)
 **Context.** A Papers question takes one to two minutes and an Agent question up to one, and the
@@ -814,3 +830,57 @@ article calls it afami-cel), "TCR-transduced" and "TCR". For ft-04, the agent's 
 solid cancers", with the article first. Known limit: numbers are dropped as generic, so "type 2
 diabetes" loses its "2" (only in a retry). Not yet measured with the agent: that is the next
 literature eval.
+**Measured (2026-11-13, decision 46).** 7 of the 18 searches in the run matched nothing as
+written, and the retry found articles for all seven. ft-04's first query became "MAGE-A4
+autologous solid tumors" and returned the article, and the right article came up in all 9
+full-text tasks (8 of 9 before). ft-04 still failed, at a later step.
+
+## 46. What the third literature eval found: read_paper sent fewer passages than asked (2026-11-13)
+**Context.** Third run of the literature eval, with every tool response recorded again and the
+three general tasks of decision 40: 12/14. The eleven earlier tasks scored 10/11 again and the
+general ones 2/3, and decisions 41 to 45 were measured for the first time (see their results).
+Cost went the other way: ~8,900 tokens per task on the same eleven tasks, against ~6,400, because
+decisions 40 to 43 added about 550 tokens to the Papers prompt and every round sends it again.
+The two failures, ft-04 and gen-03, both stopped at the token limit after reading an article
+whose passages lacked the figure. Following ft-04 to the end showed what its trajectory did not:
+- The paper writes "median DoR was 25.6 weeks". With the agent's question, BM25 put that
+  paragraph 11th. With the shorter question of its second read, which the read-once rule
+  (decision 40) blocked, it is 5th. Even then it would not have arrived: the fourth passage was a
+  2,665-character paragraph, the result went over its size limit, and `shrink` cut the list of
+  passages in half. The model asked for five and would have got three.
+- On LitQA2 this was common. More than half of the reads were cut (61% with five passages, 53%
+  with eight), and the passage with the answer, in BM25's top 8 for 0.92 of the questions, reached
+  the model for 0.87. Decision 35 measured the ranking, not what was sent.
+- The eval ran the Papers agent with the AMR agent's token budget, 12,000, while the API gives it
+  16,000 (decision 37). The eval's comment said "same budget as the API", but the Papers budget
+  came with decision 37, after the eval was written. Four of the 14 tasks hit it, both failures
+  among them.
+**Options.** Measured on the 131 LitQA2 questions and the 23 reviewed synthetic ones, without the
+LLM, counting how often the sentence with the answer is in what `read_paper` returns, with five
+and with eight passages:
+- As before, whole passages and `shrink` halving the list: 0.79 and 0.87, with 5,200 and 7,700
+  characters on average.
+- Cut every passage to 1,200 characters, keeping its best sentences: 0.79 and 0.89. A long
+  paragraph near the top lost its answer sentence about as often as a passage at the bottom was
+  saved.
+- Share a budget by rank, 1,200 characters per passage: 0.81 and 0.92, but 6,150 and 9,750
+  characters (+19% and +27%).
+- The same with 1,000 per passage: 0.80 and 0.92, with 5,430 and 8,610 characters (+5% and
+  +12%). With 900, 0.78 and 0.89.
+The synthetic set stayed at 0.78 and 0.87 in every option except 900 characters (0.87 fell to
+0.83).
+**Decision.**
+- `best_passages` gives the k passages k × 1,000 characters of text, in rank order. A passage goes
+  whole if it leaves at least 400 characters for each one after it, and otherwise keeps the
+  sentences that best match the question, with the function that shortens abstracts (decision
+  40). The top passages, which hold the answer most often, are almost never cut.
+- The size limit of the result leaves room for the k passages, their sections and the header,
+  so `shrink` is only a last resort.
+- Quotes are checked against the shortened passages, which are the text the model saw.
+- The literature eval uses the API's token budget.
+**Result.** On LitQA2 the answer now reaches the model for 0.92 of the questions with eight
+passages (0.87 before) and 0.80 with five (0.79). No read is cut, and a read sends 5% to 12% more
+text. For ft-04, a read with "median duration of response" now delivers the figure, but with the
+agent's first question the paragraph is still 11th. The read-once rule stays for now: in this
+run it blocked two second reads, and a second read that returns only passages not yet shown is
+the next thing to try. Not yet measured with the agent.

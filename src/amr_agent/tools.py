@@ -19,7 +19,7 @@ import httpx
 from mcp import Client
 from mcp.client.stdio import StdioServerParameters
 
-from amr_agent.fulltext import Article, abstract_excerpt, best_passages, parse_jats
+from amr_agent.fulltext import Article, best_passages, excerpt, parse_jats
 from amr_agent.retrieval import SearchBackend
 
 # Herramientas de amr-mcp que exponemos. Cuantas menos, mejor elige el modelo y menos tokens
@@ -302,7 +302,12 @@ READ_PAPER = ToolSpec(
 EFETCH = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi"
 IDCONV = "https://pmc.ncbi.nlm.nih.gov/tools/idconv/api/v1/articles/"
 MAX_XML_BYTES = 20_000_000  # el artículo más grande de LitQA2 ocupaba ~1,5 MB
-PASSAGE_CHARS = 1300  # presupuesto por pasaje (los trozos son de ~1.200 caracteres)
+# Presupuesto del resultado de read_paper: best_passages ya deja el texto en k × 1.000 caracteres
+# (fulltext.PASSAGE_TEXT_CHARS); cada pasaje suma su sección y el JSON, y la cabecera lleva
+# título, revista y año. Así caben los k pedidos y `shrink`, que parte la lista por la mitad,
+# queda como último recurso (decisión 46; antes recortaba más de la mitad de las lecturas).
+PASSAGE_CHARS = 1200
+HEADER_CHARS = 600
 
 
 class ReadPaperTools:
@@ -374,7 +379,7 @@ class ReadPaperTools:
         data = {"pmid": pmid, "pmcid": pmcid, "title": article.title,
                 "journal": article.journal, "year": article.year,
                 "passages": [{"section": p.section, "text": p.text} for p in passages]}
-        content, truncated = shrink(data, max(MAX_RESULT_CHARS, k * PASSAGE_CHARS))
+        content, truncated = shrink(data, max(MAX_RESULT_CHARS, k * PASSAGE_CHARS + HEADER_CHARS))
         excerpts = tuple(Excerpt(pmid, p.section or "Full text", p.text)
                          for p in passages) if pmid else ()
         return ToolResult(content=content, pmids=frozenset({pmid}) if pmid else frozenset(),
@@ -596,7 +601,7 @@ class PaperSearchTools:
                 "full_text": r.get("inPMC") == "Y",
                 # Con la consulta del modelo, también tras el reintento: el detalle que busca
                 # ("duration of response") elige las frases del abstract.
-                "abstract": abstract_excerpt(abstract, query, SEARCH_ABSTRACT_CHARS),
+                "abstract": excerpt(abstract, query, SEARCH_ABSTRACT_CHARS),
             })
         if not results:
             note = "no matching articles: PubMed needs every keyword to match."

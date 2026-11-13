@@ -59,7 +59,7 @@ uv run amr-eval-retrieval --load-corpus --check                  # snapshot, lik
 uv run amr-eval-retrieval --database-url postgresql://localhost/amr_agent --name retrieval_full
 uv run amr-eval-answers --limit 5                                 # quick check, uses quota
 uv run amr-eval-agent --load-corpus --only host-01,oos-01         # agent evals, uses quota
-uv run amr-eval-agent --mode literature                          # no DB, ~100k tokens
+uv run amr-eval-agent --mode literature                          # no DB, ~140k tokens
 uv run amr-eval-report                                            # regenerates RESULTS.md
 ```
 
