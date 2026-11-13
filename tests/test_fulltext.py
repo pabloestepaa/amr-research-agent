@@ -125,6 +125,16 @@ def test_best_passages_keep_the_best_whole_and_shorten_the_rest_to_fit():
     assert sum(len(p.text) for p in passages) <= 5 * PASSAGE_TEXT_CHARS + 20
 
 
+def test_best_passages_can_skip_the_ones_already_shown():
+    blocks = [Block(f"S{i}", f"Tocilizumab detail {i}. {FILLER}") for i in range(6)]
+    article = Article(pmcid="PMC1", pmid="1", title="T", journal=None, year=None,
+                      blocks=tuple(blocks))
+    first = best_passages(article, "tocilizumab", 3)
+    second = best_passages(article, "tocilizumab", 3, skip={p.index for p in first})
+    assert {p.section for p in first} | {p.section for p in second} == {f"S{i}" for i in range(6)}
+    assert best_passages(article, "tocilizumab", 3, skip=range(6)) == []
+
+
 async def test_read_paper_returns_every_passage_asked_for_even_with_a_long_paragraph():
     # Caso real (eval de literatura, ft-04): el dato estaba en el 5.º de 5 pasajes, detrás de un
     # párrafo de 2.665 caracteres, y el recorte devolvía solo los 3 primeros.

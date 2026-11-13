@@ -31,6 +31,7 @@ from amr_agent.tools import (
     ToolBox,
     ToolResult,
     drop_seen_abstracts,
+    reading_memory,
 )
 
 LANGUAGE = "- Answer in the language of the question. Be concise: at most two short paragraphs."
@@ -40,15 +41,15 @@ LANGUAGE = "- Answer in the language of the question. Be concise: at most two sh
 # "AML" por LMA. Los ejemplos salen de esas respuestas; para medirlo hubo además dos preguntas de
 # otros temas (docs/decisions.md).
 NATIVE_LANGUAGE = """\
-- Answer in the language of the question. If it is not English, write it as a native scientific
-  writer of that language would, not as a translation of the English sources:
-  - Every word in that language. Translate the names of drugs, procedures, diseases and
-    outcomes to their standard form (in Spanish: "micofenolato de mofetilo", "globulina
-    antitimocítica", "sin corticoides" for steroid-free, "supervivencia global").
-  - Acronyms: for diseases and outcomes, the one used in that language, spelled out the first
-    time (in Spanish: "leucemia mieloide aguda (LMA)", not AML). Keep as they are the names of
-    genes, proteins, drugs, trials and products (IL-6, CD19, ZUMA-1, CAR-T).
-  - Reread the answer before giving it: fix spelling and any English word or word order left.
+- Answer in the language of the question. If it is not English, write as a native scientific
+  writer of that language, not as a translation of the sources:
+  - Standard names in that language for drugs, procedures, diseases and outcomes (Spanish:
+    "micofenolato de mofetilo", "globulina antitimocítica", "sin corticoides" for steroid-free,
+    "supervivencia global").
+  - Its own acronyms for diseases and outcomes, spelled out the first time ("leucemia mieloide
+    aguda (LMA)", not AML). Genes, proteins, drugs, trials and products stay as they are (IL-6,
+    CD19, ZUMA-1, CAR-T).
+  - Reread it: fix spelling and any English word or word order left.
 - Be concise: at most two short paragraphs."""
 
 
@@ -125,15 +126,13 @@ LITERATURE_ROLE = "You are a research assistant for the biomedical literature."
 # dato sin abrir el artículo. El código la busca en lo que devolvieron las herramientas (quotes.py).
 # gpt-oss, con el bloque, a veces sacaba las citas del texto (notas [^1] o una lista de PMIDs).
 QUOTES = """\
-- Put each citation in the text, right after its claim: no footnotes, no list of references.
-- After the answer, write a line "Quotes:" and, for each article you cited, a line with the
-  sentence from its abstract or passages that supports what you say, copied word for word in the
-  language of the article. Only the quotes keep that language: the answer above them follows the
-  language rule below, names of drugs included.
+- Put each citation in the text right after its claim: no footnotes, no reference list.
+- After the answer, a line "Quotes:" and one line per cited article with the sentence from its
+  abstract or passages that supports your claim, word for word, checked against the tool results:
   [PMID:12345678] "the sentence, exactly as in the tool results"
-  Do not translate or reword it; to shorten it, cut it with "…". The quotes do not replace the
-  citations in the text. Each quote is checked against the tool results. If you reply that you
-  found no evidence, write no quotes.
+  Never translate or reword it; shorten it only with "…". Only quotes keep the article's
+  language: the answer, drug names included, follows the language rule. No quotes if you found
+  no evidence.
 """
 
 LITERATURE_RULES = _rules(
@@ -144,25 +143,22 @@ LITERATURE_SYSTEM_PROMPT = f"""{LITERATURE_ROLE}
 Answer the user's question with the tools below. Do not answer from memory.
 
 How to work:
-1. search_papers finds articles by title and abstract. Search for the study, not for the detail:
-   the trial or therapy name, the disease, the population (e.g. "ELARA tisagenlecleucel
-   follicular lymphoma"), because details such as doses or rates are usually only in the full
-   text. If the question names no study, search for the topic. Query in English, as keywords,
-   whatever the language of the question. At most {{max_searches}} searches per question, and
-   one is usually enough: search again only if no result is about the question, with different
-   terms. It only lists articles you have not seen yet.
-2. If the question names no study (e.g. "what share of patients..." about a treatment in
-   general), there is no single right article: answer from the abstracts. Give the figures of
-   two or three studies with their setting (design, number of patients, follow-up), cite each
-   one and say that results vary between studies. Prefer meta-analyses, systematic reviews and
-   trials (study_type) to narrative reviews and case reports, and say which kind each study is.
-   Read an article only if no abstract has a figure.
-3. If the question asks for a detail of a study (a dose, a rate, a number of patients, a
-   method) and the abstracts do not give it, call read_paper on the most relevant article with
-   full_text true, with the question in English. Each article can be read once: if its passages
-   do not have the answer, read another article or answer with what you have.
-4. Answer with the specific fact, say which study it comes from (therapy, disease, design) and
-   cite it. If the passages answer only part of the question or articles disagree, say so.
+1. search_papers: search for the study, not the detail (doses and rates are usually only in the
+   full text): trial or therapy, disease, population, e.g. "ELARA tisagenlecleucel follicular
+   lymphoma"; with no study named, the topic. English keywords, whatever the question's
+   language. At most {{max_searches}} searches, one is usually enough: search again, with other
+   terms, only if no result is about the question. Articles already listed are not repeated.
+2. A question naming no study ("what share of patients...") has no single right article: answer
+   from the abstracts with the figures of two or three studies, each with its kind (study_type),
+   design, size, follow-up and citation, and say that results vary. Prefer meta-analyses,
+   systematic reviews and trials to narrative reviews and case reports. Read only if no abstract
+   has a figure.
+3. For a detail of a study (dose, rate, number of patients, method) the abstracts lack:
+   read_paper on the most relevant article with full_text true, the question in English.
+   Reading it again with other words brings only passages not shown yet (twice per article at
+   most). If they lack it, read another article or answer with what you have.
+4. Give the specific fact, the study it comes from (therapy, disease, design) and its citation;
+   say if the passages answer only part of it or articles disagree.
 
 {LITERATURE_RULES}"""
 
@@ -180,10 +176,12 @@ class AgentMode:
     # ya vistos se quitan (decisiones 30 y 31).
     search_tool: str
     max_steps: int = 5
-    # Herramienta que lee un artículo entero: cada artículo una sola vez por pregunta (decisión
-    # 40). Releerlo con otra pregunta o más pasajes casi nunca trae nada nuevo y cuesta miles
-    # de tokens que se reenvían en cada vuelta.
+    # Herramienta que lee un artículo entero: cada artículo como mucho `max_reads` veces por
+    # pregunta. La 2.ª lectura trae solo pasajes que no ha visto (decisión 47); antes se
+    # bloqueaba (decisión 40) porque devolvía casi lo mismo y costaba miles de tokens que se
+    # reenvían en cada vuelta.
     read_tool: str | None = None
+    max_reads: int = 2
     no_evidence: str = NO_EVIDENCE
     quotes: bool = False  # la respuesta trae un bloque "Quotes:" que se comprueba (decisión 42)
 
@@ -231,10 +229,11 @@ def paper_key(call: ToolCall) -> str | None:
     return re.sub(r"^PMID:?\s*", "", paper) or None
 
 
-async def _already_read(paper: str, step: int) -> ToolResult:
-    return ToolResult(f"ERROR: you already read {paper} in step {step}; its passages are above. "
-                      "Each article can be read once: read another article or answer with what "
-                      "you have.", is_error=True)
+async def _read_limit(paper: str, steps: list[int]) -> ToolResult:
+    when = " and ".join(map(str, steps))
+    return ToolResult(f"ERROR: you already read {paper} {len(steps)} times (steps {when}); its "
+                      "passages are above. Read another article or answer with what you have.",
+                      is_error=True)
 
 
 async def _repeated(call: ToolCall, step: int) -> ToolResult:
@@ -352,7 +351,8 @@ class Agent:
                 question, mode=self.mode.name,
                 provider=getattr(self._llm, "provider", "unknown"),
                 model=getattr(self._llm, "model", "unknown")) as span:
-            result = await self._run(question, on_event or _ignore)
+            with reading_memory():  # qué pasajes ha visto ya de cada artículo
+                result = await self._run(question, on_event or _ignore)
             telemetry.record_agent(
                 span, answer=result.answer, input_tokens=result.usage.prompt_tokens,
                 output_tokens=result.usage.completion_tokens, llm_calls=result.usage.llm_calls,
@@ -375,7 +375,7 @@ class Agent:
         evidence: list[tuple[ToolCall, ToolResult]] = []  # para la vuelta final
         called: dict[str, int] = {}  # llamada (herramienta + argumentos) -> paso en que se hizo
         shown_abstracts: set[str] = set()  # PMIDs que la búsqueda ya mostró
-        read: dict[str, int] = {}  # artículo leído con éxito -> paso (decisión 40)
+        read: dict[str, list[int]] = {}  # artículo leído con éxito -> pasos (decisión 47)
         # Búsquedas de literatura que devolvieron algo. No cuentan las repetidas, las rechazadas
         # (argumento inventado, fallo de red) ni las vacías: no han enseñado nada al modelo y,
         # si contaran, se quedaría sin búsquedas antes de ver un solo artículo (decisión 37).
@@ -412,8 +412,8 @@ class Agent:
                 paper = paper_key(call) if call.name == self.mode.read_tool else None
                 if key is not None and key in called:  # misma herramienta, mismos argumentos
                     pending.append(_repeated(call, called[key]))
-                elif paper is not None and paper in read:
-                    pending.append(_already_read(paper, read[paper]))
+                elif paper is not None and len(read.get(paper, [])) >= self.mode.max_reads:
+                    pending.append(_read_limit(paper, read[paper]))
                 elif (call.name == self.mode.search_tool
                       and searches >= self.max_literature_searches):
                     pending.append(_search_limit(self.max_literature_searches,
@@ -440,7 +440,7 @@ class Agent:
                     # argumento mal escrito), volver a pedirlo bien no es releer.
                     paper = paper_key(call)
                     if paper is not None:
-                        read.setdefault(paper, step)
+                        read.setdefault(paper, []).append(step)
                 # La API exige un mensaje `tool` por cada llamada, también las fallidas.
                 messages.append({"role": "tool", "tool_call_id": call.id,
                                  "content": result.content})

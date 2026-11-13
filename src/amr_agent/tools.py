@@ -12,6 +12,9 @@ import re
 import sys
 import time
 from collections import OrderedDict
+from collections.abc import Iterator
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass, field, replace
 from typing import Any, Protocol
 
@@ -279,12 +282,11 @@ class LiteratureTools:
 
 READ_PAPER = ToolSpec(
     name="read_paper",
+    # Cuándo usarla lo dice el prompt de Papers; aquí, qué hace (decisión 47: sin repetirlo).
     description=(
-        "Read the full text of an article in PubMed Central and return the passages most "
-        "relevant to a question, each with its section. Use it when the answer is a specific "
-        "detail (a dose, a response rate, a sample size, a method) that the abstract does not "
-        "give. Accepts a PMID or a PMCID; only articles with full_text true in search_papers "
-        "can be read. Cite the passages with the article's PMID as [PMID:x]."
+        "Read the full text of an article in PubMed Central (PMID or PMCID; only those with "
+        "full_text true in search_papers) and return the passages most relevant to a question, "
+        "each with its section. Cite them with the article's PMID as [PMID:x]."
     ),
     parameters={
         "type": "object",
@@ -308,6 +310,23 @@ MAX_XML_BYTES = 20_000_000  # el artículo más grande de LitQA2 ocupaba ~1,5 MB
 # queda como último recurso (decisión 46; antes recortaba más de la mitad de las lecturas).
 PASSAGE_CHARS = 1200
 HEADER_CHARS = 600
+
+# Pasajes que read_paper ya enseñó en esta pregunta: PMCID -> índices de trozo (decisión 47).
+# Variable de contexto y no atributo: la misma herramienta sirve a todas las peticiones de la API
+# a la vez, y cada pregunta (cada tarea de asyncio) necesita su propia memoria. Sin
+# `reading_memory()` (tests, scripts) la herramienta no recuerda nada, como antes.
+SHOWN_PASSAGES: ContextVar[dict[str, set[int]] | None] = ContextVar("shown_passages",
+                                                                    default=None)
+
+
+@contextmanager
+def reading_memory() -> Iterator[None]:
+    """Mientras dure, una segunda lectura del mismo artículo trae solo pasajes nuevos."""
+    token = SHOWN_PASSAGES.set({})
+    try:
+        yield
+    finally:
+        SHOWN_PASSAGES.reset(token)
 
 
 class ReadPaperTools:
@@ -375,10 +394,18 @@ class ReadPaperTools:
             return _error(f"no full text in PubMed Central for {paper_id}; "
                           "answer from the abstract instead")
         pmid = article.pmid or (paper_id if paper_id.isdigit() else None)
-        passages = best_passages(article, question, k)
+        memory = SHOWN_PASSAGES.get()
+        shown = memory.setdefault(pmcid, set()) if memory is not None else set()
+        passages = best_passages(article, question, k, skip=shown)
+        if not passages:
+            return _error(f"every passage of {paper_id} was already shown above; answer with "
+                          "them or read another article")
         data = {"pmid": pmid, "pmcid": pmcid, "title": article.title,
                 "journal": article.journal, "year": article.year,
+                **({"note": "You read this article before: these are the most relevant passages "
+                            "not shown yet."} if shown else {}),
                 "passages": [{"section": p.section, "text": p.text} for p in passages]}
+        shown.update(p.index for p in passages)
         content, truncated = shrink(data, max(MAX_RESULT_CHARS, k * PASSAGE_CHARS + HEADER_CHARS))
         excerpts = tuple(Excerpt(pmid, p.section or "Full text", p.text)
                          for p in passages) if pmid else ()
@@ -391,13 +418,10 @@ class ReadPaperTools:
 SEARCH_PAPERS = ToolSpec(
     name="search_papers",
     description=(
-        "Search PubMed for articles on any biomedical topic, ranked by PubMed's Best Match. "
-        "Returns title, journal, year, the study type when PubMed has it (study_type), the "
-        "citation count when it is 10 or more (cited_by), a short abstract, the PMID and whether "
-        "the full text is in PubMed Central (full_text: true means read_paper can read it). "
-        "Write the query in "
-        "English as a few keywords (e.g. 'ELARA tisagenlecleucel follicular lymphoma'), not as a "
-        "sentence: every word must match."
+        "Search PubMed (Best Match order) for articles on any biomedical topic. Returns the "
+        "PMID, title, journal, year, a short abstract, study_type when PubMed has it, cited_by "
+        "when 10 or more, and full_text (true: read_paper can read it). Query: a few English "
+        "keywords, not a sentence; every word must match."
     ),
     parameters={
         "type": "object",
@@ -494,6 +518,20 @@ NUMBER_RE = re.compile(r"\d+(?:[.,]\d+)?%?|(?:\d+|one|two|three|four|five|ten)-(
 # artículo en 14 (las otras 4 llevan palabras que el artículo no tiene); quitando la última
 # palabra cada vez, 12 con casi el doble de peticiones.
 RETRY_WORDS = (4, 2)
+# Un número tras "type" o "class" es parte del nombre, no un dato: sin él, "type 2 diabetes" se
+# quedaba en "type diabetes" (y "class II HLA" en "class HLA"). Se tratan como una sola palabra.
+NAMED_NUMBER_RE = re.compile(r"(?i)^(?:type|class)$")
+NUMERAL_RE = re.compile(r"(?i)^(?:\d+[a-z]?|i{1,3}|iv|v)$")
+
+
+def _join_named_numbers(words: list[str]) -> list[str]:
+    out: list[str] = []
+    for w in words:
+        if out and NAMED_NUMBER_RE.match(out[-1]) and NUMERAL_RE.match(w):
+            out[-1] = f"{out[-1]} {w}"
+        else:
+            out.append(w)
+    return out
 
 
 def _generic(word: str) -> bool:
@@ -504,7 +542,7 @@ def _generic(word: str) -> bool:
 
 def shorter_queries(query: str) -> list[str]:
     """Versiones más cortas de una consulta sin resultados, en el orden en que se prueban."""
-    words = QUERY_TOKEN_RE.findall(pubmed_term(query))
+    words = _join_named_numbers(QUERY_TOKEN_RE.findall(pubmed_term(query)))
     kept = [w for w in words if not _generic(w)] or words
     out: list[str] = []
     for n in RETRY_WORDS:

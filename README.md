@@ -145,7 +145,8 @@ flowchart TB
   A search with no results is retried with fewer words before the model sees it.
   `read_paper` fetches the JATS XML with `efetch db=pmc`, keeps paragraphs, figure captions and
   tables with their section, and ranks them with BM25. The passages share a fixed budget by rank,
-  so a long paragraph is cut to its best sentences instead of pushing the others out.
+  so a long paragraph is cut to its best sentences instead of pushing the others out. Reading
+  the same article again brings only passages not yet shown, at most twice per question.
   [`quotes.py`](src/amr_agent/quotes.py)
   looks for each quoted sentence in those passages and abstracts. Each mode has its own prompt,
   tools and step limit, so the AMR agent and its evals are untouched.
@@ -205,9 +206,12 @@ decisions 40 to 43 added about 550 tokens to a prompt that every round sends aga
 question at the median, mostly waiting for the per-minute quota. Both failures stopped at the
 token limit after reading an article whose passages lacked the figure. One paper writes "median
 DoR" and BM25 put that paragraph 11th for the agent's question; a shorter question would have
-reached it, but each article can be read once (decision 40). The other search found only reviews
-without figures. This run had the AMR agent's 12,000-token budget instead of the 16,000 of the
-deployed Papers agent; the eval now uses the API's (decision 46).
+reached it, but each article could be read once (decision 40). The other search found only
+reviews without figures. This run had the AMR agent's 12,000-token budget instead of the 16,000
+of the deployed Papers agent; the eval now uses the API's (decision 46). Since this run, a
+second read brings only passages not yet shown, which for that paper delivers the figure, and
+the Papers prompt and tool descriptions are ~230 tokens shorter per round (decision 47). Neither
+is measured with the agent yet.
 
 Before the agent, `read_paper` was measured on its own. It finds the passage with the answer
 in the top 8 for 0.92 of the LitQA2 questions (FutureHouse, 131 with open full text) and in the
@@ -280,7 +284,7 @@ endpoint, tracing is off and the SDK is not imported. See decision 39.
 
 ## Design decisions
 
-All 46 decisions, with context and trade-offs, are in [`docs/decisions.md`](docs/decisions.md).
+All 47 decisions, with context and trade-offs, are in [`docs/decisions.md`](docs/decisions.md).
 The ones that shaped the project most:
 
 | Decision | Why | Trade-off |

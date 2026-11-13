@@ -15,6 +15,7 @@ import math
 import re
 import xml.etree.ElementTree as ET
 from collections import Counter
+from collections.abc import Collection
 from dataclasses import dataclass
 
 CHUNK_CHARS = 1200
@@ -213,7 +214,13 @@ PASSAGE_TEXT_CHARS = 1000
 MIN_PASSAGE_CHARS = 400
 
 
-def best_passages(article: Article, question: str, k: int) -> list[Block]:
+@dataclass(frozen=True)
+class Passage(Block):
+    index: int = 0  # posición del trozo en el artículo: identifica el pasaje entre lecturas
+
+
+def best_passages(article: Article, question: str, k: int,
+                  skip: Collection[int] = ()) -> list[Passage]:
     """Los `k` trozos que mejor encajan con la pregunta, todos dentro de un presupuesto fijo.
 
     Un párrafo largo no se parte al trocear, así que un pasaje puede tener 3.000 caracteres.
@@ -222,15 +229,18 @@ def best_passages(article: Article, question: str, k: int) -> list[Block]:
     Ahora el presupuesto se reparte por puesto (decisión 46): cada pasaje va entero si deja al
     menos MIN_PASSAGE_CHARS a cada uno de los que vienen detrás y, si no, con sus frases más
     relevantes. Los primeros, que son los que más aciertan, casi nunca se tocan.
+
+    `skip`: índices de los trozos ya enseñados en esta pregunta. Una segunda lectura del mismo
+    artículo trae los siguientes más relevantes, no los mismos otra vez (decisión 47).
     """
     passages = chunk(article.blocks)
     order = bm25_rank(question, [f"{p.section} {p.text}" for p in passages])
-    chosen = [passages[i] for i in order[:k]]
+    chosen = [i for i in order if i not in skip][:k]
     left = k * PASSAGE_TEXT_CHARS
     out = []
-    for i, p in enumerate(chosen):
-        allow = max(MIN_PASSAGE_CHARS, left - MIN_PASSAGE_CHARS * (len(chosen) - i - 1))
-        text = excerpt(p.text, question, allow)
-        out.append(Block(p.section, text))
+    for n, i in enumerate(chosen):
+        allow = max(MIN_PASSAGE_CHARS, left - MIN_PASSAGE_CHARS * (len(chosen) - n - 1))
+        text = excerpt(passages[i].text, question, allow)
+        out.append(Passage(passages[i].section, text, i))
         left -= len(text)
     return out

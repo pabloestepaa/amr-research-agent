@@ -21,12 +21,17 @@ from amr_agent.tools import (
     ReadPaperTools,
     Toolset,
     pubmed_term,
+    reading_memory,
     shorter_queries,
     study_type,
 )
 from tests.fakes import ScriptedLLM, text_turn, tool_turn
 
 XML = (Path(__file__).parent / "fixtures" / "pmc_article.xml").read_bytes()
+# El artículo de ejemplo con 12 secciones más: da para leerlo dos veces sin repetir pasajes.
+LONG_XML = XML.replace(b"</body>", b"".join(
+    b"<sec><title>S%d</title><p>tocilizumab dose detail number %d in this section</p></sec>"
+    % (i, i) for i in range(12)) + b"</body>")
 
 
 def epmc_record(pmid: str, in_pmc: bool = True, open_access: bool = True) -> dict:
@@ -37,7 +42,8 @@ def epmc_record(pmid: str, in_pmc: bool = True, open_access: bool = True) -> dic
             "abstractText": "CAR-T <i>cells</i> " + "x" * 2000}
 
 
-def network(records: list[dict], pubmed: list[str] | None = None, esearch_down: bool = False):
+def network(records: list[dict], pubmed: list[str] | None = None, esearch_down: bool = False,
+            xml: bytes = XML):
     """PubMed ordena `pubmed` (por defecto, los PMIDs de `records`); Europe PMC describe
     `records`; NCBI devuelve el artículo de ejemplo (PMID 11111111)."""
     calls: list[httpx.Request] = []
@@ -56,7 +62,7 @@ def network(records: list[dict], pubmed: list[str] | None = None, esearch_down: 
         if url.startswith(IDCONV):
             return httpx.Response(200, json={"records": [{"pmcid": "PMC9999999"}]})
         if url.startswith(EFETCH):
-            return httpx.Response(200, content=XML)
+            return httpx.Response(200, content=xml)
         return httpx.Response(404)
 
     return httpx.AsyncClient(transport=httpx.MockTransport(handler)), calls
@@ -133,6 +139,15 @@ def test_shorter_queries_drop_generic_words_and_keep_the_study_first():
     assert shorter_queries("ZUMA-1 CRS") == []  # nada que quitar: no se repite la búsqueda
 
 
+def test_shorter_queries_keep_the_number_of_a_type_or_class():
+    # Antes, "type 2 diabetes" se quedaba en "type diabetes": el 2 contaba como un dato suelto.
+    assert shorter_queries("type 2 diabetes islet transplantation insulin independence "
+                           "5-year rate") == [
+        "type 2 diabetes islet transplantation", "type 2 diabetes"]
+    assert shorter_queries("class II HLA antibodies kidney graft loss phase 3") == [
+        "class II HLA antibodies kidney", "class II HLA"]
+
+
 async def test_search_papers_retries_an_empty_query_with_fewer_words():
     terms: list[str] = []
 
@@ -205,21 +220,48 @@ async def test_literature_mode_caps_search_papers_not_read_paper():
     assert blocked.startswith("ERROR: at most 2 search_papers calls per question")
 
 
-async def test_each_article_is_read_once():
-    # Pregunta real (2026-11-12): leyó el mismo artículo tres veces, cambiando la pregunta o el
-    # número de pasajes, y se quedó sin pasos para probar otro (decisión 40).
-    http, _ = network([epmc_record("11111111")])
+async def test_a_second_read_brings_only_new_passages_and_a_third_is_refused():
+    # Pregunta real (2026-11-12): leyó el mismo artículo tres veces y recibió casi lo mismo
+    # (decisión 40). En la eval (ft-04), la 2.ª pregunta, más corta, habría encontrado la cifra:
+    # ahora la 2.ª lectura trae los pasajes que no ha visto, y la 3.ª se rechaza (decisión 47).
+    http, _ = network([epmc_record("11111111")], xml=LONG_XML)
     tools = Toolset([PaperSearchTools(http), ReadPaperTools(http)])
     llm = ScriptedLLM(
-        tool_turn(("read_paper", {"paper_id": "11111111", "question": "insulin independence"})),
-        tool_turn(("read_paper", {"paper_id": "PMID: 11111111", "question": "percentage",
-                                  "k": 8})),
+        tool_turn(("read_paper", {"paper_id": "11111111", "question": "tocilizumab dose",
+                                  "k": 4})),
+        tool_turn(("read_paper", {"paper_id": "PMID: 11111111", "question": "tocilizumab",
+                                  "k": 4})),
+        tool_turn(("read_paper", {"paper_id": "11111111", "question": "dose", "k": 4})),
         text_turn("ok"))
     result = await Agent(llm, tools, mode=LITERATURE_MODE).run("?")
     assert [(s.tool, s.is_error) for s in result.steps] == [
-        ("read_paper", False), ("read_paper", True)]
-    blocked = llm.calls[2]["messages"][-1]["content"]
-    assert blocked.startswith("ERROR: you already read 11111111 in step 1")
+        ("read_paper", False), ("read_paper", False), ("read_paper", True)]
+    first, second = (json.loads(llm.calls[i]["messages"][-1]["content"]) for i in (1, 2))
+    texts = [{p["text"] for p in r["passages"]} for r in (first, second)]
+    assert len(texts[0]) == len(texts[1]) == 4 and not texts[0] & texts[1]
+    assert "note" not in first and second["note"].startswith("You read this article before")
+    blocked = llm.calls[3]["messages"][-1]["content"]
+    assert blocked.startswith("ERROR: you already read 11111111 2 times (steps 1 and 2)")
+
+
+async def test_a_new_question_starts_with_nothing_shown():
+    # La memoria es de la pregunta: la siguiente (u otra petición a la vez) lee desde el principio.
+    http, _ = network([epmc_record("11111111")])
+    tools = Toolset([PaperSearchTools(http), ReadPaperTools(http)])
+    read = tool_turn(("read_paper", {"paper_id": "11111111", "question": "dose", "k": 8}))
+    agent = Agent(ScriptedLLM(read, text_turn("ok"), read, text_turn("ok")), tools,
+                  mode=LITERATURE_MODE)
+    for _ in range(2):
+        assert not (await agent.run("?")).steps[0].is_error
+
+
+async def test_when_every_passage_was_shown_the_model_is_told_so():
+    http, _ = network([])
+    tools = ReadPaperTools(http)
+    with reading_memory():
+        await tools.call("read_paper", {"paper_id": "PMC9999999", "question": "dose", "k": 8})
+        again = await tools.call("read_paper", {"paper_id": "PMC9999999", "question": "rate"})
+    assert again.is_error and "every passage of PMC9999999 was already shown" in again.content
 
 
 async def test_a_read_that_failed_can_be_asked_again():
@@ -284,12 +326,8 @@ async def test_null_optional_arguments_are_not_invented():
 
 
 async def test_read_paper_returns_at_most_eight_passages():
-    http, _ = network([])
-    many = XML.replace(b"</body>", b"".join(  # 12 secciones más dentro del cuerpo
-        b"<sec><title>S%d</title><p>tocilizumab dose detail number %d in this section</p></sec>"
-        % (i, i) for i in range(12)) + b"</body>")
     tools = ReadPaperTools(httpx.AsyncClient(transport=httpx.MockTransport(
-        lambda r: httpx.Response(200, content=many))))
+        lambda r: httpx.Response(200, content=LONG_XML))))
     result = await tools.call("read_paper", {"paper_id": "PMC1", "question": "tocilizumab",
                                              "k": 10})
     assert len(json.loads(result.content)["passages"]) == 8
@@ -379,5 +417,6 @@ async def test_reading_an_article_keeps_its_study_type_in_the_reference():
 
 
 def test_the_papers_prompt_prefers_stronger_designs_and_the_amr_prompt_is_unchanged():
-    assert "Prefer meta-analyses, systematic reviews and" in LITERATURE_MODE.system_prompt
+    prompt = " ".join(LITERATURE_MODE.system_prompt.split())  # sin depender de los saltos
+    assert "Prefer meta-analyses, systematic reviews and trials" in prompt
     assert "study_type" not in AMR_MODE.system_prompt

@@ -635,7 +635,8 @@ got the 78.6% from the single-centre cohort, cited and with its quote, and the C
 pooled 98% for cytokine release syndrome of any grade and 9% for grade 3 or higher. The third, on
 chronic graft-versus-host disease, found only reviews without figures and refused. In two tasks
 the agent tried to read an article a second time and was stopped. In ft-04 the second question
-was shorter and would have ranked the figure higher.
+was shorter and would have ranked the figure higher. Decision 47 replaces the read-once rule with a second read
+that brings only passages not yet shown.
 
 ## 41. Papers answers in the user's language, written as a native would (2026-11-12)
 **Context.** The second real question ("¿Qué medicamentos tiene que tomar un paciente después de
@@ -884,3 +885,42 @@ text. For ft-04, a read with "median duration of response" now delivers the figu
 agent's first question the paragraph is still 11th. The read-once rule stays for now: in this
 run it blocked two second reads, and a second read that returns only passages not yet shown is
 the next thing to try. Not yet measured with the agent.
+
+## 47. Read an article again for new passages; a shorter Papers prompt (2026-11-13)
+**Context.** Two findings of the third literature eval (decision 46). In ft-04 the agent read
+the right paper with a long question, then asked again with "median duration of response", and
+the read-once rule of decision 40 stopped it. That second question ranks the paragraph with the
+answer fifth. The rule was there for a real case: the user's question of decision 40 read the
+same registry article three times and got nearly the same passages each time. Separately, cost
+per task rose from ~6,400 to ~8,900 tokens. Decisions 40 to 43 had grown the Papers system
+prompt, which every round sends again, to ~1,000 tokens, plus ~480 for the two tool
+descriptions.
+**Options.**
+- For re-reading: keep the rule; drop it and accept repeated passages; or let a second read
+  return only passages not shown yet. Passages are identified by their position among the
+  article's chunks, so a different question or a different k cannot bring the same one back.
+- Where the memory of shown passages lives. The tool serves every API request at once, so it
+  cannot be an attribute. Passing it as an argument would show it to the model, and `Toolset`
+  rejects arguments the schema does not declare (decision 35). A context variable holds it for
+  one question, as `RETRY_WAIT` does for quota waits (decision 44).
+- For the prompt, the rules shared with the AMR mode (scope, citations, other words, refusal)
+  stay as they are, so the AMR prompt does not change. Only the Papers parts can shrink.
+**Decision.**
+- `Agent.run` opens a `reading_memory()` for the question. `read_paper` records which chunks of
+  each article (by PMCID) it has shown and leaves them out of the next read, with a note saying
+  so. If every chunk was shown, it says that instead. Outside an agent run (tests, scripts)
+  there is no memory and nothing changes.
+- An article can be read twice per question (`AgentMode.max_reads`); the third read gets an
+  error that names the earlier steps. Identical calls are still refused (decision 30).
+- The Papers prompt says the same things in fewer words: one sentence per rule where there were
+  two, the examples measured in decision 41 kept. The `read_paper` description no longer says
+  when to use it, which the prompt already does, and `search_papers` loses its query example,
+  which the prompt already gives. System prompt ~1,000 → ~850 tokens, tool descriptions ~480 →
+  ~400, so ~230 fewer per round (counted with `o200k_base`, an approximation of gpt-oss's
+  tokenizer). The AMR prompt is unchanged, byte for byte.
+**Result.** Without the LLM, against NCBI: for ft-04, the second read with the agent's own
+question from the eval now returns the "median DoR was 25.6 weeks" paragraph, with no passage
+repeated. For gen-03 the second read returns other figures from the review, but not the one asked
+for, which that review does not give: there the search is what failed. Three new tests, and the read-once test rewritten. Not yet
+measured with the agent: the next literature run will measure this, decision 46 and the
+16,000-token budget together.
