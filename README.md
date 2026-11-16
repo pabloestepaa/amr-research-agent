@@ -181,10 +181,12 @@ are in [`evals/RESULTS.md`](evals/RESULTS.md).
 Keyword search alone is weak on paraphrases (recall@5 0.50) and vector search on exact gene names
 (0.83 against 0.92); hybrid holds up on both.
 
-**Answers** (42 questions, 6 of them out of scope): faithfulness 0.96, relevance 0.99, no
-hallucinated PMIDs, every in-scope answer cites a source; 5 of 6 out-of-scope questions refused,
-but also 6 of 36 in-scope questions wrongly refused. This run predates the keyword-search fix
-below, which retrieves the relevant abstract more often; a re-run is pending.
+**Answers** (42 questions, 6 of them out of scope; run of 16 Nov): faithfulness 0.96, relevance
+1.00, no hallucinated PMIDs, every in-scope answer cites a source, and all 6 out-of-scope
+questions refused. 3 of 36 in-scope questions were refused, down from 6 before the keyword-search
+fix below; in all three the relevant abstract was not among the 5 retrieved, so the refusal is
+right for what the model saw. Two of them are paraphrases that vector search alone ranks in its
+top 5 and hybrid search drops.
 
 **Agent** (22 tasks over catalog, species, references, literature, multi-tool and out-of-scope
 questions): 19/22 tasks fully correct in the latest run, right tools and right arguments in

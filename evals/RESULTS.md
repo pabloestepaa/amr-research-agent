@@ -38,18 +38,18 @@ Failed tasks:
 
 ## Answers — answers
 
-Generator: `openai/gpt-oss-120b` · judge: `openai/gpt-oss-20b` · 42 questions · retrieval `hybrid`, k=5, keyword max_df=1.0
+Generator: `openai/gpt-oss-120b` · judge: `openai/gpt-oss-20b` · 42 questions · retrieval `hybrid`, k=5, keyword max_df=0.1
 
 | metric | value |
 |---|---|
 | Faithfulness (claims supported by the cited abstracts) | 0.96 |
-| Answer relevance (judge, 1–5 scaled to 0–1) | 0.99 |
+| Answer relevance (judge, 1–5 scaled to 0–1) | 1.00 |
 | Answers without hallucinated PMIDs | 1.00 |
 | In-scope answers that cite at least one source | 1.00 |
-| Out-of-scope questions correctly refused | 0.83 |
-| In-scope questions wrongly refused (lower is better) | 0.17 |
-| Questions whose relevant abstract was retrieved | 0.83 |
-| p50 latency (ms) | 22199.90 |
+| Out-of-scope questions correctly refused | 1.00 |
+| In-scope questions wrongly refused (lower is better) | 0.08 |
+| Questions whose relevant abstract was retrieved | 0.92 |
+| p50 latency (ms) | 20798.20 |
 
 ## Agent — literature
 

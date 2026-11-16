@@ -3,44 +3,50 @@
   "judge_model": "openai/gpt-oss-20b",
   "mode": "hybrid",
   "k": 5,
+  "keyword_max_df": 0.1,
+  "keyword_weight": 1.0,
+  "complete": true,
   "n_questions": 42,
   "summary": {
-    "faithfulness": 0.9639,
-    "relevance": 0.9917,
+    "faithfulness": 0.9596,
+    "relevance": 1.0,
     "citation_validity": 1.0,
     "citation_coverage": 1.0,
-    "abstention_accuracy": 0.8333,
-    "false_abstention_rate": 0.1667,
-    "context_hit_rate": 0.8333,
-    "latency_ms_p50": 22199.9
+    "abstention_accuracy": 1.0,
+    "false_abstention_rate": 0.0833,
+    "context_hit_rate": 0.9167,
+    "latency_ms_p50": 20798.2
   },
   "per_question": [
     {
       "id": "gene-01",
       "type": "gene_specific",
       "question": "Did bla OXA-244 predominate and reside mainly on the chromosome in the pediatric cancer patient E. coli isolates?",
-      "answer": "I could not find evidence for this in the indexed literature.",
-      "abstained": true,
-      "citations": [],
+      "answer": "Yes. In the collection of 20 bloodstream E. coli isolates from pediatric cancer patients, the OXA‑244 variant was the most common OXA‑48‑like gene and was found mainly integrated in the chromosome rather than on plasmids[PMID:42005841].",
+      "abstained": false,
+      "citations": [
+        "42005841"
+      ],
       "invalid_citations": [],
-      "context_hit": false,
-      "latency_ms": 9099.400000000001,
-      "faithfulness": null,
-      "relevance": null,
+      "context_hit": true,
+      "latency_ms": 1200.0,
+      "faithfulness": 1.0,
+      "relevance": 1.0,
       "unsupported_claims": []
     },
     {
       "id": "gene-02",
       "type": "gene_specific",
       "question": "Is the mcr-9 gene detected in multidrug‑resistant uropathogenic Escherichia coli isolates from urinary tract infection patients?",
-      "answer": "No. In a study of 88 multidrug‑resistant uropathogenic Escherichia coli isolates from urine samples of urinary‑tract infection patients, none carried the mcr‑9 gene, and none were resistant to colistin or polymyxin B[PMID:40708009].",
+      "answer": "Screening of 88 multidrug‑resistant uropathogenic E. coli (UPEC) isolates from urine samples showed that none carried the mcr‑9 gene; all isolates were colistin‑susceptible and mcr‑9 was absent[PMID:40708009].  \n\nA separate investigation of ESBL‑producing Enterobacteriaceae from clinical specimens did identify a silent mcr‑9 in a single E. coli urine isolate, but this study did not focus on a defined MDR‑UPEC cohort[PMID:41252401].  Hence, in the specific set of MDR‑UPEC isolates examined, mcr‑9 was not detected.",
       "abstained": false,
       "citations": [
-        "40708009"
+        "40708009",
+        "41252401"
       ],
       "invalid_citations": [],
       "context_hit": true,
-      "latency_ms": 19927.2,
+      "latency_ms": 1583.7,
       "faithfulness": 1.0,
       "relevance": 1.0,
       "unsupported_claims": []
@@ -49,14 +55,14 @@
       "id": "gene-03",
       "type": "gene_specific",
       "question": "What is the prevalence of co-occurrence of blaTEM and blaCTX-M among ESBL-producing uropathogenic E. coli isolates from ICU patients in Tabriz, Iran?",
-      "answer": "Among the 48 ESBL‑producing uropathogenic E. coli isolates from ICU patients in Tabriz, 18 carried both bla_TEM and bla_CTX‑M, giving a co‑occurrence prevalence of **37.5 % (18/48 isolates)**[PMID:42819557].",
+      "answer": "Among the 48 ESBL‑producing uropathogenic E. coli isolates recovered from ICU patients in Tabriz, 18 isolates harboured both bla_TEM and bla_CTX‑M, corresponding to a co‑occurrence prevalence of **37.5 %** of ESBL producers[PMID:42819557].",
       "abstained": false,
       "citations": [
         "42819557"
       ],
       "invalid_citations": [],
       "context_hit": true,
-      "latency_ms": 21938.399999999998,
+      "latency_ms": 5909.5,
       "faithfulness": 1.0,
       "relevance": 1.0,
       "unsupported_claims": []
@@ -65,14 +71,14 @@
       "id": "gene-04",
       "type": "gene_specific",
       "question": "What are the reported conjugation transfer efficiencies of the bla NDM-1–harboring IncFII plasmid from Salmonella Derby and Escherichia coli isolates?",
-      "answer": "The IncFII plasmid carrying bla NDM‑1 transferred from the carbapenem‑resistant Salmonella Derby isolate (CS_CRSA) to a recipient at an efficiency of (4.50 ± 1.29) × 10⁻², whereas the same plasmid from the co‑isolated Escherichia coli (CS_CREco) transferred at an efficiency of (3.17 ± 0.74) × 10⁻¹[PMID:41878261].",
+      "answer": "The IncFII plasmid carrying bla NDM‑1 transferred from the carbapenem‑resistant **Salmonella Derby** isolate to a recipient at an efficiency of **(4.50 ± 1.29) × 10⁻²**. The same plasmid transferred from the co‑isolated **Escherichia coli** strain at a higher efficiency of **(3.17 ± 0.74) × 10⁻¹**[PMID:41878261].",
       "abstained": false,
       "citations": [
         "41878261"
       ],
       "invalid_citations": [],
       "context_hit": true,
-      "latency_ms": 22199.899999999998,
+      "latency_ms": 20150.6,
       "faithfulness": 1.0,
       "relevance": 1.0,
       "unsupported_claims": []
@@ -81,14 +87,14 @@
       "id": "gene-05",
       "type": "gene_specific",
       "question": "How does incubation at 42°C affect the copy number of blaNDM-5 in bacterial membrane vesicles from pig-derived carbapenem-resistant E. coli?",
-      "answer": "Incubating the pig‑derived carbapenem‑resistant E. coli at 42 °C markedly enriches the bla_NDM‑5 gene within its membrane vesicles: vesicles harvested after growth at 42 °C contain more than a two‑fold increase in bla_NDM‑5 copy number compared with those produced at 37 °C, even though bacterial growth and vesicle size remain unchanged[PMID:42176434]. This temperature‑driven boost in vesicular gene load accompanies a ~1.5‑fold rise in overall vesicle release, indicating that elevated host‑relevant temperature can amplify both vesicle production and the genetic cargo that mediates carbapenem‑resistance dissemination.",
+      "answer": "Incubation of the pig‑derived carbapenem‑resistant E. coli at 42 °C markedly enriches bla_NDM‑5 within the released membrane vesicles, raising the vesicular gene copy number by more than two‑fold compared with vesicles produced at 37 °C[PMID:42176434].",
       "abstained": false,
       "citations": [
         "42176434"
       ],
       "invalid_citations": [],
       "context_hit": true,
-      "latency_ms": 25215.0,
+      "latency_ms": 21884.1,
       "faithfulness": 1.0,
       "relevance": 1.0,
       "unsupported_claims": []
@@ -97,32 +103,30 @@
       "id": "gene-06",
       "type": "gene_specific",
       "question": "What is the role of blaTEM-1 and blaTEM-176 overexpression in ampicillin/sulbactam resistance of non-ESBL Salmonella from raw chicken?",
-      "answer": "Overexpression of the class A β‑lactamase genes **bla_TEM‑1** and **bla_TEM‑176** causes hyperproduction of TEM enzyme in non‑ESBL Salmonella isolates from raw chicken. This β‑lactamase hyperproduction raises the ampicillin MIC (≈5‑fold higher than susceptible strains) and, when the ampicillin MIC reaches about 1024 µg L⁻¹, the isolates become resistant to the β‑lactam/β‑lactamase‑inhibitor combination ampicillin/sulbactam. Thus, host‑dependent over‑expression of bla_TEM‑1/‑176 underlies the atypical SAM resistance observed in these Salmonella strains[PMID:41604208].",
+      "answer": "Overexpression of the bla_TEM‑1 and bla_TEM‑176 genes drives hyper‑production of TEM β‑lactamase in non‑ESBL Salmonella isolates from raw chicken, raising the ampicillin MIC by ≈5‑fold and thereby conferring resistance to the ampicillin/sulbactam (SAM) combination.  Host‑dependent up‑regulation of these genes was shown to be the key mechanism underlying the atypical SAM‑resistant phenotype, with an ampicillin MIC ≥1024 ppm predicting SAM resistance[PMID:41604208].",
       "abstained": false,
       "citations": [
         "41604208"
       ],
       "invalid_citations": [],
       "context_hit": true,
-      "latency_ms": 18227.100000000002,
-      "faithfulness": 0.75,
-      "relevance": 0.75,
-      "unsupported_claims": [
-        "When the ampicillin MIC reaches about 1024 µg L⁻¹, the isolates become resistant to the β‑lactam/β‑lactamase‑inhibitor combination ampicillin/sulbactam."
-      ]
+      "latency_ms": 21300.0,
+      "faithfulness": 1.0,
+      "relevance": 1.0,
+      "unsupported_claims": []
     },
     {
       "id": "gene-07",
       "type": "gene_specific",
       "question": "What percentage of freshwater fish were contaminated with colistin-resistant E. coli carrying the mcr-1 gene?",
-      "answer": "Approximately 24 % of the freshwater fish sampled were contaminated with colistin‑resistant E. coli that all harboured the mcr‑1 gene[PMID:36166861].",
+      "answer": "About 24 % of the freshwater fish sampled were contaminated with colistin‑resistant E. coli that all harboured the plasmid‑mediated mcr‑1 gene (24.3 % of the 103 fish examined)[PMID:36166861].",
       "abstained": false,
       "citations": [
         "36166861"
       ],
       "invalid_citations": [],
       "context_hit": true,
-      "latency_ms": 20044.3,
+      "latency_ms": 22092.3,
       "faithfulness": 1.0,
       "relevance": 1.0,
       "unsupported_claims": []
@@ -131,14 +135,14 @@
       "id": "gene-08",
       "type": "gene_specific",
       "question": "Which plasmid type in the Indian Salmonella Typhi outbreak carries the bla NDM-5 gene?",
-      "answer": "The Indian Salmonella Typhi outbreak harboured the bla NDM‑5 gene on an IncX3 plasmid[PMID:41415828].",
+      "answer": "The outbreak isolates harbored the bla NDM‑5 gene on an IncX3 plasmid[PMID:41415828].",
       "abstained": false,
       "citations": [
         "41415828"
       ],
       "invalid_citations": [],
       "context_hit": true,
-      "latency_ms": 24867.1,
+      "latency_ms": 21812.0,
       "faithfulness": 1.0,
       "relevance": 1.0,
       "unsupported_claims": []
@@ -147,14 +151,14 @@
       "id": "gene-09",
       "type": "gene_specific",
       "question": "What proportion of mcr-1-positive avian pathogenic E. coli isolates from Algerian poultry belong to phylogroup B1?",
-      "answer": "In the Algerian study of mcr‑1‑positive avian pathogenic E. coli, 76 % of the mcr‑1‑positive isolates were assigned to phylogroup B1[PMID:42704645].",
+      "answer": "In the Algerian study, 41 mcr‑1‑positive avian pathogenic E. coli isolates were phylogrouped, and 76 % of them were assigned to phylogroup B1[PMID:42704645].",
       "abstained": false,
       "citations": [
         "42704645"
       ],
       "invalid_citations": [],
       "context_hit": true,
-      "latency_ms": 19091.5,
+      "latency_ms": 21116.600000000002,
       "faithfulness": 1.0,
       "relevance": 1.0,
       "unsupported_claims": []
@@ -163,14 +167,14 @@
       "id": "gene-10",
       "type": "gene_specific",
       "question": "On which plasmid incompatibility group is the blaKPC-2 gene located in the Enterobacter kobei SCLZS19 isolate?",
-      "answer": "The bla_KPC‑2 gene in the Enterobacter kobei SCLZS19 isolate is located on a self‑transmissible IncP6 plasmid [PMID:37369327].",
+      "answer": "The blaKPC‑2 gene in the Enterobacter kobei SCLZS19 isolate is located on a self‑transmissible IncP6 plasmid[PMID:37369327].",
       "abstained": false,
       "citations": [
         "37369327"
       ],
       "invalid_citations": [],
       "context_hit": true,
-      "latency_ms": 24995.3,
+      "latency_ms": 26004.199999999997,
       "faithfulness": 1.0,
       "relevance": 1.0,
       "unsupported_claims": []
@@ -179,14 +183,14 @@
       "id": "gene-11",
       "type": "gene_specific",
       "question": "What is the sensitivity of the LAMP assay for detecting the fosA gene in Escherichia coli?",
-      "answer": "The LAMP assay detected the fosA gene in Escherichia coli with a sensitivity of 43 % (specificity 90.9 %)[PMID:42218183].",
+      "answer": "The LAMP assay developed for the fosA resistance gene showed a sensitivity of **43 % when applied to *Escherichia coli* isolates**[PMID:42218183].",
       "abstained": false,
       "citations": [
         "42218183"
       ],
       "invalid_citations": [],
       "context_hit": true,
-      "latency_ms": 23964.5,
+      "latency_ms": 21934.9,
       "faithfulness": 1.0,
       "relevance": 1.0,
       "unsupported_claims": []
@@ -195,14 +199,14 @@
       "id": "gene-12",
       "type": "gene_specific",
       "question": "What is the limit of detection for blaCTX-M using nested PCR after 8 hours enrichment?",
-      "answer": "The nested PCR (nPCR) assay achieved a limit of detection of **1 CFU per milliliter** for the bla<sub>CTX‑M</sub> gene after **8 hours of enrichment** in the enrichment medium[PMID:39335221].",
+      "answer": "The nested PCR (nPCR) assay achieved a limit of detection of **1 CFU per mL** for the bla<sub>CTX‑M</sub> gene after **8 hours of enrichment** in the selective medium[PMID:39335221].",
       "abstained": false,
       "citations": [
         "39335221"
       ],
       "invalid_citations": [],
       "context_hit": true,
-      "latency_ms": 22334.0,
+      "latency_ms": 24994.5,
       "faithfulness": 1.0,
       "relevance": 1.0,
       "unsupported_claims": []
@@ -211,14 +215,14 @@
       "id": "fact-13",
       "type": "factual",
       "question": "What percentage of Escherichia coli isolates from Kawempe slum wastewater were resistant to at least one antibiotic?",
-      "answer": "In the Kawempe slum wastewater study, 72.8 % of the Escherichia coli isolates (169 of 232) were resistant to at least one of the tested antibiotics[PMID:40399779].",
+      "answer": "In the study of wastewater from Kawempe slums, 72.8 % of the Escherichia coli isolates (169 of 232) were resistant to at least one of the tested antibiotics[PMID:40399779].",
       "abstained": false,
       "citations": [
         "40399779"
       ],
       "invalid_citations": [],
       "context_hit": true,
-      "latency_ms": 23100.5,
+      "latency_ms": 19912.1,
       "faithfulness": 1.0,
       "relevance": 1.0,
       "unsupported_claims": []
@@ -227,18 +231,18 @@
       "id": "fact-14",
       "type": "factual",
       "question": "Which dfr gene variants were detected in the trimethoprim‑sulfamethoxazole‑resistant E. coli isolates?",
-      "answer": "The trimethoprim‑sulfamethoxazole‑resistant E coli isolates harbored the dfrA5 gene, and a single isolate also carried dfrA1; no dfrA7/17 variants were reported among the resistant strains[PMID:42626150].",
+      "answer": "The study of urinary‑tract isolates found that among the trimethoprim‑sulfamethoxazole‑resistant E. coli, the dihydrofolate‑reductase genes dfrA5 were present in several isolates and dfrA1 was detected in one isolate; the other screened variant (dfrA7/17) was not reported among the resistant strains [PMID:42626150].",
       "abstained": false,
       "citations": [
         "42626150"
       ],
       "invalid_citations": [],
       "context_hit": true,
-      "latency_ms": 24109.9,
+      "latency_ms": 13237.7,
       "faithfulness": 0.6666666666666666,
       "relevance": 1.0,
       "unsupported_claims": [
-        "No dfrA7/17 variants were reported among the resistant strains."
+        "The other screened variant dfrA7/17 was not reported among the resistant strains."
       ]
     },
     {
@@ -252,7 +256,7 @@
       ],
       "invalid_citations": [],
       "context_hit": true,
-      "latency_ms": 27963.300000000003,
+      "latency_ms": 18877.699999999997,
       "faithfulness": 1.0,
       "relevance": 1.0,
       "unsupported_claims": []
@@ -261,30 +265,32 @@
       "id": "fact-16",
       "type": "factual",
       "question": "Which quorum-sensing system is described as the primary AI-2 pathway in uropathogenic Escherichia coli?",
-      "answer": "The primary AI‑2 quorum‑sensing pathway in uropathogenic Escherichia coli is the LuxS‑dependent AI‑2 system [PMID:41750267].",
+      "answer": "The primary AI‑2 quorum‑sensing pathway in uropathogenic Escherichia coli is the LuxS‑dependent autoinducer‑2 (AI‑2) system[PMID:41750267].",
       "abstained": false,
       "citations": [
         "41750267"
       ],
       "invalid_citations": [],
       "context_hit": true,
-      "latency_ms": 18019.100000000002,
-      "faithfulness": 1.0,
+      "latency_ms": 17837.3,
+      "faithfulness": 0.0,
       "relevance": 1.0,
-      "unsupported_claims": []
+      "unsupported_claims": [
+        "The primary AI‑2 quorum‑sensing pathway in uropathogenic Escherichia coli is the LuxS‑dependent autoinducer‑2 (AI‑2) system."
+      ]
     },
     {
       "id": "fact-17",
       "type": "factual",
       "question": "What procalcitonin level is identified as a predictor of septic shock in acute obstructive pyelonephritis?",
-      "answer": "Elevated procalcitonin greater than 1.12 µg/L has been identified as a predictor of septic shock in patients with acute obstructive pyelonephritis[PMID:41597508].",
+      "answer": "Elevated procalcitonin greater than 1.12 µg/L has been reported as a predictor of septic shock in patients with acute obstructive pyelonephritis[PMID:41597508].",
       "abstained": false,
       "citations": [
         "41597508"
       ],
       "invalid_citations": [],
       "context_hit": true,
-      "latency_ms": 20084.6,
+      "latency_ms": 21947.0,
       "faithfulness": 1.0,
       "relevance": 1.0,
       "unsupported_claims": []
@@ -293,14 +299,14 @@
       "id": "fact-18",
       "type": "factual",
       "question": "What share of infections at An-Najah National University Hospital in Palestine were caused by ESBL-producing E. coli?",
-      "answer": "At An‑Najah National University Hospital, ESBL‑producing *Escherichia coli* were responsible for the majority of infections, accounting for **62.8 % of all cases** reported in the 2021 retrospective study[PMID:38321071].",
+      "answer": "At An‑Najah National University Hospital, ESBL‑producing *Escherichia coli* were responsible for the majority of infections, accounting for **62.8 %** of the cases reported in the 2021 cohort[PMID:38321071].",
       "abstained": false,
       "citations": [
         "38321071"
       ],
       "invalid_citations": [],
       "context_hit": true,
-      "latency_ms": 20910.899999999998,
+      "latency_ms": 24767.199999999997,
       "faithfulness": 1.0,
       "relevance": 1.0,
       "unsupported_claims": []
@@ -309,14 +315,14 @@
       "id": "fact-19",
       "type": "factual",
       "question": "What percentage of Enterobacter cloacae isolates from Polish retail animal-origin foods were resistant to ampicillin?",
-      "answer": "In the Polish study of retail foods of animal origin, 76.9 % of the Enterobacter cloacae isolates were resistant to ampicillin[PMID:41064398].",
+      "answer": "In Polish retail foods of animal origin, 76.9 % of the Enterobacter cloacae isolates were resistant to ampicillin[PMID:41064398].",
       "abstained": false,
       "citations": [
         "41064398"
       ],
       "invalid_citations": [],
       "context_hit": true,
-      "latency_ms": 26684.7,
+      "latency_ms": 18889.600000000002,
       "faithfulness": 1.0,
       "relevance": 1.0,
       "unsupported_claims": []
@@ -325,14 +331,14 @@
       "id": "fact-20",
       "type": "factual",
       "question": "Which metabolic pathway does 18AA activate to enhance ceftazidime‑avibactam activity against carbapenem‑resistant Escherichia coli?",
-      "answer": "Compound amino‑acid injection (18AA) reprograms bacterial metabolism by strongly activating the pyruvate cycle, leading to increased NADH production and a higher proton‑motive force that promotes intracellular accumulation of ceftazidime‑avibactam[PMID:42852341]. This metabolic shift underlies the observed synergistic killing of carbapenem‑resistant E. coli when 18AA is combined with the antibiotic[PMID:42852341].",
+      "answer": "18AA potentiates ceftazidime‑avibactam by reprogramming bacterial metabolism and strongly activating the pyruvate cycle, which raises NADH production and the proton‑motive force, thereby increasing intracellular drug accumulation in carbapenem‑resistant E. coli[PMID:42852341].",
       "abstained": false,
       "citations": [
         "42852341"
       ],
       "invalid_citations": [],
       "context_hit": true,
-      "latency_ms": 25006.8,
+      "latency_ms": 20232.0,
       "faithfulness": 1.0,
       "relevance": 1.0,
       "unsupported_claims": []
@@ -341,14 +347,14 @@
       "id": "fact-21",
       "type": "factual",
       "question": "What proportion of carbapenemase-producing Enterobacterales isolates were resistant to mecillinam in the 2023 Marrakech study?",
-      "answer": "In the 2023 Marrakech study, 64 % of the carbapenemase‑producing Enterobacterales isolates were resistant to mecillinam[PMID:42306523].",
+      "answer": "In the 2023 Marrakech study, 64 % of the 180 carbapenemase‑producing Enterobacterales isolates were resistant to mecillinam[PMID:42306523].",
       "abstained": false,
       "citations": [
         "42306523"
       ],
       "invalid_citations": [],
       "context_hit": true,
-      "latency_ms": 22839.1,
+      "latency_ms": 23802.8,
       "faithfulness": 1.0,
       "relevance": 1.0,
       "unsupported_claims": []
@@ -357,14 +363,14 @@
       "id": "fact-22",
       "type": "factual",
       "question": "What proportion of STEC and EHEC isolates from Brazilian beef cattle carried the stx2 gene?",
-      "answer": "Among the STEC and EHEC isolates recovered from Brazilian beef cattle, 21 of 24 isolates harboured the stx2 gene, corresponding to about 87 % (21/24) of these isolates[PMID:42231163].",
+      "answer": "Among the STEC and EHEC isolates obtained from Brazilian beef cattle (n = 24), the stx2 gene was detected in 21 isolates, corresponding to 21/24 ≈ 87.5 % of the isolates[PMID:42231163].",
       "abstained": false,
       "citations": [
         "42231163"
       ],
       "invalid_citations": [],
       "context_hit": true,
-      "latency_ms": 21953.2,
+      "latency_ms": 21070.3,
       "faithfulness": 1.0,
       "relevance": 1.0,
       "unsupported_claims": []
@@ -373,14 +379,14 @@
       "id": "fact-23",
       "type": "factual",
       "question": "Which antibiotic classes exhibited notable resistance among isolates from the integrated chicken and fish farming system in Bangladesh?",
-      "answer": "The culture‑based antimicrobial susceptibility testing of isolates from the integrated chicken‑fish farms showed especially high resistance to **tetracycline‑class agents** and **fluoroquinolones**[PMID:41950191].",
+      "answer": "The isolates from the integrated chicken‑fish farming system showed especially high resistance to **tetracycline‑type antibiotics** and **fluoroquinolones**[PMID:41950191].",
       "abstained": false,
       "citations": [
         "41950191"
       ],
       "invalid_citations": [],
       "context_hit": true,
-      "latency_ms": 23041.6,
+      "latency_ms": 23798.6,
       "faithfulness": 1.0,
       "relevance": 1.0,
       "unsupported_claims": []
@@ -389,14 +395,14 @@
       "id": "fact-24",
       "type": "factual",
       "question": "In Gram-negative bloodstream infections at a tertiary hospital in eastern India, which factor independently predicted difficult-to-treat resistance?",
-      "answer": "Prior antibiotic use was the only factor that independently predicted difficult‑to‑treat resistance among Gram‑negative bloodstream infections in the tertiary hospital in eastern India[PMID:42544149].",
+      "answer": "Prior antibiotic use was the only factor that remained independently associated with difficult‑to‑treat resistance in Gram‑negative bloodstream infections at the tertiary hospital in eastern India[PMID:42544149].",
       "abstained": false,
       "citations": [
         "42544149"
       ],
       "invalid_citations": [],
       "context_hit": true,
-      "latency_ms": 25055.100000000002,
+      "latency_ms": 25028.600000000002,
       "faithfulness": 1.0,
       "relevance": 1.0,
       "unsupported_claims": []
@@ -405,14 +411,14 @@
       "id": "para-25",
       "type": "paraphrase",
       "question": "What independent risk factors are associated with multidrug‑resistant infections among adults with chronic hepatic disease?",
-      "answer": "In adults with chronic liver disease, multivariate analysis identified several independent predictors of infection with multidrug‑resistant (MDR) bacteria: age > 60 years (adjusted OR ≈ 1.9), male gender (adjusted OR ≈ 1.7), acquisition of infection in a healthcare setting (adjusted OR ≈ 3.1), a Gram‑negative etiology of the infection (adjusted OR ≈ 2.7), and prior exposure to antibiotics (adjusted OR ≈ 3.0)[PMID:42051708].",
+      "answer": "In adults with chronic hepatic disease, multivariate analysis identified several independent predictors of multidrug‑resistant (MDR) infection: age > 60 years, male gender, acquisition of the infection in a healthcare setting, a Gram‑negative bacterial etiology, and prior exposure to antibiotics [PMID:42051708].",
       "abstained": false,
       "citations": [
         "42051708"
       ],
       "invalid_citations": [],
       "context_hit": true,
-      "latency_ms": 21298.5,
+      "latency_ms": 19114.3,
       "faithfulness": 1.0,
       "relevance": 1.0,
       "unsupported_claims": []
@@ -421,48 +427,45 @@
       "id": "para-26",
       "type": "paraphrase",
       "question": "How did resistance to last-resort beta-lactams change over a decade among urinary pathogens in South Korean hospitals?",
-      "answer": "I could not find evidence for this in the indexed literature.",
-      "abstained": true,
-      "citations": [],
+      "answer": "Over the ten‑year period (2012‑2021) carbapenems – the last‑resort β‑lactams for urinary isolates – showed divergent trends in the two dominant uropathogens.  In *Escherichia coli* the prevalence of ertapenem resistance stayed very low, rising only from 0.3 % to 1.2 % and never reaching a clinically significant level[PMID:40870856].  By contrast, *Klebsiella pneumoniae* displayed a marked increase: ertapenem resistance climbed from 3.0 % to 18.1 % and imipenem resistance from 0.4 % to 16.8 % over the same decade, driven largely by ESBL‑producing strains[PMID:40870856].\n\nA later single‑center series (2016‑2024) confirmed the upward trajectory, reporting a steady rise in carbapenem resistance among both *E. coli* and *K. pneumoniae* (annual percentage change ≈ 22 %) despite the overall rates remaining lower than for other agents[PMID:42405714].  Thus, while carbapenem (last‑resort β‑lactam) resistance remained minimal in *E. coli*, it escalated substantially in *K. pneumoniae* across a decade of Korean hospital urinary isolates.",
+      "abstained": false,
+      "citations": [
+        "40870856",
+        "42405714"
+      ],
       "invalid_citations": [],
-      "context_hit": false,
-      "latency_ms": 31870.7,
-      "faithfulness": null,
-      "relevance": null,
+      "context_hit": true,
+      "latency_ms": 18992.199999999997,
+      "faithfulness": 1.0,
+      "relevance": 1.0,
       "unsupported_claims": []
     },
     {
       "id": "para-27",
       "type": "paraphrase",
       "question": "Which plant-derived polyphenol enhanced tetracycline activity against a multidrug‑resistant Escherichia coli strain?",
-      "answer": "The flavonoid myricetin, a plant‑derived polyphenol, was shown to markedly increase tetracycline activity against a multidrug‑resistant Escherichia coli isolate[PMID:41739274].",
-      "abstained": false,
-      "citations": [
-        "41739274"
-      ],
+      "answer": "I could not find evidence for this in the indexed literature.",
+      "abstained": true,
+      "citations": [],
       "invalid_citations": [],
-      "context_hit": true,
-      "latency_ms": 25880.600000000002,
-      "faithfulness": 0.5,
-      "relevance": 1.0,
-      "unsupported_claims": [
-        "The flavonoid myricetin is a plant‑derived polyphenol"
-      ]
+      "context_hit": false,
+      "latency_ms": 22966.5,
+      "faithfulness": null,
+      "relevance": null,
+      "unsupported_claims": []
     },
     {
       "id": "para-28",
       "type": "paraphrase",
       "question": "Which penicillin-type drugs did gut bacteria from industrially raised meat chickens in eastern China resist most often?",
-      "answer": "The gut bacteria (predominantly Escherichia coli) isolated from industrially raised broiler chickens in Shandong Province, eastern China, showed the highest resistance to the penicillin‑type antibiotics amoxicillin and ampicillin [PMID:41415812].",
-      "abstained": false,
-      "citations": [
-        "41415812"
-      ],
+      "answer": "I could not find evidence for this in the indexed literature.",
+      "abstained": true,
+      "citations": [],
       "invalid_citations": [],
-      "context_hit": true,
-      "latency_ms": 18161.5,
-      "faithfulness": 1.0,
-      "relevance": 1.0,
+      "context_hit": false,
+      "latency_ms": 18881.699999999997,
+      "faithfulness": null,
+      "relevance": null,
       "unsupported_claims": []
     },
     {
@@ -474,7 +477,7 @@
       "citations": [],
       "invalid_citations": [],
       "context_hit": false,
-      "latency_ms": 24960.899999999998,
+      "latency_ms": 18879.0,
       "faithfulness": null,
       "relevance": null,
       "unsupported_claims": []
@@ -483,14 +486,14 @@
       "id": "para-30",
       "type": "paraphrase",
       "question": "Can Trichomonas vaginalis somatic proteins kill Staphylococcus species while sparing Escherichia coli and Salmonella enterica?",
-      "answer": "Yes. Somatic proteins extracted from *Trichomonas vaginalis* (TvSP) rapidly kill Gram‑positive *Staphylococcus* species (including *S. aureus*, *S. warneri* and *S. saprophyticus*) by damaging their cell walls, yet they show no antibacterial activity against the Gram‑negative *Escherichia coli* or *Salmonella enterica* under the same in‑vitro conditions[PMID:42229695].",
+      "answer": "Yes. Somatic proteins from *Trichomonas vaginalis* (TvSP) rapidly kill Gram‑positive *Staphylococcus* species (including *S. aureus*, *S. warneri* and *S. saprophyticus*) by damaging their cell walls, yet they show no antibacterial activity against the Gram‑negative *Escherichia coli* or *Salmonella enterica* under the same in‑vitro conditions[PMID:42229695].",
       "abstained": false,
       "citations": [
         "42229695"
       ],
       "invalid_citations": [],
       "context_hit": true,
-      "latency_ms": 25203.199999999997,
+      "latency_ms": 20798.2,
       "faithfulness": 1.0,
       "relevance": 1.0,
       "unsupported_claims": []
@@ -499,14 +502,14 @@
       "id": "para-31",
       "type": "paraphrase",
       "question": "What bacterial pathogens are being considered for future maternal vaccines to lower neonatal sepsis rates?",
-      "answer": "Future maternal vaccines under development aim to target the bacterial pathogens most responsible for neonatal sepsis.  The pipeline candidates highlighted include Group B Streptococcus (GBS), Klebsiella pneumoniae, and Escherichia coli [PMID:41176483].",
+      "answer": "Future maternal vaccines under development aim to target the bacterial pathogens most responsible for neonatal sepsis, specifically Group B Streptococcus, Klebsiella pneumoniae, and Escherichia coli [PMID:41176483]. By inducing maternal antibodies that are transferred to the infant, these candidate vaccines could reduce the incidence of early‑onset sepsis caused by these organisms and consequently lower the need for broad‑spectrum antibiotics in newborns.",
       "abstained": false,
       "citations": [
         "41176483"
       ],
       "invalid_citations": [],
       "context_hit": true,
-      "latency_ms": 20841.399999999998,
+      "latency_ms": 20423.2,
       "faithfulness": 1.0,
       "relevance": 1.0,
       "unsupported_claims": []
@@ -515,56 +518,62 @@
       "id": "para-32",
       "type": "paraphrase",
       "question": "How common is polymyxin E resistance among poultry-disease isolates from farms in Sargodha, Jhang and Toba Tek Singh?",
-      "answer": "I could not find evidence for this in the indexed literature.",
-      "abstained": true,
-      "citations": [],
+      "answer": "Colistin (polymyxin E) resistance was detected in roughly one‑quarter of the avian pathogenic isolates collected from the three Punjab districts, with an overall prevalence of 24.78 % (95 % CI 19.6‑30.7 %) among the 230 visceral organ samples examined[PMID:40777829]. The frequency differed markedly by location: 42 % of isolates from Jhang were colistin‑resistant, 23.61 % from Sargodha, and only 5.55 % from Toba Tek Singh[PMID:40777829].",
+      "abstained": false,
+      "citations": [
+        "40777829"
+      ],
       "invalid_citations": [],
-      "context_hit": false,
-      "latency_ms": 22114.800000000003,
-      "faithfulness": null,
-      "relevance": null,
+      "context_hit": true,
+      "latency_ms": 17301.800000000003,
+      "faithfulness": 1.0,
+      "relevance": 1.0,
       "unsupported_claims": []
     },
     {
       "id": "para-33",
       "type": "paraphrase",
       "question": "In the Romanian cohort, which sex had a higher prevalence of resistant urinary isolates in complicated kidney infections?",
-      "answer": "I could not find evidence for this in the indexed literature.",
-      "abstained": true,
-      "citations": [],
+      "answer": "In the Romanian cohort of patients with complicated acute pyelonephritis, resistant urinary isolates were observed more often in men than in women[PMID:42075164].",
+      "abstained": false,
+      "citations": [
+        "42075164"
+      ],
       "invalid_citations": [],
-      "context_hit": false,
-      "latency_ms": 27165.399999999998,
-      "faithfulness": null,
-      "relevance": null,
+      "context_hit": true,
+      "latency_ms": 17733.699999999997,
+      "faithfulness": 1.0,
+      "relevance": 1.0,
       "unsupported_claims": []
     },
     {
       "id": "para-34",
       "type": "paraphrase",
       "question": "On Belgian farms, in which animals were cephalosporin-resistant gut bacteria found most often?",
-      "answer": "I could not find evidence for this in the indexed literature.",
-      "abstained": true,
-      "citations": [],
+      "answer": "Cephalosporin‑resistant gut bacteria were detected most frequently in broiler chickens; ESBL‑producing E. coli were found in 10 % of broiler ceca (and 2.5 % of the broiler environment), a markedly higher prevalence than in pigs (≈1 % feces), cattle (≈1 % feces) or calves (≈1 % feces) on the same Belgian farms[PMID:42149085].",
+      "abstained": false,
+      "citations": [
+        "42149085"
+      ],
       "invalid_citations": [],
-      "context_hit": false,
-      "latency_ms": 21835.399999999998,
-      "faithfulness": null,
-      "relevance": null,
+      "context_hit": true,
+      "latency_ms": 28204.9,
+      "faithfulness": 1.0,
+      "relevance": 1.0,
       "unsupported_claims": []
     },
     {
       "id": "para-35",
       "type": "paraphrase",
       "question": "What is the prevalence of nasal versus rectovaginal colonization with methicillin‑resistant Staphylococcus aureus among delivering mothers in eastern Sri Lanka?",
-      "answer": "Among the 235 delivering mothers studied at the Teaching Hospital in Batticaloa, nasal colonization with methicillin‑resistant Staphylococcus aureus (MRSA) was found in 12 women, representing 5.1 % of the cohort, whereas rectovaginal colonization was detected in 24 women, representing 10.2 % [PMID:41692738].  \n\nOverall, MRSA was present at any site in 33 mothers (14.0 %), with some individuals harboring isolates at multiple sites [PMID:41692738].",
+      "answer": "In the cross‑sectional study of 235 delivering mothers at the Teaching Hospital, Batticaloa (Eastern Province, Sri Lanka), MRSA was found in 33 women (14 %). Site‑specific prevalence was 12 women (5.1 %) with nasal colonisation and 24 women (10.2 %) with rectovaginal colonisation[PMID:41692738].",
       "abstained": false,
       "citations": [
         "41692738"
       ],
       "invalid_citations": [],
       "context_hit": true,
-      "latency_ms": 26212.0,
+      "latency_ms": 21094.7,
       "faithfulness": 1.0,
       "relevance": 1.0,
       "unsupported_claims": []
@@ -573,14 +582,14 @@
       "id": "para-36",
       "type": "paraphrase",
       "question": "Can oral amoxicillin-clavulanate monotherapy after initial IV treatment prevent renal scarring in infants with ESBL-producing E. coli urinary tract infection?",
-      "answer": "Yes. In two infants (3 months and 8 months old) with ESBL‑producing E. coli urinary tract infection, fever resolved after an initial course of intravenous cefotaxime and the patients were then switched to oral amoxicillin‑clavulanate (14:1) monotherapy for a total of two weeks. Chronic‑phase technetium‑99m‑DMSA renal scintigraphy performed after treatment showed no renal scarring, suggesting that the oral step‑down regimen can prevent renal damage in this setting[PMID:39725072].  \n\nThese observations are based on only two case reports, so larger studies are needed to confirm the protective effect.",
+      "answer": "Yes. In a report of two infants (3 months and 8 months old) with ESBL‑producing E. coli urinary tract infection, fever resolved after an initial course of intravenous cefotaxime and the patients were then switched to oral amoxicillin‑clavulanate (14:1) monotherapy for a total of two weeks. Chronic‑phase technetium‑99m dimercaptosuccinic acid renal scintigraphy performed after treatment showed no renal scarring in either child[PMID:39725072].",
       "abstained": false,
       "citations": [
         "39725072"
       ],
       "invalid_citations": [],
       "context_hit": true,
-      "latency_ms": 25651.6,
+      "latency_ms": 19108.5,
       "faithfulness": 1.0,
       "relevance": 1.0,
       "unsupported_claims": []
@@ -594,7 +603,7 @@
       "citations": [],
       "invalid_citations": [],
       "context_hit": null,
-      "latency_ms": 21173.6,
+      "latency_ms": 18781.2,
       "faithfulness": null,
       "relevance": null,
       "unsupported_claims": []
@@ -608,7 +617,7 @@
       "citations": [],
       "invalid_citations": [],
       "context_hit": null,
-      "latency_ms": 19738.7,
+      "latency_ms": 16736.0,
       "faithfulness": null,
       "relevance": null,
       "unsupported_claims": []
@@ -622,7 +631,7 @@
       "citations": [],
       "invalid_citations": [],
       "context_hit": null,
-      "latency_ms": 21829.8,
+      "latency_ms": 21854.600000000002,
       "faithfulness": null,
       "relevance": null,
       "unsupported_claims": []
@@ -631,14 +640,12 @@
       "id": "oos-04",
       "type": "out_of_scope",
       "question": "What is the mechanism of action of mRNA vaccines against COVID-19?",
-      "answer": "mRNA COVID‑19 vaccines work by delivering a synthetic messenger‑RNA that encodes the viral spike protein. After the lipid‑nanoparticle‑encapsulated mRNA enters host cells, the cellular translation machinery produces the spike protein, which is then displayed on the cell surface or released, prompting the immune system to generate neutralising antibodies and T‑cell responses that protect against SARS‑CoV‑2 infection[PMID:42486137].",
-      "abstained": false,
-      "citations": [
-        "42486137"
-      ],
+      "answer": "I could not find evidence for this in the indexed literature.",
+      "abstained": true,
+      "citations": [],
       "invalid_citations": [],
       "context_hit": null,
-      "latency_ms": 20801.399999999998,
+      "latency_ms": 22357.100000000002,
       "faithfulness": null,
       "relevance": null,
       "unsupported_claims": []
@@ -652,7 +659,7 @@
       "citations": [],
       "invalid_citations": [],
       "context_hit": null,
-      "latency_ms": 19966.199999999997,
+      "latency_ms": 16961.2,
       "faithfulness": null,
       "relevance": null,
       "unsupported_claims": []
@@ -666,7 +673,7 @@
       "citations": [],
       "invalid_citations": [],
       "context_hit": null,
-      "latency_ms": 21711.300000000003,
+      "latency_ms": 23592.0,
       "faithfulness": null,
       "relevance": null,
       "unsupported_claims": []
