@@ -10,6 +10,7 @@ líneas y así se ve exactamente qué se envía al modelo en cada paso.
 
 import asyncio
 import json
+import math
 import re
 import time
 from collections.abc import Awaitable, Callable
@@ -242,12 +243,38 @@ async def _read_limit(paper: str, steps: list[int]) -> ToolResult:
                       is_error=True)
 
 
+async def _no_full_text(paper: str) -> ToolResult:
+    # Decisión 50: sin ir a NCBI. En la eval del 2026-11-17, tras el error de read_paper el
+    # modelo volvía a buscar en vez de responder: el mensaje insiste en responder ya.
+    return ToolResult(f"ERROR: {paper} has no full text (full_text false in the search results), "
+                      "so read_paper cannot read it; its abstract above is all there is. Answer "
+                      "now with the abstracts you have, or read an article whose full_text is "
+                      "true.", is_error=True)
+
+
 async def _repeated(call: ToolCall, step: int) -> ToolResult:
     # No se vuelve a ejecutar: costaría tiempo (NCBI) y tokens para obtener lo mismo.
     return ToolResult(f"ERROR: you already called {call.name} with these arguments in step "
                       f"{step}; its result is above. Use it, or try different arguments or "
                       "another tool.", is_error=True)
 
+
+# Caracteres por token de los resultados de herramientas: 3,96 en read_paper y 4,22 en
+# search_papers con o200k_base (la grabación de la eval de literatura del 2026-11-17). Con 3,5 la
+# estimación se pasa algo por arriba: mejor responder una vuelta antes que rebasar el presupuesto.
+CHARS_PER_TOKEN = 3.5
+
+
+def next_prompt_tokens(last: ChatTurn | None, added_chars: int) -> int:
+    """Lo que costará, como mínimo, la próxima llamada al LLM: el prompt de la anterior, lo que
+    respondió el modelo y los resultados de herramientas que se añadieron después."""
+    if last is None:
+        return 0
+    return ((last.prompt_tokens or 0) + (last.completion_tokens or 0)
+            + math.ceil(added_chars / CHARS_PER_TOKEN))
+
+
+NO_PAPER = Paper(pmid="", title="")  # para leer `full_text` de un artículo que no se ha visto
 
 StopReason = Literal["answer", "max_steps", "token_budget"]
 # Para seguir al agente en directo (`/agent/stream`, decisión 44): recibe el nombre del evento
@@ -397,9 +424,15 @@ class Agent:
         llm_ms = tools_ms = 0.0
         stop: StopReason = "answer"
 
+        added_chars = 0  # resultados de herramientas que se añadieron al historial en la vuelta
         for step in range(1, self.max_steps + 1):
             used = sum((t.prompt_tokens or 0) + (t.completion_tokens or 0) for t in turns)
-            if step == self.max_steps or used >= self.token_budget:
+            # Antes solo se miraba lo gastado, y una vuelta que empezaba por debajo del límite
+            # acababa muy por encima: cada vuelta reenvía toda la conversación (gen-01 llegó a
+            # 23.598 tokens con 16.000). Ahora se pasa a la respuesta final si la vuelta
+            # siguiente, estimada, dejaría el total por encima del presupuesto (decisión 49).
+            if step == self.max_steps or used + next_prompt_tokens(
+                    turns[-1] if turns else None, added_chars) > self.token_budget:
                 stop = "max_steps" if step == self.max_steps else "token_budget"
                 emit("round", {"step": step, "final": True})
                 turn = await self._llm.chat(self._final_messages(question, evidence), [],
@@ -424,6 +457,8 @@ class Agent:
                     pending.append(_repeated(call, called[key]))
                 elif paper is not None and len(read.get(paper, [])) >= self.mode.max_reads:
                     pending.append(_read_limit(paper, read[paper]))
+                elif paper is not None and papers.get(paper, NO_PAPER).full_text is False:
+                    pending.append(_no_full_text(paper))
                 elif (call.name == self.mode.search_tool
                       and searches >= self.max_literature_searches):
                     pending.append(_search_limit(self.max_literature_searches,
@@ -439,7 +474,8 @@ class Agent:
             results = await asyncio.gather(*(self._traced(call, p) for call, p
                                              in zip(turn.tool_calls, pending, strict=True)))
             tools_ms += (time.perf_counter() - t_tools) * 1000
-            searches -= sum(1 for i in counted if results[i].is_error or not results[i].pmids)
+            added_chars = sum(len(r.content) for r in results)
+            searches -=sum(1 for i in counted if results[i].is_error or not results[i].pmids)
             for call, result in zip(turn.tool_calls, results, strict=True):
                 if call.name == self.mode.search_tool:
                     pmids = result.pmids

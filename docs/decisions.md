@@ -970,3 +970,49 @@ respondo preguntas sobre investigación biomédica y de ciencias de la vida, as�
 nada sobre esto." at no extra cost. Eleven new tests. Only two languages are covered, the ones of
 the users this demo has.
 
+
+## 49. Stop before a round that would go over the token budget (2026-11-17)
+**Context.** The agent had two brakes: a maximum of rounds and a token budget (12,000 in the AMR
+mode, 16,000 in the Papers mode). The budget was checked against what had already been spent,
+before each round. Every round sends the whole conversation again, so a round that started under
+the limit could end well above it. In the fourth literature run, gen-01 (the islet question)
+started its fifth round under 16,000 and finished at 23,598 tokens, a third of Groq's per-minute
+quota spent on one question.
+**Options.**
+- Count the budget after each round and stop the conversation there. The overrun has already
+  happened by then.
+- Lower the budget so that the overrun lands near the real limit. It would also cut the questions
+  that never overrun.
+- Estimate the next round before making it, and give the final answer instead if it would end
+  above the budget.
+**Decision.** The estimate. The next prompt costs at least the previous prompt, plus the model's
+reply, plus the tool results added since; the results are counted at 3.5 characters per token.
+On the tool responses recorded in the same run, the real figure with `o200k_base` is 3.96 for
+`read_paper` and 4.22 for `search_papers`, so the estimate errs on the high side: better to answer
+one round early than to go over. The first round always runs. The rule is in the shared loop, so
+it applies to both modes; the AMR prompt is unchanged.
+**Result.** Two new tests, one of them the gen-01 case (spent below the budget, next round above
+it). Not measured with the agent yet. In the last AMR run only two tasks came near 12,000 tokens
+(lit-02 at 10,680 and lit-05 at 11,840), and both were already failing by refusing after the
+search limit, so the AMR eval should be repeated before claiming it changes nothing there.
+
+## 50. Refuse to read an article the search marked without full text (2026-11-17)
+**Context.** Each `search_papers` result says whether `read_paper` can read the article
+(`full_text`, true when it is in PubMed Central), and the prompt and the tool description say to
+read only those. In the fourth literature run the agent still called `read_paper` on two articles
+marked false (gen-01, gen-02). `read_paper` already answered with an error ("no full text in
+PubMed Central ... answer from the abstract instead"), so the step was lost either way; what cost
+more was the next one, a new search instead of an answer.
+**Options.**
+- Leave it: the tool's own error already explains the problem, and a check in the loop only saves
+  one NCBI request.
+- Check in the loop, before the call, and use the error to push for an answer.
+**Decision.** The check in the loop, chosen by the user over leaving it. Each `Paper` keeps the
+`full_text` flag from the search (and `merge` keeps it), and the loop refuses a read of a PMID the
+search marked false without calling NCBI. The error says where the flag came from, that the
+abstract shown is all there is, and to answer now with the abstracts or read an article with
+`full_text` true. An article never seen in a search, or asked for by PMCID, is still tried:
+there the loop does not know, and `read_paper` decides.
+**Result.** Two new tests (the refused read makes no NCBI request; an unseen article is still
+read). Saving a request is the certain part; whether the new wording makes the model answer
+instead of searching again is for the next literature run to show.

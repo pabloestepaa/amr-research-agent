@@ -14,7 +14,13 @@ from amr_mcp import server as amr_server
 from amr_mcp.catalog import Catalog
 from mcp import Client
 
-from amr_agent.agent import FINAL_NUDGE, FINAL_SYSTEM_PROMPT, Agent, strip_tool_markup
+from amr_agent.agent import (
+    FINAL_NUDGE,
+    FINAL_SYSTEM_PROMPT,
+    Agent,
+    next_prompt_tokens,
+    strip_tool_markup,
+)
 from amr_agent.rag import NO_EVIDENCE
 from amr_agent.tools import MCP_TOOLS, LiteratureTools, McpTools, ToolResult, Toolset, ToolSpec
 from tests.fakes import FakeRetriever, ScriptedLLM, make_hit, text_turn, tool_turn
@@ -173,6 +179,26 @@ async def test_stops_calling_tools_when_the_token_budget_is_spent():
         result = await Agent(llm, tools, token_budget=4000).run("KPC?")
     assert [bool(c["tools"]) for c in llm.calls] == [True, False]
     assert result.stop_reason == "token_budget"
+
+
+async def test_answers_before_a_round_that_would_go_over_the_budget():
+    # Lo de gen-01 (decisión 49): 3.010 tokens gastados de 5.000, pero la vuelta siguiente reenvía
+    # ese prompt más el resultado, así que acabaría por encima. Antes se hacía igualmente.
+    llm = ScriptedLLM(tool_turn(("get_amr_gene", {"name": "blaKPC-2"}), tokens=3000),
+                      text_turn("Short answer."))
+    async with toolset() as tools:
+        result = await Agent(llm, tools, token_budget=5000).run("KPC?")
+    assert [bool(c["tools"]) for c in llm.calls] == [True, False]
+    assert result.stop_reason == "token_budget"
+    assert result.answer == "Short answer."
+
+
+def test_next_prompt_estimate_adds_the_last_prompt_its_reply_and_the_tool_results():
+    last = text_turn("", tokens=1000)  # 1.000 de prompt + 10 de respuesta
+    assert next_prompt_tokens(None, 9999) == 0  # la primera vuelta siempre se hace
+    assert next_prompt_tokens(last, 0) == 1010
+    assert next_prompt_tokens(last, 3500) == 2010  # 3,5 caracteres por token
+    assert next_prompt_tokens(last, 1) == 1011  # redondea hacia arriba
 
 
 async def test_final_answer_ignores_tool_calls_and_strips_leaked_tool_markup():

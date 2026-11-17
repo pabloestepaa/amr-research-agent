@@ -243,6 +243,34 @@ async def test_a_second_read_brings_only_new_passages_and_a_third_is_refused():
     assert blocked.startswith("ERROR: you already read 11111111 2 times (steps 1 and 2)")
 
 
+async def test_reading_an_article_the_search_marked_without_full_text_is_refused_locally():
+    # Eval del 2026-11-17 (gen-01, gen-02): leyó artículos con full_text false. Ahora se rechaza
+    # sin preguntar a NCBI, y el error le pide responder con los abstracts (decisión 50).
+    http, calls = network([epmc_record("22222222", in_pmc=False), epmc_record("11111111")])
+    tools = Toolset([PaperSearchTools(http), ReadPaperTools(http)])
+    llm = ScriptedLLM(
+        tool_turn(("search_papers", {"query": "islet transplantation"})),
+        tool_turn(("read_paper", {"paper_id": "22222222", "question": "insulin independence"})),
+        tool_turn(("read_paper", {"paper_id": "11111111", "question": "insulin independence"})),
+        text_turn("ok"))
+    result = await Agent(llm, tools, mode=LITERATURE_MODE).run("?")
+    assert [(s.tool, s.is_error) for s in result.steps] == [
+        ("search_papers", False), ("read_paper", True), ("read_paper", False)]
+    refused = llm.calls[2]["messages"][-1]["content"]
+    assert refused.startswith("ERROR: 22222222 has no full text (full_text false")
+    assert "Answer now with the abstracts you have" in refused
+    assert sum(str(c.url).startswith(IDCONV) for c in calls) == 1  # solo la lectura válida
+
+
+async def test_an_article_never_seen_in_a_search_is_still_tried():
+    # Sin resultado de búsqueda no sabemos si tiene texto completo: decide read_paper.
+    http, calls = network([])
+    llm = ScriptedLLM(
+        tool_turn(("read_paper", {"paper_id": "11111111", "question": "dose"})), text_turn("ok"))
+    result = await Agent(llm, ReadPaperTools(http), mode=LITERATURE_MODE).run("?")
+    assert not result.steps[0].is_error and any(str(c.url).startswith(IDCONV) for c in calls)
+
+
 async def test_a_new_question_starts_with_nothing_shown():
     # La memoria es de la pregunta: la siguiente (u otra petición a la vez) lee desde el principio.
     http, _ = network([epmc_record("11111111")])

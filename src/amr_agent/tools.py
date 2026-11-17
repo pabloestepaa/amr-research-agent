@@ -95,12 +95,14 @@ class Paper:
     year: int | None = None
     study_type: str | None = None  # "Phase 2 trial", "Meta-analysis"... (modo Papers)
     cited_by: int | None = None  # citas en Europe PMC, solo desde MIN_CITED_BY
+    # Lo que dijo search_papers: False si no está en PMC (read_paper no puede leerlo, decisión 50).
+    full_text: bool | None = None
 
     def merge(self, other: "Paper") -> "Paper":
         """Los datos de `other` que faltan aquí: read_paper no trae el tipo de estudio que dio
         search_papers, y no debe borrarlo al leer el artículo."""
         return replace(self, **{f: getattr(other, f) for f in ("journal", "year", "study_type",
-                                                                "cited_by")
+                                                                "cited_by", "full_text")
                                 if getattr(self, f) is None and getattr(other, f) is not None})
 
 
@@ -211,12 +213,13 @@ def find_papers(obj: Any) -> tuple[Paper, ...]:
                 if not isinstance(year, int):  # amr-mcp da "pubdate": "2016 Feb"
                     match = re.match(r"\d{4}", str(node.get("pubdate") or ""))
                     year = int(match.group()) if match else None
-                journal, kind, cited = (node.get(k) for k in ("journal", "study_type",
-                                                              "cited_by"))
+                journal, kind, cited, full = (node.get(k) for k in ("journal", "study_type",
+                                                                    "cited_by", "full_text"))
                 papers.append(Paper(str(pmid), title.strip(),
                                     journal if isinstance(journal, str) else None, year,
                                     kind if isinstance(kind, str) else None,
-                                    cited if isinstance(cited, int) else None))
+                                    cited if isinstance(cited, int) else None,
+                                    full if isinstance(full, bool) else None))
             stack.extend(v for v in node.values() if isinstance(v, dict | list))
         elif isinstance(node, list):
             stack.extend(node)
