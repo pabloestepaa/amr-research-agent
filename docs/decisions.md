@@ -114,6 +114,14 @@ recall@10 0.86 → 0.97, now ahead of vector search (0.78), and keeping its edge
 **Alternatives tried.** Down-weighting the keyword list in RRF only moved hybrid towards
 vector-only search: it never beat it. A true BM25 extension (ParadeDB `pg_search`) is not
 available on Neon Free.
+**Re-checked on 2026-11-17.** The answer eval showed two paraphrases (para-27, para-28) that vector
+search alone ranks in its top 5 and hybrid search drops, so the fusion was swept again, offline
+on the same candidates: the keyword weight (1.0 to 0.3) and the RRF constant k (60 to 1). On the
+CI snapshot (354 abstracts) the best settings, k=10 and weight 0.3 or k=5 and weight 0.5, gain one
+question net (recall@5 0.92 → 0.94): two paraphrases come back and an exact gene name (gene-04)
+is lost. On the full corpus (2,999 abstracts) the current settings are the best, recall@5 0.94
+against 0.86-0.89 for every alternative, and para-27 is found there. The snapshot gain was noise
+from 36 questions over a small corpus, so the fusion stays at k=60 and weight 1.0.
 **Caveat.** `max_df` (0.1) was chosen on the same 36 questions it is measured on. Results on two
 halves of the set (MRR 0.83 and 0.76) suggest it is not a fluke, but the gain is an estimate.
 
