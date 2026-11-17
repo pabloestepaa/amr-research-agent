@@ -202,22 +202,19 @@ query and missed the relevant abstract.
 
 **Papers agent** (9 cell-therapy questions whose answer is only in the full text, 3 general
 questions such as the share of patients who stop needing insulin after an islet transplant, 2
-out of scope): 12/14 in the latest run, and 10/11 again on the tasks of the earlier runs (7/11 in
-the first). The right article came up in all 9 full-text tasks (8 of 9 before): 7 of 18 searches
-matched nothing as written, and the retry with fewer words (decision 45) found articles for all
-seven. All 10 citations came with a quote, and all 10 quotes were found word for word in what the
-tools returned. Both out-of-scope questions were refused and no answer cited a PMID that no tool
-had returned. Cost went up: ~8,900 tokens per task on the same tasks, against ~6,400, because
-decisions 40 to 43 added about 550 tokens to a prompt that every round sends again, and ~65 s per
-question at the median, mostly waiting for the per-minute quota. Both failures stopped at the
-token limit after reading an article whose passages lacked the figure. One paper writes "median
-DoR" and BM25 put that paragraph 11th for the agent's question; a shorter question would have
-reached it, but each article could be read once (decision 40). The other search found only
-reviews without figures. This run had the AMR agent's 12,000-token budget instead of the 16,000
-of the deployed Papers agent; the eval now uses the API's (decision 46). Since this run, a
-second read brings only passages not yet shown, which for that paper delivers the figure, and
-the Papers prompt and tool descriptions are ~230 tokens shorter per round (decision 47). Neither
-is measured with the agent yet.
+out of scope): 13/14 in the latest run (17 Nov), after 12/14, 10/11 and 7/11 in the earlier ones.
+The right article came up in all 9 full-text tasks, and the one failure is the checker's: the
+answer says "3 of the infused patients", which none of the accepted phrasings match. Both
+earlier failures pass. One asked `read_paper` for "median duration of response" with ten
+passages, all of which now reach the model whole (decision 46); the other read a review twice
+and the second read brought new passages (decision 47). Cost came back down: ~6,400 tokens per
+task on the eleven tasks of the earlier runs, against ~8,900, with ~49 s per question at the
+median. Every citation came with a quote and 12 of 13 quotes were found word for word; both
+out-of-scope questions were refused and no answer cited a PMID that no tool had returned. Two
+weak spots the checks do not catch: asked how many patients get cytokine release syndrome, the
+agent gave the rate of severe CRS, and in two tasks it called `read_paper` on articles whose
+search result said there was no full text, wasting a step. One task still ran out of steps
+(the islet question, which reads the same registry twice before using the abstracts).
 
 Before the agent, `read_paper` was measured on its own. It finds the passage with the answer
 in the top 8 for 0.92 of the LitQA2 questions (FutureHouse, 131 with open full text) and in the

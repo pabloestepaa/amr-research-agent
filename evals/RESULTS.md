@@ -53,39 +53,38 @@ Generator: `openai/gpt-oss-120b` · judge: `openai/gpt-oss-20b` · 42 questions 
 
 ## Agent — literature
 
-Model: `openai/gpt-oss-120b` · 14 tasks · max 6 steps, 12,000 token budget · tool responses: refresh (0 replayed, 32 live)
+Model: `openai/gpt-oss-120b` · 14 tasks · max 6 steps, 16,000 token budget · tool responses: refresh (0 replayed, 30 live)
 
 | metric | value |
 |---|---|
-| Task success (every check below passed) | 0.86 |
+| Task success (every check below passed) | 0.93 |
 | Called the tools the task needs | 1.00 |
 | Called them with the right arguments (e.g. the WP_ accession) | — |
-| Answer contains the verifiable facts (drug class, top species...) | 0.83 |
+| Answer contains the verifiable facts (drug class, top species...) | 0.92 |
 | A search found the relevant article | 1.00 |
 | read_paper read the relevant article (literature mode) | 0.89 |
 | Out-of-scope questions correctly refused | 1.00 |
-| In-scope questions wrongly refused (lower is better) | 0.17 |
+| In-scope questions wrongly refused (lower is better) | 0.00 |
 | Answers without hallucinated PMIDs | 1.00 |
 | Citations with a quote from the article (literature mode) | 1.00 |
-| Quotes found word for word in what the tools returned (literature mode) | 1.00 |
+| Quotes found word for word in what the tools returned (literature mode) | 0.92 |
 | Tasks where the agent crashed, e.g. a provider 400 (lower is better) | 0 |
-| Tool calls per task | 2.43 |
-| Unneeded tool calls per task (lower is better) | 0.36 |
-| Tool calls that returned an error (lower is better) | 0.09 |
-| Tasks stopped by the step or token limit (lower is better) | 0.29 |
-| Tokens per task | 10217.93 |
-| p50 latency (ms) | 64976.30 |
+| Tool calls per task | 2.21 |
+| Unneeded tool calls per task (lower is better) | 0.43 |
+| Tool calls that returned an error (lower is better) | 0.10 |
+| Tasks stopped by the step or token limit (lower is better) | 0.07 |
+| Tokens per task | 8607.00 |
+| p50 latency (ms) | 49427.10 |
 
 Task success by category:
 
 | full_text (n=9) | general (n=3) | out_of_scope (n=2) |
 |---|---|---|
-| 0.89 | 0.67 | 1.00 |
+| 0.89 | 1.00 | 1.00 |
 
 Failed tasks:
 
-- `ft-04`: 1:search_papers({"full_text_only": false, "query": "MAGE-A4 autologous T cells HLA-A*02 phase 1 solid tumors", "top_k": 5}) → 2:read_paper({"k": 5, "paper_id": "36624315", "question": "median duration of response phase 1 afamitresgene autoleucel MAGE-A4 solid cancers"}) → 3:read_paper({"k": 5, "paper_id": "36624315", "question": "median duration of response"}) ERROR → 4:search_papers({"full_text_only": true, "query": "afamitresgene autoleucel median duration of response", "top_k": 5})
-- `gen-03`: 1:search_papers({"full_text_only": false, "query": "chronic graft-versus-host disease incidence allogeneic hematopoietic stem cell transplantation", "top_k": 5}) → 2:read_paper({"k": 5, "paper_id": "36572065", "question": "incidence chronic graft-versus-host disease after allogeneic hematopoietic stem cell transplantation percentage"}) → 3:read_paper({"k": 5, "paper_id": "36572065", "question": "incidence of chronic graft-versus-host disease after allogeneic hematopoietic stem cell transplantation percentage"}) ERROR → 4:search_papers({"full_text_only": false, "query": "incidence chronic graft-versus-host disease after allogeneic hematopoietic stem cell transplantation percentage 2022", "top_k": 5})
+- `ft-06`: 1:search_papers({"full_text_only": true, "query": "CT103A anti-BCMA CAR T neuromyelitis optica spectrum disorder phase 1", "top_k": 5}) → 2:read_paper({"k": 10, "paper_id": "36596762", "question": "detectable anti-drug antibodies after infusion patients developed"})
 
 ## Retrieval — retrieval full
 

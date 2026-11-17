@@ -923,9 +923,13 @@ descriptions.
 **Result.** Without the LLM, against NCBI: for ft-04, the second read with the agent's own
 question from the eval now returns the "median DoR was 25.6 weeks" paragraph, with no passage
 repeated. For gen-03 the second read returns other figures from the review, but not the one asked
-for, which that review does not give: there the search is what failed. Four new tests, and the read-once test rewritten. Not yet
-measured with the agent: the next literature run will measure this, decision 46 and the
-16,000-token budget together.
+for, which that review does not give: there the search is what failed. Four new tests, and the read-once test rewritten. 
+Measured with the agent on 2026-11-17, together with decision 46 and the 16,000-token budget:
+13/14, against 12/14. Both earlier failures pass. ft-04 asked for "median duration of response"
+with ten passages and got the figure in one read (decision 46 at work); gen-03 read the review
+twice and answered from the second read. Tokens per task on the eleven tasks of the earlier runs
+fell from ~8,900 to ~6,400 and the median question from ~65 s to ~49 s. The one failure is the
+checker's ("3 of the infused patients" for ft-06).
 
 ## 48. Refusals in the question's language, and saying why (2026-11-13)
 **Context.** Both agents refuse with a fixed English sentence ("I could not find evidence for this
