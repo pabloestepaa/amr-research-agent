@@ -189,32 +189,33 @@ right for what the model saw. Two of them are paraphrases that vector search alo
 top 5 and hybrid search drops.
 
 **Agent** (22 tasks over catalog, species, references, literature, multi-tool and out-of-scope
-questions): 19/22 tasks fully correct in the latest run, right tools and right arguments in
-every task, expected facts in every answer that should have them, all out-of-scope questions
-refused, no hallucinated PMIDs, no crashes, ~4,560 tokens per task. The four runs so far scored
-19, 17, 19 and 19 out of 22: each of the first three found failures that led to the fixes below,
-and Groq is not deterministic even at temperature 0, so a run moves by a few tasks. Two of the
-three failures left are refusals, unchanged by a looser abstention rule (decision 32): the
-agent retrieved the right abstract and still said it had no evidence, because the abstract
-answers in other words (an ESBL-producing strain is resistant to
-cephalosporins; myricetin is a polyphenol). The third is a search that added "2023 2024" to its
-query and missed the relevant abstract.
+questions): 19/22 tasks fully correct in the latest run (19 Nov), right tools and right arguments
+in every task, all out-of-scope questions refused, no hallucinated PMIDs, no crashes, ~4,300
+tokens per task. The five runs so far scored 19, 17, 19, 19 and 19 out of 22: each of the first
+three found failures that led to the fixes below, and Groq is not deterministic even at
+temperature 0, so a run moves by a few tasks. Two of the three failures left are refusals,
+unchanged by a looser abstention rule (decision 32): the agent retrieved the right abstract and
+still said it had no evidence, because the abstract answers in other words (an ESBL-producing
+strain is resistant to cephalosporins; myricetin is a polyphenol). Since the token budget counts
+the final answer (decisions 49 and 51) they stop after two searches instead of three, at ~6,700
+tokens instead of ~11,000, with the same refusal. The third is new: the agent named the right
+paper for blaKPC-2 but did not cite its PMID, which the eval requires.
 
 **Papers agent** (9 cell-therapy questions whose answer is only in the full text, 3 general
 questions such as the share of patients who stop needing insulin after an islet transplant, 2
-out of scope): 13/14 in the latest run (17 Nov), after 12/14, 10/11 and 7/11 in the earlier ones.
-The right article came up in all 9 full-text tasks, and the one failure is the checker's: the
-answer says "3 of the infused patients", which none of the accepted phrasings match. Both
-earlier failures pass. One asked `read_paper` for "median duration of response" with ten
-passages, all of which now reach the model whole (decision 46); the other read a review twice
-and the second read brought new passages (decision 47). Cost came back down: ~6,400 tokens per
-task on the eleven tasks of the earlier runs, against ~8,900, with ~49 s per question at the
-median. Every citation came with a quote and 12 of 13 quotes were found word for word; both
-out-of-scope questions were refused and no answer cited a PMID that no tool had returned. Two
-weak spots the checks do not catch: asked how many patients get cytokine release syndrome, the
-agent gave the rate of severe CRS, and in two tasks it called `read_paper` on articles whose
-search result said there was no full text, wasting a step. One task still ran out of steps
-(the islet question, which reads the same registry twice before using the abstracts).
+out of scope): 14/14 in the latest run (18 Nov), after 13/14, 12/14, 10/11 and 7/11 in the
+earlier ones. The right article came up in all 9 full-text tasks and `read_paper` read it every
+time. Two earlier failures were fixed by how passages are cut and re-read: one asked `read_paper`
+for "median duration of response" with ten passages, all of which now reach the model whole
+(decision 46); the other read a review twice and the second read brought new passages (decision
+47). Every citation came with a quote found word for word, both out-of-scope questions were
+refused and no answer cited a PMID that no tool had returned. Cost: ~6,600 tokens per task on
+the eleven tasks of the earlier runs (~8,900 two runs ago) and ~50 s per question at the
+median. Weak spots the checks do not catch: asked how many patients get cytokine release
+syndrome, the agent gives the rate of severe CRS; and the islet question still ended at ~20,000
+tokens against a 16,000 budget, because the loop stopped exploring before the budget (decision
+49) but the final answer was one more round on top. The loop now counts that answer too
+(decision 51; simulated on this run, not yet measured).
 
 Before the agent, `read_paper` was measured on its own. It finds the passage with the answer
 in the top 8 for 0.92 of the LitQA2 questions (FutureHouse, 131 with open full text) and in the
@@ -287,7 +288,7 @@ endpoint, tracing is off and the SDK is not imported. See decision 39.
 
 ## Design decisions
 
-All 50 decisions, with context and trade-offs, are in [`docs/decisions.md`](docs/decisions.md).
+All 51 decisions, with context and trade-offs, are in [`docs/decisions.md`](docs/decisions.md).
 The ones that shaped the project most:
 
 | Decision | Why | Trade-off |

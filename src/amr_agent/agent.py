@@ -274,6 +274,18 @@ def next_prompt_tokens(last: ChatTurn | None, added_chars: int) -> int:
             + math.ceil(added_chars / CHARS_PER_TOKEN))
 
 
+def explore_cost(last: ChatTurn | None, added_chars: int, final_chars: int,
+                 largest_result: int) -> int:
+    """Lo que puede costar explorar una vuelta más: esa vuelta y la respuesta final que vendrá
+    después, que reenvía toda la evidencia y además lo que traiga esa vuelta (se supone como el
+    resultado más grande visto hasta ahora). La respuesta del modelo se estima como la última."""
+    if last is None:
+        return 0  # la primera vuelta siempre se hace
+    final = math.ceil((final_chars + largest_result) / CHARS_PER_TOKEN) + (
+        last.completion_tokens or 0)
+    return next_prompt_tokens(last, added_chars) + final
+
+
 NO_PAPER = Paper(pmid="", title="")  # para leer `full_text` de un artículo que no se ha visto
 
 StopReason = Literal["answer", "max_steps", "token_budget"]
@@ -425,14 +437,18 @@ class Agent:
         stop: StopReason = "answer"
 
         added_chars = 0  # resultados de herramientas que se añadieron al historial en la vuelta
+        largest_result = 0  # el resultado de herramienta más largo, en caracteres
         for step in range(1, self.max_steps + 1):
             used = sum((t.prompt_tokens or 0) + (t.completion_tokens or 0) for t in turns)
             # Antes solo se miraba lo gastado, y una vuelta que empezaba por debajo del límite
             # acababa muy por encima: cada vuelta reenvía toda la conversación (gen-01 llegó a
-            # 23.598 tokens con 16.000). Ahora se pasa a la respuesta final si la vuelta
-            # siguiente, estimada, dejaría el total por encima del presupuesto (decisión 49).
-            if step == self.max_steps or used + next_prompt_tokens(
-                    turns[-1] if turns else None, added_chars) > self.token_budget:
+            # 23.598 tokens con 16.000). Se pasa a la respuesta final si explorar una vuelta más
+            # y responder después dejaría el total por encima del presupuesto (decisiones 49 y
+            # 51: contar solo la vuelta siguiente aún dejó gen-01 en 20.454).
+            final_chars = sum(len(m["content"]) for m in self._final_messages(question, evidence))
+            if step == self.max_steps or used + explore_cost(
+                    turns[-1] if turns else None, added_chars, final_chars,
+                    largest_result) > self.token_budget:
                 stop = "max_steps" if step == self.max_steps else "token_budget"
                 emit("round", {"step": step, "final": True})
                 turn = await self._llm.chat(self._final_messages(question, evidence), [],
@@ -475,6 +491,7 @@ class Agent:
                                              in zip(turn.tool_calls, pending, strict=True)))
             tools_ms += (time.perf_counter() - t_tools) * 1000
             added_chars = sum(len(r.content) for r in results)
+            largest_result = max(largest_result, added_chars)
             searches -=sum(1 for i in counted if results[i].is_error or not results[i].pmids)
             for call, result in zip(turn.tool_calls, results, strict=True):
                 if call.name == self.mode.search_tool:

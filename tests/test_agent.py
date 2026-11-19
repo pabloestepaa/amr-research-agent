@@ -18,6 +18,7 @@ from amr_agent.agent import (
     FINAL_NUDGE,
     FINAL_SYSTEM_PROMPT,
     Agent,
+    explore_cost,
     next_prompt_tokens,
     strip_tool_markup,
 )
@@ -199,6 +200,28 @@ def test_next_prompt_estimate_adds_the_last_prompt_its_reply_and_the_tool_result
     assert next_prompt_tokens(last, 0) == 1010
     assert next_prompt_tokens(last, 3500) == 2010  # 3,5 caracteres por token
     assert next_prompt_tokens(last, 1) == 1011  # redondea hacia arriba
+
+
+def test_exploring_one_more_round_also_counts_the_final_answer_after_it():
+    last = text_turn("", tokens=1000)  # 1.000 de prompt + 10 de respuesta
+    assert explore_cost(None, 9999, 9999, 9999) == 0  # la primera vuelta siempre se hace
+    # Vuelta siguiente 1.010 + 1.000 (resultados) y la final: 3.500 de evidencia + el resultado
+    # más grande visto (3.500 más) a 3,5 caracteres por token, más una respuesta como la última.
+    assert explore_cost(last, 3500, 3500, 3500) == 2010 + 2000 + 10
+
+
+async def test_answers_when_one_more_round_fits_but_the_answer_after_it_does_not():
+    # Lo de gen-01 tras la decisión 49 (20.454 tokens con 16.000): la vuelta siguiente cabía y
+    # la respuesta final, que reenvía toda la evidencia, ya no (decisión 51).
+    # 1.010 gastados; la vuelta siguiente, 1.010 + 7.000/3,5 = 3.010 (cabe en 6.000: la regla de
+    # la decisión 49 la habría hecho); con la respuesta final después, más de 8.000.
+    llm = ScriptedLLM(tool_turn(("read_stub", {}), tokens=1000),
+                      tool_turn(("read_stub", {"page": 2}), tokens=3000),
+                      text_turn("Short answer."))
+    async with toolset(stubs={"read_stub": ToolResult("x" * 7000)}) as tools:
+        result = await Agent(llm, tools, token_budget=6000).run("KPC?")
+    assert [bool(c["tools"]) for c in llm.calls] == [True, False]
+    assert result.stop_reason == "token_budget"
 
 
 async def test_final_answer_ignores_tool_calls_and_strips_leaked_tool_markup():

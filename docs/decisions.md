@@ -1003,6 +1003,16 @@ it applies to both modes; the AMR prompt is unchanged.
 it). Not measured with the agent yet. In the last AMR run only two tasks came near 12,000 tokens
 (lit-02 at 10,680 and lit-05 at 11,840), and both were already failing by refusing after the
 search limit, so the AMR eval should be repeated before claiming it changes nothing there.
+**Measured on 2026-11-18** (fifth literature run, 14/14): gen-01 stopped on the budget estimate
+and still ended at 20,454 tokens, against 23,598; gen-02 ended at 16,957. The estimate keeps the
+next exploring round under the budget, but the final answer is one more round on top of it, with
+the whole evidence in its prompt, so the overrun shrinks without going away. The other twelve
+tasks did not change cost.
+**Measured on 2026-11-19** (fifth AMR run, together with decision 51): 19/22 as before. lit-02
+and lit-05 now stop on the budget after two searches (6,498 and 6,872 tokens, against 10,680 and
+11,840) and refuse as they did; multi-01 also stops on the budget and now passes. No task got
+worse because of the budget; the one new failure (ref-01) is a correct answer without its PMID,
+on the same trajectory and token count as before.
 
 ## 50. Refuse to read an article the search marked without full text (2026-11-17)
 **Context.** Each `search_papers` result says whether `read_paper` can read the article
@@ -1024,3 +1034,34 @@ there the loop does not know, and `read_paper` decides.
 **Result.** Two new tests (the refused read makes no NCBI request; an unseen article is still
 read). Saving a request is the certain part; whether the new wording makes the model answer
 instead of searching again is for the next literature run to show.
+**Measured on 2026-11-18.** gen-02 asked for the same article without full text (37890589); the
+loop refused it, and the next step read a meta-analysis that had full text instead of searching
+again (its two searches were spent anyway). gen-01 did not try an article without full text this
+time. The answer to gen-02 still gives only the rate of severe CRS.
+
+## 51. Count the final answer in the token budget (2026-11-18)
+**Context.** Decision 49 let a round run only if its estimate fit in the budget. In the fifth
+literature run gen-01 stopped on that check and still ended at 20,454 tokens against 16,000:
+the round it allowed fit, but the final answer came after it, and the final answer sends the
+whole evidence again. The overrun was the size of one more prompt.
+**Options.**
+- Raise the budget to where the questions really end (~20,000). It names the overrun without
+  removing it.
+- Stop when the next round plus a final answer with the current evidence would go over.
+- The same, plus a margin for what the next round adds to that final answer.
+**Decision.** The third. Before exploring one more round, the loop adds up what is spent, the
+next round (decision 49), and the final answer after it: the text the final call would send
+now, plus the largest tool result seen so far (what the next round may add), at 3.5 characters
+per token, plus a reply as long as the last one. If it goes over, the final answer comes now.
+The first round always runs. The rule is in the shared loop; the AMR prompt is unchanged.
+**Result.** Two new tests (the cost formula; a round that fits but whose answer does not).
+Simulated on the fifth run without the LLM (the per-round prompt rebuilt from the recorded tool
+results, fitted to the real totals with an error of ~1,300 tokens per task): none of the nine
+full-text tasks nor gen-03 loses a round. gen-01 loses its fourth round, a third read of the
+same registry that the read limit refused; gen-02 loses its last two, a read refused for
+missing full text and a read that did not change the answer. Not measured with the agent yet.
+In the AMR mode (12,000 tokens) lit-02 and lit-05 came near the budget and may now stop a round
+earlier; both were already failing, and the AMR eval has to be repeated anyway (decision 49).
+**Measured on 2026-11-19** in the AMR mode: see decision 49 (19/22, three tasks stop on the
+budget, none worse for it, 4,306 tokens per task against 4,565). The literature mode is still to
+be measured with the agent.
