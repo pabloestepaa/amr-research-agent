@@ -203,19 +203,22 @@ paper for blaKPC-2 but did not cite its PMID, which the eval requires.
 
 **Papers agent** (9 cell-therapy questions whose answer is only in the full text, 3 general
 questions such as the share of patients who stop needing insulin after an islet transplant, 2
-out of scope): 14/14 in the latest run (18 Nov), after 13/14, 12/14, 10/11 and 7/11 in the
-earlier ones. The right article came up in all 9 full-text tasks and `read_paper` read it every
-time. Two earlier failures were fixed by how passages are cut and re-read: one asked `read_paper`
-for "median duration of response" with ten passages, all of which now reach the model whole
-(decision 46); the other read a review twice and the second read brought new passages (decision
-47). Every citation came with a quote found word for word, both out-of-scope questions were
-refused and no answer cited a PMID that no tool had returned. Cost: ~6,600 tokens per task on
-the eleven tasks of the earlier runs (~8,900 two runs ago) and ~50 s per question at the
-median. Weak spots the checks do not catch: asked how many patients get cytokine release
-syndrome, the agent gives the rate of severe CRS; and the islet question still ended at ~20,000
-tokens against a 16,000 budget, because the loop stopped exploring before the budget (decision
-49) but the final answer was one more round on top. The loop now counts that answer too
-(decision 51; simulated on this run, not yet measured).
+out of scope): 9/14 in the latest run (23 Nov), after 14/14, 13/14, 12/14, 10/11 and 7/11 in
+the earlier ones. The drop is the price of a hard token budget, plus two failures that are not
+the agent's. Since decision 51 the loop stops exploring when one more round and the final answer
+would go over 16,000 tokens, and it held: no task went above 12,000, where the run before had
+the islet question at ~20,000. Three hard questions (the islet one, the incidence of chronic
+graft-versus-host disease, and one-year survival in TRANSCEND FL) stopped there and said they
+had no evidence, which was true of what they had read: a registry with its figures in tables, a
+review without the incidence, a newer article with 36-month survival only. With one more round
+the run before answered two of them. A replay of both runs without the LLM showed that a looser
+estimate would not have saved them, because that round really costs 16,000 to 19,000 tokens: the
+budget stays at 16,000. The other two failures: PubMed and Europe PMC returned errors for the
+first minute of the run (every search of the first task failed; repeated later, they work), and
+one answer said "three of the twelve" where the check expects "three of the 12". Every citation
+came with a quote, and 0.89 of the quotes were found word for word; both out-of-scope questions
+were refused and no answer cited a PMID that no tool had returned. Cost: ~8,300 tokens per task
+and ~52 s per question at the median.
 
 Before the agent, `read_paper` was measured on its own. It finds the passage with the answer
 in the top 8 for 0.92 of the LitQA2 questions (FutureHouse, 131 with open full text) and in the

@@ -53,34 +53,42 @@ Generator: `openai/gpt-oss-120b` · judge: `openai/gpt-oss-20b` · 42 questions 
 
 ## Agent — literature
 
-Model: `openai/gpt-oss-120b` · 14 tasks · max 6 steps, 16,000 token budget · tool responses: refresh (0 replayed, 29 live)
+Model: `openai/gpt-oss-120b` · 14 tasks · max 6 steps, 16,000 token budget · tool responses: refresh (0 replayed, 34 live)
 
 | metric | value |
 |---|---|
-| Task success (every check below passed) | 1.00 |
-| Called the tools the task needs | 1.00 |
+| Task success (every check below passed) | 0.64 |
+| Called the tools the task needs | 0.92 |
 | Called them with the right arguments (e.g. the WP_ accession) | — |
-| Answer contains the verifiable facts (drug class, top species...) | 1.00 |
-| A search found the relevant article | 1.00 |
-| read_paper read the relevant article (literature mode) | 1.00 |
+| Answer contains the verifiable facts (drug class, top species...) | 0.58 |
+| A search found the relevant article | 0.89 |
+| read_paper read the relevant article (literature mode) | 0.67 |
 | Out-of-scope questions correctly refused | 1.00 |
-| In-scope questions wrongly refused (lower is better) | 0.00 |
+| In-scope questions wrongly refused (lower is better) | 0.33 |
 | Answers without hallucinated PMIDs | 1.00 |
 | Citations with a quote from the article (literature mode) | 1.00 |
-| Quotes found word for word in what the tools returned (literature mode) | 1.00 |
+| Quotes found word for word in what the tools returned (literature mode) | 0.89 |
 | Tasks where the agent crashed, e.g. a provider 400 (lower is better) | 0 |
-| Tool calls per task | 2.29 |
-| Unneeded tool calls per task (lower is better) | 0.50 |
-| Tool calls that returned an error (lower is better) | 0.09 |
-| Tasks stopped by the step or token limit (lower is better) | 0.14 |
-| Tokens per task | 8745.57 |
-| p50 latency (ms) | 49950.60 |
+| Tool calls per task | 2.50 |
+| Unneeded tool calls per task (lower is better) | 0.29 |
+| Tool calls that returned an error (lower is better) | 0.29 |
+| Tasks stopped by the step or token limit (lower is better) | 0.36 |
+| Tokens per task | 8313.64 |
+| p50 latency (ms) | 52249.60 |
 
 Task success by category:
 
 | full_text (n=9) | general (n=3) | out_of_scope (n=2) |
 |---|---|---|
-| 1.00 | 1.00 | 1.00 |
+| 0.67 | 0.33 | 1.00 |
+
+Failed tasks:
+
+- `ft-01`: 1:search_papers({"full_text_only": true, "query": "ZUMA-1 five-year follow-up axicabtagene ciloleucel bone marrow progression", "top_k": 5}) ERROR → 2:search_papers({"full_text_only": true, "query": "ZUMA-1 five-year follow-up", "top_k": 10}) ERROR → 3:search_papers({"query": "ZUMA-1 five-year follow-up axicabtagene ciloleucel", "top_k": 10}) ERROR → 4:search_papers({"query": "axicabtagene ciloleucel five-year follow-up", "top_k": 10}) ERROR → 5:search_papers({"query": "ZUMA-1 axicabtagene ciloleucel bone marrow progression", "top_k": 5}) ERROR
+- `ft-06`: 1:search_papers({"full_text_only": true, "query": "CT103A anti-BCMA CAR T neuromyelitis optica spectrum disorder phase 1 trial anti-drug antibodies", "top_k": 5}) → 2:read_paper({"k": 5, "paper_id": "36596762", "question": "detectable anti-drug antibodies after infusion patients developed"})
+- `ft-07`: 1:search_papers({"full_text_only": false, "query": "TRANSCEND FL lisocabtagene maraleucel follicular lymphoma phase 2 overall survival", "top_k": 5}) → 2:read_paper({"k": 10, "paper_id": "42462111", "question": "one-year overall survival"}) → 3:search_papers({"full_text_only": false, "query": "TRANSCEND FL primary analysis lisocabtagene maraleucel overall survival 12 months", "top_k": 5})
+- `gen-01`: 1:search_papers({"full_text_only": false, "query": "islet transplantation insulin independence percentage patients", "top_k": 10}) → 2:read_paper({"k": 5, "paper_id": "37026004", "question": "percentage of patients insulin independence after islet transplantation"}) → 3:read_paper({"k": 10, "paper_id": "37026004", "question": "percentage insulin independence year 1 after islet transplantation"})
+- `gen-03`: 1:search_papers({"full_text_only": false, "query": "chronic graft-versus-host disease incidence allogeneic hematopoietic stem cell transplantation", "top_k": 5}) → 2:read_paper({"k": 5, "paper_id": "36572065", "question": "incidence chronic graft-versus-host disease after allogeneic hematopoietic stem cell transplantation"}) → 3:read_paper({"k": 5, "paper_id": "36572065", "question": "incidence of chronic graft-versus-host disease after allogeneic hematopoietic stem cell transplantation incidence"})
 
 ## Retrieval — retrieval full
 

@@ -1065,3 +1065,16 @@ earlier; both were already failing, and the AMR eval has to be repeated anyway (
 **Measured on 2026-11-19** in the AMR mode: see decision 49 (19/22, three tasks stop on the
 budget, none worse for it, 4,306 tokens per task against 4,565). The literature mode is still to
 be measured with the agent.
+**Measured on 2026-11-23** (sixth literature run): 9/14, against 14/14. The budget held: the
+largest task used 11,988 tokens (gen-01, 20,454 the run before) and gen-02 11,470 (16,957).
+ft-07, gen-01 and gen-03 stopped on the estimate and refused; what they had read did not hold
+the figure, so the refusal was right for their evidence, and the run before had answered two of
+them with one more round. A replay of both runs without the LLM (per-round prompts rebuilt from
+the recorded tool results and counted with `o200k_base`, ~590 tokens of error per task) showed
+the estimate is close to the truth (19,900 estimated for gen-01's next round against 20,454
+real), and that even at 4.0 characters per token and without the margin for the next result the
+three would still stop (16,000 to 16,700 against 16,000). The budget stays: an answer that costs
+more than the budget is the thing the budget is for. The other two failures were a PubMed and
+Europe PMC outage at the start of the run (ft-01) and a check that expects "three of the 12"
+where the answer says "three of the twelve" (ft-06). Spending fewer rounds on re-reading the same
+article (gen-01 and gen-03 used their third round on it) is left as future work.
