@@ -2,8 +2,7 @@
 # Kubernetes no ejecuta este fichero una vez: guarda el estado deseado y lo vigila. Si el pod muere,
 # el controlador del Deployment (a través de un ReplicaSet) crea otro.
 #
-# Primera versión, a propósito mínima: sin base de datos, sin probes y sin límites de memoria.
-# Se irán añadiendo paso a paso (ver docs/decisions.md cuando esté la decisión de Kubernetes).
+# Versión mínima: sin probes ni límites de memoria (se añaden paso a paso). La BD está en postgres.yaml.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -30,6 +29,9 @@ spec:
           env:
             - name: PORT
               value: "8000"
-            # Todavía no hay Postgres en el clúster: este nombre no existe y la API no arrancará.
+            # La URL sale del Secret de postgres.yaml: si cambia la contraseña, este fichero no se toca.
             - name: DATABASE_URL
-              value: postgresql://postgres:postgres@postgres:5432/amr_agent
+              valueFrom:
+                secretKeyRef:
+                  name: postgres
+                  key: DATABASE_URL
