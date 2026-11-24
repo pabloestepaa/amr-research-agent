@@ -1,0 +1,35 @@
+# Deployment de la API: le dice a Kubernetes "quiero 1 copia de este contenedor funcionando".
+# Kubernetes no ejecuta este fichero una vez: guarda el estado deseado y lo vigila. Si el pod muere,
+# el controlador del Deployment (a través de un ReplicaSet) crea otro.
+#
+# Primera versión, a propósito mínima: sin base de datos, sin probes y sin límites de memoria.
+# Se irán añadiendo paso a paso (ver docs/decisions.md cuando esté la decisión de Kubernetes).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api
+  labels:
+    app: amr-research-agent
+spec:
+  replicas: 1 # una sola: los límites de /ask y /agent viven en la memoria del proceso
+  selector:
+    matchLabels: # qué pods son "míos": los que llevan esta etiqueta
+      app: amr-research-agent
+  template: # la plantilla de cada pod que cree el Deployment
+    metadata:
+      labels:
+        app: amr-research-agent
+    spec:
+      containers:
+        - name: api
+          # Imagen construida en local y cargada en kind con `kind load docker-image`. No es
+          # `latest`, así que Kubernetes no intenta descargarla de un registro (IfNotPresent).
+          image: amr-research-agent:dev
+          ports:
+            - containerPort: 8000
+          env:
+            - name: PORT
+              value: "8000"
+            # Todavía no hay Postgres en el clúster: este nombre no existe y la API no arrancará.
+            - name: DATABASE_URL
+              value: postgresql://postgres:postgres@postgres:5432/amr_agent
