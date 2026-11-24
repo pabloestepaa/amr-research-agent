@@ -28,3 +28,8 @@ skills-lock.json
 
 # grabación del modo literatura: guarda pasajes de artículos (no todos se pueden redistribuir)
 evals/literature_cassette.jsonl
+
+# Terraform: plugins descargados, estado (IDs y datos de la cuenta) y valores reales
+infra/azure/.terraform/
+infra/azure/*.tfstate*
+infra/azure/terraform.tfvars
