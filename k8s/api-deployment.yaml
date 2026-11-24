@@ -2,7 +2,7 @@
 # Kubernetes no ejecuta este fichero una vez: guarda el estado deseado y lo vigila. Si el pod muere,
 # el controlador del Deployment (a través de un ReplicaSet) crea otro.
 #
-# Versión mínima: sin probes ni límites de memoria (se añaden paso a paso). La BD está en postgres.yaml.
+# La BD está en postgres.yaml.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -35,3 +35,43 @@ spec:
                 secretKeyRef:
                   name: postgres
                   key: DATABASE_URL
+          # Memoria como en Render Free. `requests` es lo que el scheduler reserva en el nodo para
+          # decidir dónde cabe el pod; `limits` es el techo: si el contenedor (API + subproceso
+          # amr-mcp, que comparten cgroup) pasa de 512 Mi, el kernel lo mata (OOMKilled) y se
+          # reinicia. Medido: 291 MB al arrancar en kind, 367 MiB en el job docker del CI.
+          # CPU: solo `requests`. Un límite de CPU no mata, frena (throttling), y con 0,1 CPU como
+          # Render el arranque pasaría de 2 s a ~20 s sin enseñar nada nuevo.
+          resources:
+            requests:
+              memory: 400Mi
+              cpu: 100m
+            limits:
+              memory: 512Mi
+          # Las tres probes van contra /health, que no consulta la BD a propósito: si Postgres se
+          # cae, reiniciar la API no lo arregla (solo añadiría reinicios en bucle).
+          #
+          # startupProbe: mientras no responda, las otras dos no se ejecutan. Da hasta 2 min
+          # (60 × 2 s) para arrancar: modelo de embeddings + amr-mcp tardan ~18 s en Render.
+          startupProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            periodSeconds: 2
+            failureThreshold: 60
+          # readinessProbe: si falla, el pod sigue vivo pero el Service deja de mandarle tráfico.
+          # Es lo que hace que, en un rollout, el pod viejo no se retire hasta que el nuevo responde.
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            periodSeconds: 10
+          # livenessProbe: si falla 3 veces seguidas (~30 s colgado), Kubernetes reinicia el contenedor.
+          # Timeout de 5 s y no de 1 (el de por defecto): una pregunta al agente ocupa la CPU y
+          # no queremos matar una API lenta, solo una colgada.
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
