@@ -37,6 +37,15 @@ spec:
                 secretKeyRef:
                   name: postgres
                   key: DATABASE_URL
+            # La clave de Groq. Este Secret NO está en el repositorio: se crea a mano desde .env con
+            #   kubectl create secret generic llm --from-literal=LLM_API_KEY="$(grep '^LLM_API_KEY=' .env | cut -d= -f2-)"
+            # `optional: true`: si no existe, la API arranca igual y /agent responde 502 (como en el CI).
+            - name: LLM_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: llm
+                  key: LLM_API_KEY
+                  optional: true
           # Memoria como en Render Free. `requests` es lo que el scheduler reserva en el nodo para
           # decidir dónde cabe el pod; `limits` es el techo: si el contenedor (API + subproceso
           # amr-mcp, que comparten cgroup) pasa de 512 Mi, el kernel lo mata (OOMKilled) y se
