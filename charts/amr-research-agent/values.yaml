@@ -1,0 +1,50 @@
+# Valores por defecto del chart: los "huecos" que rellenan las plantillas de templates/.
+# Se cambian sin tocar las plantillas: `--set config.LLM_MODEL=...` o `-f mis-valores.yaml`.
+
+image:
+  # En kind, la imagen se construye en local y se carga con `kind load docker-image`.
+  # En un cloud sería la del registro (p. ej. ghcr.io/pabloestepaa/amr-research-agent).
+  repository: amr-research-agent
+  tag: dev
+  pullPolicy: IfNotPresent
+
+# Una sola réplica: los límites de /ask y /agent viven en la memoria del proceso.
+replicas: 1
+
+# Memoria como en Render Free (512 Mi). Medido: 291 MB al arrancar en kind, 367 MiB en el CI.
+# Sin límite de CPU: un límite de CPU no mata, frena el arranque.
+resources:
+  requests:
+    memory: 400Mi
+    cpu: 100m
+  limits:
+    memory: 512Mi
+
+# Ajustes no secretos: van al ConfigMap y llegan a la API como variables de entorno (config.py).
+# Si cambian, la API se reinicia sola (ver la anotación checksum en deployment.yaml).
+config:
+  LLM_BASE_URL: https://api.groq.com/openai/v1
+  LLM_MODEL: openai/gpt-oss-120b
+  ASK_PER_IP_PER_MINUTE: "5"
+  ASK_PER_DAY: "50"
+  AGENT_PER_IP_PER_MINUTE: "1"
+  AGENT_PER_DAY: "15"
+
+# La clave del LLM NO está en el chart: va en un Secret creado a mano, fuera de git:
+#   kubectl create secret generic llm --from-literal=LLM_API_KEY="$(grep '^LLM_API_KEY=' .env | cut -d= -f2-)"
+# Si no existe, la API arranca igual y /agent responde 502 (como en el CI).
+llm:
+  existingSecret: llm
+
+# Postgres + pgvector dentro del clúster (para kind y para el CI).
+postgres:
+  enabled: true
+  image: pgvector/pgvector:pg17
+  # Contraseña de desarrollo de un clúster local; no sirve para nada fuera de él.
+  password: postgres
+  storage: 1Gi # el corpus entero ocupa 39 MB
+
+# Base de datos de fuera (Neon, Azure...) cuando postgres.enabled es false: un Secret creado a mano
+# con la clave DATABASE_URL.
+database:
+  existingSecret: ""

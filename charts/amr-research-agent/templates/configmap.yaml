@@ -1,0 +1,10 @@
+# Los ajustes no secretos de la API (sección `config` de values.yaml).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Release.Name }}-api
+data:
+  PORT: "8000"
+  {{- range $key, $value := .Values.config }}
+  {{ $key }}: {{ $value | quote }}
+  {{- end }}

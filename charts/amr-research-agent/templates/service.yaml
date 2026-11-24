@@ -1,0 +1,12 @@
+# Dirección fija de la API dentro del clúster: http://<instalación>-api (puerto 80 → 8000).
+# Solo manda tráfico a los pods que pasan la readinessProbe.
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Release.Name }}-api
+spec:
+  selector:
+    app: {{ .Release.Name }}-api
+  ports:
+    - port: 80
+      targetPort: 8000

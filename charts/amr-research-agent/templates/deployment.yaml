@@ -1,0 +1,81 @@
+# La API: "quiero N copias de este contenedor funcionando". Kubernetes lo vigila y recrea el pod si muere.
+{{- $dbSecret := ternary (printf "%s-postgres" .Release.Name) .Values.database.existingSecret .Values.postgres.enabled }}
+{{- if not $dbSecret }}
+{{- fail "Con postgres.enabled=false hay que dar database.existingSecret (un Secret con DATABASE_URL)" }}
+{{- end }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-api
+spec:
+  replicas: {{ .Values.replicas }}
+  selector:
+    matchLabels:
+      app: {{ .Release.Name }}-api
+  template:
+    metadata:
+      labels:
+        app: {{ .Release.Name }}-api
+      annotations:
+        # Huella del ConfigMap: si cambia un ajuste, cambia la huella, cambia la plantilla del pod y
+        # Kubernetes sustituye el pod. Sin esto, la API seguiría con los ajustes viejos hasta un
+        # reinicio manual (las variables de entorno se leen al arrancar).
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+    spec:
+      {{- if .Values.postgres.enabled }}
+      # Contenedor de espera: se ejecuta antes que la API y no la deja arrancar hasta que Postgres
+      # responde. Sin él, al instalar todo a la vez la API arranca primero, falla al aplicar el
+      # esquema y Kubernetes la reinicia un par de veces hasta que Postgres está listo.
+      initContainers:
+        - name: wait-for-postgres
+          image: {{ .Values.postgres.image }} # trae pg_isready
+          command: ["sh", "-c", "until pg_isready -h {{ .Release.Name }}-postgres -U postgres; do sleep 1; done"]
+      {{- end }}
+      containers:
+        - name: api
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - containerPort: 8000
+          envFrom:
+            - configMapRef:
+                name: {{ .Release.Name }}-api
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $dbSecret }}
+                  key: DATABASE_URL
+            - name: LLM_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.llm.existingSecret }}
+                  key: LLM_API_KEY
+                  optional: true
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          # Las tres comprobaciones van contra /health, que no consulta la BD a propósito: si Postgres
+          # se cae, reiniciar la API no lo arregla.
+          # startupProbe: hasta 2 min para arrancar (modelo + amr-mcp: ~18 s en Render); mientras
+          # tanto, las otras dos no se ejecutan.
+          startupProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            periodSeconds: 2
+            failureThreshold: 60
+          # readinessProbe: si falla, el Service deja de mandarle tráfico (el pod sigue vivo).
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            periodSeconds: 10
+          # livenessProbe: si falla 3 veces seguidas (~30 s colgada), se reinicia. Timeout de 5 s:
+          # una pregunta al agente ocupa la CPU y no queremos matar una API lenta, solo una colgada.
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3

@@ -1,0 +1,76 @@
+{{- if .Values.postgres.enabled }}
+{{- $name := printf "%s-postgres" .Release.Name }}
+# Postgres + pgvector dentro del clúster (solo si postgres.enabled). Tres objetos: Secret, Service y
+# StatefulSet. La API crea la extensión `vector` y el esquema al arrancar.
+#
+# Secret: credenciales y la URL que lee la API. No está cifrado (solo base64); la contraseña es la de
+# desarrollo de values.yaml.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ $name }}
+type: Opaque
+stringData:
+  POSTGRES_USER: postgres
+  POSTGRES_PASSWORD: {{ .Values.postgres.password | quote }}
+  POSTGRES_DB: amr_agent
+  DATABASE_URL: postgresql://postgres:{{ .Values.postgres.password }}@{{ $name }}:5432/amr_agent
+---
+# Service sin IP propia ("headless"): el nombre <instalación>-postgres lleva directamente al pod.
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}
+spec:
+  clusterIP: None
+  selector:
+    app: {{ $name }}
+  ports:
+    - port: 5432
+---
+# StatefulSet: el pod tiene nombre fijo (<instalación>-postgres-0) y conserva su disco aunque se recree.
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ $name }}
+spec:
+  serviceName: {{ $name }}
+  replicas: 1
+  selector:
+    matchLabels:
+      app: {{ $name }}
+  template:
+    metadata:
+      labels:
+        app: {{ $name }}
+    spec:
+      containers:
+        - name: postgres
+          image: {{ .Values.postgres.image }}
+          ports:
+            - containerPort: 5432
+          envFrom:
+            - secretRef:
+                name: {{ $name }}
+          env:
+            # Datos en un subdirectorio: Postgres no acepta un directorio con `lost+found`.
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-U", "postgres", "-d", "amr_agent"]
+            periodSeconds: 5
+  # Un disco por pod. Helm no lo borra al desinstalar (los datos no se pierden por accidente):
+  # se borra a mano con `kubectl delete pvc data-<instalación>-postgres-0`.
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: {{ .Values.postgres.storage }}
+{{- end }}

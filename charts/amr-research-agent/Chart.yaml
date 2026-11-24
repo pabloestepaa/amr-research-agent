@@ -1,0 +1,10 @@
+# Chart de Helm: la app entera (API + Postgres opcional) como un paquete instalable.
+#   helm install amr charts/amr-research-agent              # instalar ("amr" = nombre de la instalación)
+#   helm upgrade amr charts/amr-research-agent --set ...     # cambiar ajustes o versión
+#   helm rollback amr 1                                      # volver a una versión anterior
+apiVersion: v2
+name: amr-research-agent
+description: AMR research agent (FastAPI + amr-mcp) with an optional Postgres + pgvector
+type: application
+version: 0.1.0 # versión del chart (las plantillas)
+appVersion: "0.3.0" # versión de la API (pyproject.toml)

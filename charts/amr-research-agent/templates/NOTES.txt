@@ -1,0 +1,11 @@
+Instalado {{ .Release.Name }} (API {{ .Chart.AppVersion }}).
+
+Abrir la API desde tu máquina:
+  kubectl port-forward svc/{{ .Release.Name }}-api 8013:80
+  → http://localhost:8013 (docs en /docs)
+{{- if .Values.postgres.enabled }}
+
+Cargar el corpus en el Postgres del clúster:
+  kubectl port-forward svc/{{ .Release.Name }}-postgres 5433:5432
+  uv run amr-copy-db --target postgresql://postgres:{{ .Values.postgres.password }}@localhost:5433/amr_agent
+{{- end }}
