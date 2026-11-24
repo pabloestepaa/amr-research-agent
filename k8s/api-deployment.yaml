@@ -26,9 +26,11 @@ spec:
           image: amr-research-agent:dev
           ports:
             - containerPort: 8000
+          # Los ajustes no secretos, todos de golpe desde el ConfigMap de api-config.yaml
+          envFrom:
+            - configMapRef:
+                name: api-config
           env:
-            - name: PORT
-              value: "8000"
             # La URL sale del Secret de postgres.yaml: si cambia la contraseña, este fichero no se toca.
             - name: DATABASE_URL
               valueFrom:
