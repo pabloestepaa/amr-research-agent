@@ -33,3 +33,4 @@ evals/literature_cassette.jsonl
 infra/azure/.terraform/
 infra/azure/*.tfstate*
 infra/azure/terraform.tfvars
+infra/azure/tfplan

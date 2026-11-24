@@ -16,3 +16,20 @@ variable "monthly_budget_usd" {
   type        = number
   default     = 8
 }
+
+variable "image_tag" {
+  description = "Etiqueta de la imagen en GHCR, p. ej. sha-ed1dcd0 (la publica el job `publish` del CI)"
+  type        = string
+}
+
+variable "database_url" {
+  description = "URL pooled de Neon (neon connection-string --project-id ... --pooled --ssl require)"
+  type        = string
+  sensitive   = true # Terraform no la enseña en plan/apply
+}
+
+variable "llm_api_key" {
+  description = "Clave de Groq (LLM_API_KEY del .env)"
+  type        = string
+  sensitive   = true
+}

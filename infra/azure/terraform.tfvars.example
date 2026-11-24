@@ -1,2 +1,5 @@
 subscription_id = "00000000-0000-0000-0000-000000000000"
 alert_email     = "tu.correo@uco.es"
+image_tag       = "sha-ed1dcd0"
+database_url    = "postgresql://...-pooler.../neondb?sslmode=require"
+llm_api_key     = "gsk_..."
