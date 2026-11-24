@@ -127,3 +127,53 @@ jobs:
       - name: Container logs
         if: always()
         run: docker logs api
+
+  # Lo mismo que el job docker, pero instalando el chart de Helm en un Kubernetes de verdad (kind):
+  # detecta un chart roto (plantillas, probes, nombres, Secrets) antes de usarlo en un cloud.
+  kubernetes:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@v5
+        with:
+          version: v4.3.2
+      - run: helm lint charts/amr-research-agent
+      - uses: docker/setup-buildx-action@v3
+      - name: Build image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          load: true
+          tags: amr-research-agent:ci
+          cache-from: type=gha # comparte la caché con el job docker: no se reconstruye
+      - name: Create kind cluster
+        uses: helm/kind-action@v1.15.2
+        with:
+          cluster_name: ci
+      # kind no ve las imágenes de Docker: hay que cargarla en su nodo.
+      - run: kind load docker-image amr-research-agent:ci --name ci
+      - name: Install chart
+        # Sin Secret `llm` (no hay clave en el CI) y el LLM en un puerto cerrado, como en el job docker.
+        run: |
+          helm install amr charts/amr-research-agent --wait --timeout 5m \
+            --set image.tag=ci \
+            --set config.LLM_BASE_URL=http://localhost:9/v1
+      - name: Smoke test
+        run: |
+          kubectl port-forward svc/amr-api 8000:80 >/dev/null 2>&1 &
+          sleep 3
+          curl -fsS localhost:8000/health
+          curl -fsS localhost:8000/ | grep -q "AMR Research Agent"
+          test "$(curl -fsS 'localhost:8000/search?q=colistin%20resistance')" = "[]"
+          code=$(curl -s -o /dev/null -w '%{http_code}' -X POST localhost:8000/agent \
+            -H 'Content-Type: application/json' -d '{"question": "What is mcr-1?"}')
+          echo "/agent -> $code"; test "$code" = "502"
+          # 0 reinicios: ni falta de memoria (límite de 512 Mi) ni arrancar antes que Postgres
+          restarts=$(kubectl get pod -l app=amr-api -o jsonpath='{.items[0].status.containerStatuses[0].restartCount}')
+          echo "API restarts: $restarts" | tee -a "$GITHUB_STEP_SUMMARY"; test "$restarts" = "0"
+      - name: Cluster state and logs
+        if: always()
+        run: |
+          kubectl get pods,svc,pvc
+          kubectl describe pod -l app=amr-api | tail -20
+          kubectl logs -l app=amr-api --tail=50
