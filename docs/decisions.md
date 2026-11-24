@@ -1113,3 +1113,36 @@ kind the API starts in 2.1 s (18 s on Render's 0.1 CPU) and the container uses 2
 corpus (2,999 abstracts, 39 MB) copies in with `amr-copy-db` in 5 s, search answers in 49 ms and
 `/ask` in 1.7 s. A `kubernetes` job in CI lints the chart, installs it on kind and runs the same
 checks as the `docker` job, plus zero API restarts; it passed on its first run in 1 min 35 s.
+
+## 53. A second deployment on Azure Container Apps, written in Terraform (2026-11-24)
+**Context.** Decision 52 gave the project a Helm chart, but nothing ran on a large cloud, and job offers
+ask for one, usually with infrastructure as code. The only free option with a real subscription was
+Azure for Students: 100 USD a year, no card, and the services stop when the credit runs out instead
+of billing. Render stays the public demo (decision 1).
+**Options.**
+- AKS with the chart from decision 52: the closest to the Kubernetes work, but the cluster's nodes bill
+  around the clock and would spend the year's credit in weeks.
+- Azure Container Apps: Kubernetes managed by Azure, billed per second of use, scales to zero, with a
+  monthly free grant.
+- Clicking it together in the portal, or writing it in Terraform.
+- Azure Container Registry for the image, or GitHub Container Registry.
+**Decision.** Container Apps, written in Terraform in `infra/azure`, with the image on GHCR (free for
+public repositories; ACR's cheapest tier costs about 5 USD a month, more than half the monthly budget).
+A `publish` CI job pushes `latest` and `sha-<commit>` after every green push to `main`, and Terraform
+deploys a fixed `sha-` tag, so a deploy is a one-line change that can be reverted. The app keeps
+Render's limits: 0.25 vCPU and 0.5 GiB, 0 to 1 replicas (the quotas live in process memory), and the
+same three probes on `/health` as the chart. It shares Neon and the Groq key with Render; both are
+Container Apps secrets, read from a `terraform.tfvars` that git ignores. There is no Log Analytics
+workspace, which bills per GB; logs are streamed with `az containerapp logs show`. The first resource
+was a budget alert (8 USD a month, e-mails at 50 % and 100 % spent and at 100 % forecast), applied
+before anything that costs money. Every resource provider is registered by hand
+(`resource_provider_registrations = "none"`), so the provider does not enable dozens of services.
+**Result.** The student subscription only allows five regions through a policy (Norway East, Spain
+Central, Italy North, Switzerland North, Poland Central); Spain Central is the closest to the user and
+to Neon in Frankfurt. The first apply took 4 minutes, 3 of them registering `Microsoft.App`. The API
+starts in 8.0 s (18 s on Render's 0.1 CPU), search answers in 0.9 s and an agent question about mcr-1
+in 1.4 s. With no visitors the app scaled to zero after about 8 minutes, and the next request took
+18 s, against 30–60 s for a cold start on Render. At zero it bills nothing; the monthly grant (180,000
+vCPU-seconds) covers about 200 hours awake. Terraform's state holds the secrets in plain text and
+lives on one machine, which is acceptable for a personal project and would move to a shared,
+encrypted backend in a team.

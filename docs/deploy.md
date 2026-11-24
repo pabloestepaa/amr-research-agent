@@ -48,6 +48,38 @@ does nothing otherwise. Any OTLP/HTTP backend works; production uses Langfuse Cl
 
 To see traces locally without an account, start the API with `OTEL_TRACES_EXPORTER=console`.
 
+## 4. A second copy on Azure Container Apps (optional)
+
+The same image also runs on Azure, created with Terraform from [`infra/azure`](../infra/azure/main.tf),
+on an Azure for Students subscription (100 USD a year, no card). It shares the Neon database and the
+Groq key with Render.
+
+```
+GitHub Actions ──publish──► ghcr.io/pabloestepaa/amr-research-agent:sha-<commit> (public)
+                                         │ pulled by
+Browser ──► Azure Container Apps, Spain Central (0–1 replicas, 0.25 vCPU, 0.5 GiB) ──► Neon, Groq
+```
+
+1. Install the Azure CLI and Terraform, then `az login`.
+2. `cd infra/azure && cp terraform.tfvars.example terraform.tfvars` and fill it in: the subscription
+   ID (`az account show --query id -o tsv`), an e-mail for the budget alert, the image tag, the Neon
+   pooled URL and the Groq key. The file is ignored by git.
+3. `terraform init && terraform plan`, read the plan, then `terraform apply`. The first apply takes
+   about 4 minutes, 3 of them registering `Microsoft.App` on the subscription. `terraform output url`
+   prints the address.
+4. To deploy a new version, set `image_tag` to the `sha-<commit>` tag that the `publish` CI job pushed
+   and run `terraform apply` again. `terraform destroy` removes everything except the budget's history.
+
+Notes:
+- Student subscriptions only allow five regions (Norway East, Spain Central, Italy North, Switzerland
+  North, Poland Central); a plan for any other region fails on the policy.
+- There is no Log Analytics workspace, because it bills per GB. Stream the logs instead:
+  `az containerapp logs show -n amr-api -g amr-research-agent --follow`.
+- The app scales to zero after a few idle minutes and bills nothing while at zero. The Consumption
+  plan's monthly grant (180,000 vCPU-seconds) is about 200 hours at 0.25 vCPU.
+- `terraform.tfstate` holds the secrets in plain text and lives only on the machine that ran the
+  apply; it is ignored by git.
+
 ## Operating notes
 - **Cold start.** Render Free sleeps after 15 minutes idle; the first request then takes 30–60 s.
   Neon also scales to zero, which adds about a second.

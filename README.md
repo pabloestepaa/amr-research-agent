@@ -38,8 +38,8 @@ agent trajectories.
   scored by an LLM judge; and agent trajectories, checked with deterministic rules against
   recorded tool responses.
 - Everything runs on free tiers: Render (512 MB), Neon Postgres and Groq. CI builds the Docker
-  image and runs it under the same 512 MB limit, and installs it on Kubernetes (kind) with a Helm
-  chart.
+  image and runs it under the same 512 MB limit, installs it on Kubernetes (kind) with a Helm chart,
+  and publishes it for a second copy on Azure Container Apps, written in Terraform.
 
 ## What it does
 
@@ -290,7 +290,7 @@ only the question, the final answer and the tool arguments, without prompts or t
 because the questions come from a public demo. The page tells visitors so. Without an OTLP
 endpoint, tracing is off and the SDK is not imported. See decision 39.
 
-## Kubernetes
+## Kubernetes and Azure
 
 The public demo runs on Render, and the same image also installs on Kubernetes with the Helm
 chart in [`charts/amr-research-agent`](charts/amr-research-agent/values.yaml). It is tested on a
@@ -315,9 +315,19 @@ probe), and the API restarted twice on a fresh install because it started before
 by the init container). The `kubernetes` job in CI installs the chart on kind, runs the same
 checks as the `docker` job and fails if the API restarted. See decision 52.
 
+### Azure
+
+A second copy runs on [Azure Container Apps](https://learn.microsoft.com/azure/container-apps/) in
+Spain Central, written in Terraform in [`infra/azure`](infra/azure/container-app.tf) on a student
+subscription. After every green push to `main` CI publishes the image to GitHub Container Registry,
+and Terraform deploys a fixed `sha-<commit>` tag of it with Render's limits (0.25 vCPU, 0.5 GiB, 0 to
+1 replicas, the same probes), the same Neon database and a monthly budget alert. It scales to zero
+when idle, so it bills nothing then, and wakes up in 18 s, against 30–60 s on Render. See decision 53
+and [`docs/deploy.md`](docs/deploy.md).
+
 ## Design decisions
 
-All 52 decisions, with context and trade-offs, are in [`docs/decisions.md`](docs/decisions.md).
+All 53 decisions, with context and trade-offs, are in [`docs/decisions.md`](docs/decisions.md).
 The ones that shaped the project most:
 
 | Decision | Why | Trade-off |
@@ -365,7 +375,7 @@ uv run amr-eval-agent --mode literature           # Papers agent, no database, ~
 uv run amr-eval-report                            # rewrites evals/RESULTS.md
 ```
 
-Deployment to Render and Neon is described in [`docs/deploy.md`](docs/deploy.md).
+Deployment to Render, Neon and Azure is described in [`docs/deploy.md`](docs/deploy.md).
 
 On a local Kubernetes cluster (needs Docker, e.g. [Colima](https://github.com/abiosoft/colima), plus kind and Helm):
 
@@ -381,7 +391,7 @@ helm install amr charts/amr-research-agent       # prints how to open the API an
 Stack: Python 3.13 · FastAPI · PostgreSQL + pgvector (Neon) · fastembed (`bge-small-en-v1.5`,
 ONNX) · OpenAI SDK against Groq (`gpt-oss-120b`, judge `gpt-oss-20b`) · MCP (`mcp` client,
 [`amr-mcp`](https://github.com/pabloestepaa/amr-mcp) server) · pytest · ruff · Docker ·
-OpenTelemetry (GenAI conventions) + Langfuse · Kubernetes (kind) + Helm · GitHub Actions · Render.
+OpenTelemetry (GenAI conventions) + Langfuse · Kubernetes (kind) + Helm · Terraform · GitHub Actions · Render · Azure Container Apps.
 
 Limitations:
 
