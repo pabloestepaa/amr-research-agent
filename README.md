@@ -38,7 +38,8 @@ agent trajectories.
   scored by an LLM judge; and agent trajectories, checked with deterministic rules against
   recorded tool responses.
 - Everything runs on free tiers: Render (512 MB), Neon Postgres and Groq. CI builds the Docker
-  image and runs it under the same 512 MB limit.
+  image and runs it under the same 512 MB limit, and installs it on Kubernetes (kind) with a Helm
+  chart.
 
 ## What it does
 
@@ -289,9 +290,34 @@ only the question, the final answer and the tool arguments, without prompts or t
 because the questions come from a public demo. The page tells visitors so. Without an OTLP
 endpoint, tracing is off and the SDK is not imported. See decision 39.
 
+## Kubernetes
+
+The public demo runs on Render, and the same image also installs on Kubernetes with the Helm
+chart in [`charts/amr-research-agent`](charts/amr-research-agent/values.yaml). It is tested on a
+local [kind](https://kind.sigs.k8s.io) cluster and in CI.
+
+```
+helm install amr charts/amr-research-agent
+├─ Deployment amr-api        1 replica, 512 Mi limit, startup/readiness/liveness probes on /health
+│  ├─ init container         waits for pg_isready, so the API never starts before its database
+│  ├─ ConfigMap amr-api      non-secret settings; a checksum in the pod restarts the API when they change
+│  └─ Secret llm             the Groq key, created with kubectl and never in the chart (optional)
+├─ Service amr-api           stable address in front of the ready pods
+└─ StatefulSet amr-postgres  pgvector with its own 1 Gi volume (postgres.enabled; off for Neon)
+```
+
+The chart writes down what Render decides for you. One replica, because the per-IP quotas live
+in process memory and a second copy would double them. A memory limit but no CPU limit, because
+a CPU limit only slows the start. Probes on `/health`, which does not query the database, so a
+database outage does not turn into a loop of API restarts. Getting there showed two problems the
+`docker` job could not: a new pod counted as ready before the API listened (fixed by the readiness
+probe), and the API restarted twice on a fresh install because it started before Postgres (fixed
+by the init container). The `kubernetes` job in CI installs the chart on kind, runs the same
+checks as the `docker` job and fails if the API restarted. See decision 52.
+
 ## Design decisions
 
-All 51 decisions, with context and trade-offs, are in [`docs/decisions.md`](docs/decisions.md).
+All 52 decisions, with context and trade-offs, are in [`docs/decisions.md`](docs/decisions.md).
 The ones that shaped the project most:
 
 | Decision | Why | Trade-off |
@@ -341,12 +367,21 @@ uv run amr-eval-report                            # rewrites evals/RESULTS.md
 
 Deployment to Render and Neon is described in [`docs/deploy.md`](docs/deploy.md).
 
+On a local Kubernetes cluster (needs Docker, e.g. [Colima](https://github.com/abiosoft/colima), plus kind and Helm):
+
+```bash
+kind create cluster --name amr
+docker build -t amr-research-agent:dev . && kind load docker-image amr-research-agent:dev --name amr
+kubectl create secret generic llm --from-literal=LLM_API_KEY=...   # optional: without it /agent answers 502
+helm install amr charts/amr-research-agent       # prints how to open the API and load the corpus
+```
+
 ## Stack and limitations
 
 Stack: Python 3.13 · FastAPI · PostgreSQL + pgvector (Neon) · fastembed (`bge-small-en-v1.5`,
 ONNX) · OpenAI SDK against Groq (`gpt-oss-120b`, judge `gpt-oss-20b`) · MCP (`mcp` client,
 [`amr-mcp`](https://github.com/pabloestepaa/amr-mcp) server) · pytest · ruff · Docker ·
-OpenTelemetry (GenAI conventions) + Langfuse · GitHub Actions · Render.
+OpenTelemetry (GenAI conventions) + Langfuse · Kubernetes (kind) + Helm · GitHub Actions · Render.
 
 Limitations:
 

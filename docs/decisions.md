@@ -1078,3 +1078,38 @@ more than the budget is the thing the budget is for. The other two failures were
 Europe PMC outage at the start of the run (ft-01) and a check that expects "three of the 12"
 where the answer says "three of the twelve" (ft-06). Spending fewer rounds on re-reading the same
 article (gen-01 and gen-03 used their third round on it) is left as future work.
+
+## 52. A Helm chart tested on kind, next to Render (2026-11-24)
+**Context.** The app runs on Render, which hides what Kubernetes makes explicit: how many copies
+run, how much memory each may use, when a process counts as healthy, where settings and secrets
+live. Job offers for AI engineers ask for Kubernetes, and the project had none. Paid clusters are
+out (decision 1), and the Mac had no Docker.
+**Options.**
+- minikube, k3d or OrbStack's built-in cluster on the Mac.
+- kind (Kubernetes in Docker) on Colima, the same tool that runs in GitHub Actions.
+- Plain manifests applied with `kubectl`, or a Helm chart.
+- Postgres inside the cluster, or Neon from outside.
+**Decision.** kind on Colima (both free and open source; OrbStack is free only for personal use
+and hides the parts worth learning). A Helm chart in `charts/amr-research-agent`, written after
+a first pass with plain manifests: one install command, every setting in `values.yaml`, and
+upgrades with a history and a rollback. Postgres with pgvector runs in the cluster as a
+StatefulSet by default, so the chart works with nothing outside it; `postgres.enabled=false` and
+a Secret with `DATABASE_URL` point it at Neon or a cloud database. Render stays the public demo.
+The chart keeps the Render limits as code: one replica (the `/ask` and `/agent` quotas live in
+process memory, so two replicas would double them), a 512 Mi memory limit, and no CPU limit (it
+throttles instead of killing, and would only slow the start). Three probes on `/health`, which
+does not touch the database on purpose: startup gives up to 2 min, readiness keeps traffic off a
+pod that is not answering yet, liveness restarts one stuck for ~30 s. The Groq key is a Secret
+created with `kubectl` from `.env`, never in the chart; without it the API starts and `/agent`
+answers 502, as in CI.
+**Result.** Two things went wrong on the way, and both are now in the chart. Without a readiness
+probe a new pod counted as ready one second after starting, before the API listened. Installed
+from scratch, the API started before Postgres, failed to apply its schema and restarted twice; an
+init container that waits for `pg_isready` brought that to zero. Changing a setting in a ConfigMap
+does not reach a running pod, because environment variables are read at start; a checksum of the
+ConfigMap in the pod template makes the API restart on its own. A test deploy with a 200 Mi limit
+was OOMKilled within a second while the old pod kept serving, and `helm rollback` undid it. On
+kind the API starts in 2.1 s (18 s on Render's 0.1 CPU) and the container uses 291 MB; the full
+corpus (2,999 abstracts, 39 MB) copies in with `amr-copy-db` in 5 s, search answers in 49 ms and
+`/ask` in 1.7 s. A `kubernetes` job in CI lints the chart, installs it on kind and runs the same
+checks as the `docker` job, plus zero API restarts; it passed on its first run in 1 min 35 s.
