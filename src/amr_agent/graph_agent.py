@@ -18,8 +18,9 @@ import time
 from typing import Any, Literal, TypedDict
 
 from langgraph.graph import END, START, StateGraph
+from langgraph.graph.state import CompiledStateGraph
 
-from amr_agent.agent import Agent, AgentAnswer, EventSink, Progress
+from amr_agent.agent import Agent, AgentAnswer, EventSink, Progress, _ignore
 
 
 class State(TypedDict):
@@ -35,6 +36,17 @@ class GraphAgent(Agent):
 
     async def _run(self, question: str, emit: EventSink) -> AgentAnswer:
         t0 = time.perf_counter()
+        state = await self.graph(question, emit).ainvoke(
+            {"step": 1, "progress": self._start(question)},
+            # Cada vuelta son 2 nodos (explore + tools); LangGraph corta a los 25 por defecto.
+            {"recursion_limit": 2 * self.max_steps + 2},
+        )
+        return self._answer(question, state["progress"], t0)
+
+    def graph(self, question: str = "", emit: EventSink = _ignore) -> CompiledStateGraph:
+        """El grafo de una pregunta, listo para ejecutar. Para verlo dibujado:
+        `GraphAgent(llm, tools).graph().get_graph().draw_mermaid()` (o `draw_ascii()` con grandalf).
+        """
         schemas = [s.to_openai() for s in self._tools.specs()]
 
         # Nodos: cada uno hace una cosa y devuelve qué cambia del estado.
@@ -72,10 +84,4 @@ class GraphAgent(Agent):
         graph.add_conditional_edges("explore", after_explore)
         graph.add_conditional_edges("tools", next_round)
         graph.add_edge("final", END)
-
-        state = await graph.compile().ainvoke(
-            {"step": 1, "progress": self._start(question)},
-            # Cada vuelta son 2 nodos (explore + tools); LangGraph corta a los 25 por defecto.
-            {"recursion_limit": 2 * self.max_steps + 2},
-        )
-        return self._answer(question, state["progress"], t0)
+        return graph.compile()
