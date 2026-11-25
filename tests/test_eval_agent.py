@@ -6,7 +6,7 @@ import pytest
 
 from amr_agent.agent import AgentAnswer, AgentUsage, ToolStep
 from amr_agent.evals.agent_eval import failed_row, normalize_text, score_task, summarize
-from amr_agent.evals.cassette import CassetteTools, cassette_key
+from amr_agent.evals.cassette import CassetteTools, cassette_key, fill_from_content
 from amr_agent.evals.dataset import LITERATURE_GOLDEN_PATH, AgentTask, load_agent_golden
 from amr_agent.evals.report import agent_table
 from amr_agent.rag import NO_EVIDENCE, NO_EVIDENCE_PAPERS
@@ -15,6 +15,8 @@ from amr_agent.tools import (
     READ_PAPER,
     SEARCH_LITERATURE,
     SEARCH_PAPERS,
+    Excerpt,
+    Paper,
     ToolResult,
     ToolSpec,
 )
@@ -205,6 +207,46 @@ async def test_cassette_refresh_and_live_modes(tmp_path):
     live = CassetteTools(inner, path, mode="live")
     await live.call("get_amr_gene", {"name": "a"})
     assert inner.calls == 3 and live.hits == 0
+
+
+async def test_cassette_keeps_papers_and_excerpts(tmp_path):
+    """Sin ellos, en replay no se comprueban las frases citadas ni actúa la regla de full_text."""
+    paper = Paper("111", "A trial", journal="NEJM", year=2017, study_type="Phase 2 trial",
+                  full_text=False)
+    excerpt = Excerpt("111", "Results", "43% received tocilizumab.")
+
+    class PaperTools(CountingTools):
+        async def call(self, name, arguments) -> ToolResult:
+            self.calls += 1
+            return ToolResult("...", pmids=frozenset({"111"}), papers=(paper,),
+                              excerpts=(excerpt,))
+
+    path = tmp_path / "c.jsonl"
+    first = CassetteTools(PaperTools(), path)
+    await first.call("search_papers", {"query": "ZUMA-1"})
+    first.save()
+    replayed = await CassetteTools(PaperTools(), path).call("search_papers", {"query": "ZUMA-1"})
+    assert replayed.papers == (paper,) and replayed.excerpts == (excerpt,)
+
+
+async def test_cassette_reads_rows_recorded_before_papers_were_kept(tmp_path):
+    path = tmp_path / "c.jsonl"
+    path.write_text(json.dumps({"tool": "t", "arguments": {}, "content": "x", "pmids": ["1"],
+                                "truncated": False}) + "\n")
+    result = await CassetteTools(CountingTools(), path).call("t", {})
+    assert result.content == "x" and result.papers == () and result.excerpts == ()
+
+
+def test_old_rows_are_filled_from_what_the_model_read():
+    full = {"pmid": "111", "title": "A trial", "journal": "NEJM", "year": 2017,
+            "passages": [{"section": "Results", "text": "43% received tocilizumab."},
+                         {"section": "Methods", "text": "Patients were enrolled."}]}
+    cut = json.dumps(full)[:-30]  # como si shrink lo hubiera cortado en el 2.º pasaje
+    row = fill_from_content({"tool": "read_paper", "arguments": {}, "content": cut,
+                             "pmids": ["111"], "truncated": True})
+    assert row["papers"][0]["title"] == "A trial"
+    assert row["excerpts"] == [{"pmid": "111", "section": "Results",
+                                "text": "43% received tocilizumab."}]
 
 
 def test_cassette_key_ignores_argument_order():
