@@ -1159,8 +1159,9 @@ the active revision runs that commit, since the old one would also answer `/heal
 apply would roll back the last deploy. The first plan also showed drift: Azure had filled in defaults
 (the Consumption workload profile, an HTTP scale rule, `http` transport) that Terraform wanted to
 remove, now written in the code, and azurerm 5.15 rewrites a few settings Azure reads back empty, now
-in `ignore_changes`, so a plan with nothing to do says so. Once fixed, the job deployed `sha-064fb4d`
-in 37 s and `/health` answered 9 s later.
+in `ignore_changes`, so a plan with nothing to do says so. Once fixed, a push deploys in about 90 s:
+the new image is set in ~40 s and `/health` answers, and Azure reports the new revision healthy about
+30 s later (until then its health reads `None`, so the check waits up to 3 minutes).
 
 ## 54. The Papers agent rebuilt in LangGraph, to compare a framework with the hand-written loop (2026-11-25)
 **Context.** The agent is a loop written by hand (decision 20), and the reasons still hold: every
