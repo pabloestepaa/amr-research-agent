@@ -346,7 +346,9 @@ checks as the `docker` job and fails if the API restarted. See decision 52.
 A second copy runs on [Azure Container Apps](https://learn.microsoft.com/azure/container-apps/) in
 Spain Central, written in Terraform in [`infra/azure`](infra/azure/container-app.tf) on a student
 subscription. After every green push to `main` CI publishes the image to GitHub Container Registry,
-and Terraform deploys a fixed `sha-<commit>` tag of it with Render's limits (0.25 vCPU, 0.5 GiB, 0 to
+and a `deploy-azure` job rolls it out, logging in with OIDC instead of a stored key: Azure only
+trusts tokens GitHub signs for this repository's `main` branch, and the identity can only update
+this app. Terraform creates the app with Render's limits (0.25 vCPU, 0.5 GiB, 0 to
 1 replicas, the same probes), the same Neon database and a monthly budget alert. It scales to zero
 when idle, so it bills nothing then, and wakes up in 18 s, against 30–60 s on Render. See decision 53
 and [`docs/deploy.md`](docs/deploy.md).

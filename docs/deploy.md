@@ -56,7 +56,7 @@ Groq key with Render.
 
 ```
 GitHub Actions ──publish──► ghcr.io/pabloestepaa/amr-research-agent:sha-<commit> (public)
-                                         │ pulled by
+               └─deploy-azure (OIDC)─────┤ az containerapp update, pulled by
 Browser ──► Azure Container Apps, Spain Central (0–1 replicas, 0.25 vCPU, 0.5 GiB) ──► Neon, Groq
 ```
 
@@ -67,8 +67,15 @@ Browser ──► Azure Container Apps, Spain Central (0–1 replicas, 0.25 vCPU
 3. `terraform init && terraform plan`, read the plan, then `terraform apply`. The first apply takes
    about 4 minutes, 3 of them registering `Microsoft.App` on the subscription. `terraform output url`
    prints the address.
-4. To deploy a new version, set `image_tag` to the `sha-<commit>` tag that the `publish` CI job pushed
-   and run `terraform apply` again. `terraform destroy` removes everything except the budget's history.
+4. New versions deploy themselves: after `publish`, the `deploy-azure` CI job logs in to Azure with
+   OIDC and points the app at the new `sha-<commit>` image, then checks `/health` and that the active
+   revision runs that commit. For that, copy the three values of `terraform output github_variables`
+   to the repository's Actions variables (Settings → Secrets and variables → Actions → Variables).
+   They are not secrets: Azure only accepts them with a token GitHub signs for this repository's
+   `main` branch, and the identity can only update `amr-api` (`infra/azure/github-deploy.tf`).
+   Without the variables the job is skipped. `image_tag` only sets the first image; Terraform then
+   ignores the image, so an apply never rolls a deploy back. `terraform destroy` removes everything
+   except the budget's history.
 
 Notes:
 - Student subscriptions only allow five regions (Norway East, Spain Central, Italy North, Switzerland
@@ -77,6 +84,9 @@ Notes:
   `az containerapp logs show -n amr-api -g amr-research-agent --follow`.
 - The app scales to zero after a few idle minutes and bills nothing while at zero. The Consumption
   plan's monthly grant (180,000 vCPU-seconds) is about 200 hours at 0.25 vCPU.
+- azurerm 5.15 writes a few settings (probe transport, scale-down delay, traffic weight) that Azure
+  reads back empty, so every plan wanted to change the app again. They are in `ignore_changes`; a
+  clean `terraform plan` says "No changes".
 - `terraform.tfstate` holds the secrets in plain text and lives only on the machine that ran the
   apply; it is ignored by git.
 

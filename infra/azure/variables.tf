@@ -33,3 +33,9 @@ variable "llm_api_key" {
   type        = string
   sensitive   = true
 }
+
+variable "github_repository" {
+  description = "Repositorio que puede desplegar con OIDC (propietario/nombre)"
+  type        = string
+  default     = "pabloestepaa/amr-research-agent"
+}

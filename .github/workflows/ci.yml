@@ -213,3 +213,47 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha # la misma caché que los jobs docker y kubernetes
+
+  # Publica en Azure Container Apps la imagen que acaba de subir `publish` (sha-<commit>), como hace
+  # Render con cada push. Entra con OIDC (infra/azure/github-deploy.tf): GitHub firma un pase para
+  # este repo y la rama main, y Azure da a cambio un acceso de minutos que solo puede actualizar
+  # amr-api. No hay ninguna clave de Azure guardada en GitHub.
+  deploy-azure:
+    # Sin las variables (un fork, o antes de configurarlas) el job se salta en vez de fallar.
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.AZURE_CLIENT_ID != ''
+    needs: publish
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write # para pedir el pase firmado de GitHub
+    env:
+      APP: amr-api
+      GROUP: amr-research-agent
+    steps:
+      - uses: azure/login@v3
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      - name: Deploy the new image
+        run: |
+          image="ghcr.io/${GITHUB_REPOSITORY}:sha-${GITHUB_SHA::7}"
+          az containerapp update -n "$APP" -g "$GROUP" --image "$image" --only-show-errors -o none
+          echo "Deployed $image"
+      # La app puede estar a cero réplicas: la primera petición la arranca (~18 s).
+      - name: Check /health on the new revision
+        run: |
+          fqdn=$(az containerapp show -n "$APP" -g "$GROUP" --query properties.configuration.ingress.fqdn -o tsv)
+          for i in $(seq 1 12); do
+            if curl -sf --max-time 30 "https://$fqdn/health"; then echo; exit 0; fi
+            sleep 10
+          done
+          echo "::error::https://$fqdn/health did not answer after the deploy"
+          exit 1
+      # /health también lo contestaría la versión anterior: comprobar que la revisión activa es la de
+      # este commit y está sana (`latestReadyRevisionName` viene vacío en esta API, no sirve).
+      - name: Check the active revision runs this commit
+        run: |
+          read -r image health < <(az containerapp revision list -n "$APP" -g "$GROUP" --query \
+            "[?properties.active] | [0].[properties.template.containers[0].image, properties.healthState]" -o tsv | tr '\n' ' ')
+          echo "active revision: $image ($health)"
+          [[ "$health" == "Healthy" && "$image" == *":sha-${GITHUB_SHA::7}" ]]

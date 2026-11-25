@@ -23,6 +23,12 @@ resource "azurerm_container_app_environment" "main" {
   location            = azurerm_resource_group.main.location
   resource_group_name = azurerm_resource_group.main.name
   depends_on          = [azurerm_resource_provider_registration.app]
+
+  # El perfil gratuito por uso. Azure lo crea solo; escrito aquí para que Terraform no intente quitarlo.
+  workload_profile {
+    name                  = "Consumption"
+    workload_profile_type = "Consumption"
+  }
 }
 
 resource "azurerm_container_app" "api" {
@@ -30,6 +36,23 @@ resource "azurerm_container_app" "api" {
   container_app_environment_id = azurerm_container_app_environment.main.id
   resource_group_name          = azurerm_resource_group.main.name
   revision_mode                = "Single" # cada despliegue sustituye al anterior
+  workload_profile_name        = "Consumption"
+
+  # La versión de la imagen la decide el CI (job deploy-azure, github-deploy.tf) en cada push a main.
+  # Sin esto, cada `terraform apply` volvería a poner la de `image_tag`, que solo vale para crearla.
+  # El resto: valores que Terraform escribe y Azure devuelve vacíos (azurerm 5.15), así que cada plan
+  # querría escribirlos otra vez y crearía una revisión nueva para nada. Comprobado el 2026-11-25.
+  lifecycle {
+    ignore_changes = [
+      template[0].container[0].image,
+      ingress[0].traffic_weight,
+      template[0].cooldown_period_in_seconds,
+      template[0].polling_interval_in_seconds,
+      template[0].container[0].liveness_probe[0].transport,
+      template[0].container[0].readiness_probe[0].transport,
+      template[0].container[0].startup_probe[0].transport,
+    ]
+  }
 
   # Secretos de la app: se guardan cifrados en Azure y llegan al contenedor como variables.
   # (También quedan en terraform.tfstate, que no se sube a git.)
@@ -46,6 +69,7 @@ resource "azurerm_container_app" "api" {
   ingress {
     external_enabled = true
     target_port      = 8000
+    transport        = "http"
     traffic_weight {
       latest_revision = true
       percentage      = 100
@@ -57,6 +81,11 @@ resource "azurerm_container_app" "api" {
     # 1 como máximo: los límites de /ask y /agent viven en la memoria del proceso.
     min_replicas = 0
     max_replicas = 1
+    # La regla que Azure pone por defecto: arranca una réplica cuando llega una petición.
+    http_scale_rule {
+      name                = "http-scaler"
+      concurrent_requests = "10"
+    }
 
     container {
       name  = "api"

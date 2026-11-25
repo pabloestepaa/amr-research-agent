@@ -1146,6 +1146,18 @@ in 1.4 s. With no visitors the app scaled to zero after about 8 minutes, and the
 vCPU-seconds) covers about 200 hours awake. Terraform's state holds the secrets in plain text and
 lives on one machine, which is acceptable for a personal project and would move to a shared,
 encrypted backend in a team.
+**Later (2026-11-25).** Deploys moved to CI. A `deploy-azure` job runs after `publish` and logs in
+with OIDC: a user-assigned managed identity with a federated credential for
+`repo:pabloestepaa/amr-research-agent:ref:refs/heads/main`, so no Azure secret is stored in GitHub,
+and a fork or a pull request cannot deploy. Its only role is Container Apps Contributor on `amr-api`.
+A managed identity, rather than an app registration, needs no rights in the university's directory.
+The job sets the new `sha-` image with `az containerapp update`, waits for `/health` and checks that
+the active revision runs that commit, since the old one would also answer `/health`
+(`latestReadyRevisionName` comes back empty from this API). Terraform now ignores the image, or every
+apply would roll back the last deploy. The first plan also showed drift: Azure had filled in defaults
+(the Consumption workload profile, an HTTP scale rule, `http` transport) that Terraform wanted to
+remove, now written in the code, and azurerm 5.15 rewrites a few settings Azure reads back empty, now
+in `ignore_changes`, so a plan with nothing to do says so.
 
 ## 54. The Papers agent rebuilt in LangGraph, to compare a framework with the hand-written loop (2026-11-25)
 **Context.** The agent is a loop written by hand (decision 20), and the reasons still hold: every
