@@ -250,11 +250,17 @@ jobs:
           echo "::error::https://$fqdn/health did not answer after the deploy"
           exit 1
       # /health también lo contestaría la versión anterior: comprobar que la revisión activa es la de
-      # este commit y está sana (`latestReadyRevisionName` viene vacío en esta API, no sirve).
+      # este commit y está sana (`latestReadyRevisionName` viene vacío en esta API, no sirve). Azure
+      # tarda en calcular la salud de una revisión nueva (sale "None" un rato): hasta 3 min.
       - name: Check the active revision runs this commit
         run: |
-          # <<< añade el salto de línea final: sin él, `read` devuelve error y `bash -e` corta aquí.
-          read -r image health <<< "$(az containerapp revision list -n "$APP" -g "$GROUP" --query \
-            "[?properties.active] | [0].[properties.template.containers[0].image, properties.healthState]" -o tsv | tr '\n' ' ')"
-          echo "active revision: $image ($health)"
-          [[ "$health" == "Healthy" && "$image" == *":sha-${GITHUB_SHA::7}" ]]
+          for i in $(seq 1 18); do
+            # <<< añade el salto de línea final: sin él, `read` devuelve error y `bash -e` corta aquí.
+            read -r image health <<< "$(az containerapp revision list -n "$APP" -g "$GROUP" --query \
+              "[?properties.active] | [0].[properties.template.containers[0].image, properties.healthState]" -o tsv | tr '\n' ' ')"
+            echo "active revision: $image ($health)"
+            if [[ "$health" == "Healthy" && "$image" == *":sha-${GITHUB_SHA::7}" ]]; then exit 0; fi
+            sleep 10
+          done
+          echo "::error::the active revision is not this commit's image, or not healthy"
+          exit 1
