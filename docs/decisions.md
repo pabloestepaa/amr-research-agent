@@ -1146,3 +1146,40 @@ in 1.4 s. With no visitors the app scaled to zero after about 8 minutes, and the
 vCPU-seconds) covers about 200 hours awake. Terraform's state holds the secrets in plain text and
 lives on one machine, which is acceptable for a personal project and would move to a shared,
 encrypted backend in a team.
+
+## 54. The Papers agent rebuilt in LangGraph, to compare a framework with the hand-written loop (2026-11-25)
+**Context.** The agent is a loop written by hand (decision 20), and the reasons still hold: every
+message sent to the model is visible, and a scripted fake LLM tests each rule. But job offers ask for
+LangGraph by name, and "I did not need it" is a claim, not a measurement. The question worth
+answering is what a framework changes on the same agent: success, tokens, latency and code.
+**Options.**
+- LangGraph's prebuilt `create_react_agent`, with LangChain's tool and model wrappers.
+- A `StateGraph` of our own that reuses the loop's pieces: same tools, prompts, Groq client and rules.
+- Rewrite the AMR agent, or the Papers agent.
+**Decision.** Our own `StateGraph` for the Papers mode, in
+[`graph_agent.py`](../src/amr_agent/graph_agent.py). The prebuilt agent would change the prompts, the
+tool schemas and the stopping rules at the same time, and a difference in the eval could not be
+pinned on the framework. To share the rules, `Agent._run` was split first into pieces both versions
+call (`_start`, `_must_answer`, `_explore_turn`, `_run_tools`, `_final_turn`, `_answer`) without
+changing behaviour: the 225 tests passed as before and the AMR prompt kept its hash. `GraphAgent`
+inherits from `Agent` and replaces only `_run` with three nodes (`explore` asks the model, `tools`
+runs what it asked for, `final` asks for the answer without tools when a limit is hit) and two
+conditional edges (`next_round` checks the step and token limits, `after_explore` ends the graph when
+the model answers without calling a tool). The state is the step number and the same `Progress`
+object the loop uses. A pytest fixture runs the agent tests with both versions (40 tests run twice),
+and `amr-eval-agent --mode literature --engine graph` runs the same eval. The Papers mode was chosen
+because it has more rounds and more rules (reads per article, full-text checks, token budget), and
+its eval is the newer one. LangGraph is a development dependency only: it adds 17 packages (14 MB,
+LangSmith among them, which sends nothing unless `LANGSMITH_TRACING` is set) and does not go into the
+Docker image, which keeps its 512 MB budget.
+**Result.** In code, the loop is 15 lines and the graph 36, plus the `State` type: the graph spells
+out as nodes and edges what the loop says with a `for` and two `if`s. In exchange it can be drawn
+(`graph().get_graph().draw_mermaid()`) and would accept LangGraph's checkpointing or a human approval
+step, which this agent does not use. The first full graph run (2026-11-25, recorded tool responses)
+passed 11 of 14 tasks; one failure is the evaluator's ("three of the twelve" against "three of 12")
+and the other two stop at the token budget after reading the wrong article or rereading one, as the
+loop did on 2026-11-23. It also found a bug in the eval itself: the recording kept what the model
+read but not the article metadata or the passages, so in replay no quote could be checked (validity
+0.00) and the full-text rule of decision 50 never fired. The recording now keeps both, and old rows
+were rebuilt from their recorded content without new requests. Both versions still have to run on
+the fixed recording, on different days for the Groq quota (~140,000 tokens each): pending.

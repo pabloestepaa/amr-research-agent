@@ -28,7 +28,8 @@ agent trajectories.
   recall@10 of 0.97 on a 36-question golden set; vector search alone gets 0.86.
 - The agent is a tool-calling loop written by hand, without a framework. It chains catalog
   lookups, NCBI protein records and the literature search, within limits on steps, tokens and
-  calls per step.
+  calls per step. The Papers agent is also rebuilt in LangGraph with the same rules, to compare
+  the two on the same eval.
 - To find a fact inside a full-text article, `read_paper` ranks its paragraphs with BM25, with
   no embeddings and no index. On LitQA2, the passage that holds the answer is in the top 8 for
   92 % of the questions.
@@ -290,6 +291,31 @@ only the question, the final answer and the tool arguments, without prompts or t
 because the questions come from a public demo. The page tells visitors so. Without an OTLP
 endpoint, tracing is off and the SDK is not imported. See decision 39.
 
+## The same agent in LangGraph
+
+The Papers agent also runs as a LangGraph `StateGraph`
+([`graph_agent.py`](src/amr_agent/graph_agent.py)), to measure what a framework changes on the same
+agent. It is not LangGraph's prebuilt agent: the graph calls the same pieces as the hand-written
+loop (tools, prompts, Groq client, step and token limits), so a difference in the eval can only
+come from how the loop is organised.
+
+```mermaid
+flowchart LR
+    S([start]) --> C1{limit hit?}
+    C1 -- no --> E[explore<br/>ask the model]
+    C1 -- yes --> F[final<br/>answer without tools]
+    E -- calls tools --> T[tools<br/>run them, apply the rules]
+    E -- answers --> X([end])
+    T --> C1
+    F --> X
+```
+
+The loop says this in 15 lines with a `for` and two `if`s; the graph takes 36, plus a `State`
+type, and in exchange can be drawn and would accept checkpointing or a human approval step. The
+agent tests run against both versions, and `amr-eval-agent --mode literature --engine graph` runs
+the same eval. LangGraph is a development dependency (17 packages) and stays out of the Docker
+image. See decision 54.
+
 ## Kubernetes and Azure
 
 The public demo runs on Render, and the same image also installs on Kubernetes with the Helm
@@ -327,7 +353,7 @@ and [`docs/deploy.md`](docs/deploy.md).
 
 ## Design decisions
 
-All 53 decisions, with context and trade-offs, are in [`docs/decisions.md`](docs/decisions.md).
+All 54 decisions, with context and trade-offs, are in [`docs/decisions.md`](docs/decisions.md).
 The ones that shaped the project most:
 
 | Decision | Why | Trade-off |
@@ -336,7 +362,7 @@ The ones that shaped the project most:
 | No chunking: one row per abstract | abstracts are short and self-contained, and one PMID = one citable source | to revisit if full texts are ingested |
 | Validate citations against what was retrieved | a PMID counts only if retrieval or a tool returned it; the rest go to `invalid_citations` | tolerant parsing has to keep up with each model's citation habits |
 | Papers answers quote their source, checked by code | the reader sees where a figure comes from without opening the article, and a reworded quote is flagged | a few more output tokens; the quote stays in English under a Spanish answer |
-| Hand-written agent loop, no framework | every message sent to the model is visible, and a scripted fake LLM tests the loop | no persistent state or branching graphs, which this agent does not need |
+| Hand-written agent loop, no framework | every message sent to the model is visible, and a scripted fake LLM tests the loop | no persistent state or branching graphs, which this agent does not need; a LangGraph copy of the Papers agent measures the difference |
 | `amr-mcp` through a real MCP client in a subprocess | the project shows both sides of MCP; the client works with any MCP server | ~95 MB of the 512 MB budget (the container measures 367 MiB) |
 | Own eval metrics instead of Ragas or DeepEval | each metric is a few tested lines, and the judge prompt is versioned with the code | fewer metrics out of the box |
 | BM25 over each article's paragraphs, no embeddings, in `read_paper` | 0.92 of LitQA2 passages in the top 8, with no index and no model | embeddings fused with RRF gained a few points in the top 5 but cost ~9 s per article |
@@ -389,7 +415,7 @@ helm install amr charts/amr-research-agent       # prints how to open the API an
 ## Stack and limitations
 
 Stack: Python 3.13 · FastAPI · PostgreSQL + pgvector (Neon) · fastembed (`bge-small-en-v1.5`,
-ONNX) · OpenAI SDK against Groq (`gpt-oss-120b`, judge `gpt-oss-20b`) · MCP (`mcp` client,
+ONNX) · OpenAI SDK against Groq (`gpt-oss-120b`, judge `gpt-oss-20b`) · LangGraph (comparison only) · MCP (`mcp` client,
 [`amr-mcp`](https://github.com/pabloestepaa/amr-mcp) server) · pytest · ruff · Docker ·
 OpenTelemetry (GenAI conventions) + Langfuse · Kubernetes (kind) + Helm · Terraform · GitHub Actions · Render · Azure Container Apps.
 
