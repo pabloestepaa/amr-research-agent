@@ -35,7 +35,7 @@ variable "llm_api_key" {
 }
 
 variable "github_repository" {
-  description = "Repositorio que puede desplegar con OIDC (propietario/nombre)"
+  description = "Repositorio que puede desplegar con OIDC, como lo firma GitHub: dueño@id/repo@id (gh api repos/DUEÑO/REPO --jq '.owner.id, .id')"
   type        = string
-  default     = "pabloestepaa/amr-research-agent"
+  default     = "pabloestepaa@152290834/amr-research-agent@1446825547"
 }

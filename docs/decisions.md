@@ -1147,9 +1147,11 @@ vCPU-seconds) covers about 200 hours awake. Terraform's state holds the secrets 
 lives on one machine, which is acceptable for a personal project and would move to a shared,
 encrypted backend in a team.
 **Later (2026-11-25).** Deploys moved to CI. A `deploy-azure` job runs after `publish` and logs in
-with OIDC: a user-assigned managed identity with a federated credential for
-`repo:pabloestepaa/amr-research-agent:ref:refs/heads/main`, so no Azure secret is stored in GitHub,
-and a fork or a pull request cannot deploy. Its only role is Container Apps Contributor on `amr-api`.
+with OIDC: a user-assigned managed identity with a federated credential for this repository's `main`
+branch, so no Azure secret is stored in GitHub, and a fork or a pull request cannot deploy. The first
+run failed with `AADSTS700213`: GitHub now signs the repository with the account's and the
+repository's numeric IDs (`repo:pabloestepaa@152290834/amr-research-agent@1446825547:ref:...`), which
+survive a rename, and the credential had the plain `owner/name` form that most guides still show. Its only role is Container Apps Contributor on `amr-api`.
 A managed identity, rather than an app registration, needs no rights in the university's directory.
 The job sets the new `sha-` image with `az containerapp update`, waits for `/health` and checks that
 the active revision runs that commit, since the old one would also answer `/health`
@@ -1157,7 +1159,8 @@ the active revision runs that commit, since the old one would also answer `/heal
 apply would roll back the last deploy. The first plan also showed drift: Azure had filled in defaults
 (the Consumption workload profile, an HTTP scale rule, `http` transport) that Terraform wanted to
 remove, now written in the code, and azurerm 5.15 rewrites a few settings Azure reads back empty, now
-in `ignore_changes`, so a plan with nothing to do says so.
+in `ignore_changes`, so a plan with nothing to do says so. Once fixed, the job deployed `sha-064fb4d`
+in 37 s and `/health` answered 9 s later.
 
 ## 54. The Papers agent rebuilt in LangGraph, to compare a framework with the hand-written loop (2026-11-25)
 **Context.** The agent is a loop written by hand (decision 20), and the reasons still hold: every

@@ -17,6 +17,8 @@ resource "azurerm_user_assigned_identity" "github" {
 }
 
 # De quién se fía: solo de los pases de este repo en la rama main (un fork o una PR no sirven).
+# GitHub firma el repo con los números internos de la cuenta y del repo ("dueño@id/repo@id"), que no
+# cambian si se renombran: con solo "dueño/repo" Azure responde AADSTS700213 (visto el 2026-11-25).
 resource "azurerm_federated_identity_credential" "github_main" {
   name                      = "github-main"
   user_assigned_identity_id = azurerm_user_assigned_identity.github.id

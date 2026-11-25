@@ -253,7 +253,8 @@ jobs:
       # este commit y está sana (`latestReadyRevisionName` viene vacío en esta API, no sirve).
       - name: Check the active revision runs this commit
         run: |
-          read -r image health < <(az containerapp revision list -n "$APP" -g "$GROUP" --query \
-            "[?properties.active] | [0].[properties.template.containers[0].image, properties.healthState]" -o tsv | tr '\n' ' ')
+          # <<< añade el salto de línea final: sin él, `read` devuelve error y `bash -e` corta aquí.
+          read -r image health <<< "$(az containerapp revision list -n "$APP" -g "$GROUP" --query \
+            "[?properties.active] | [0].[properties.template.containers[0].image, properties.healthState]" -o tsv | tr '\n' ' ')"
           echo "active revision: $image ($health)"
           [[ "$health" == "Healthy" && "$image" == *":sha-${GITHUB_SHA::7}" ]]
