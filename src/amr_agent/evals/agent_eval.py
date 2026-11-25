@@ -256,7 +256,8 @@ async def _run_tasks(agent, tasks: list[AgentTask], rows: list[dict]) -> bool:
 
 def _report(s, agent, cassette, complete: bool, rows: list[dict], mode: str) -> dict:
     return {
-        "mode": mode, "model": s.llm_model, "max_steps": agent.max_steps,
+        "mode": mode, "engine": "graph" if type(agent).__name__ == "GraphAgent" else "loop",
+        "model": s.llm_model, "max_steps": agent.max_steps,
         "token_budget": agent.token_budget, "cassette_mode": cassette.mode,
         "cassette_hits": cassette.hits, "cassette_misses": cassette.misses,
         "complete": complete, "n_tasks": len(rows), "summary": summarize(rows),
@@ -314,13 +315,20 @@ async def run(database_url: str, tasks: list[AgentTask], cassette_mode: str,
 
 
 async def run_literature(tasks: list[AgentTask], cassette_mode: str,
-                         done: list[dict] | None = None) -> dict:
-    """Modo literatura: search_papers (PubMed + Europe PMC) y read_paper (PMC). Sin BD."""
+                         done: list[dict] | None = None, engine: str = "loop") -> dict:
+    """Modo literatura: search_papers (PubMed + Europe PMC) y read_paper (PMC). Sin BD.
+
+    `engine`: "loop" (el bucle propio de agent.py) o "graph" (el mismo agente en LangGraph,
+    graph_agent.py), para comparar las dos versiones con las mismas tareas.
+    """
     import httpx
 
     from amr_agent.agent import Agent
     from amr_agent.config import get_settings
     from amr_agent.evals.cassette import CassetteTools
+
+    if engine == "graph":
+        from amr_agent.graph_agent import GraphAgent as Agent
     from amr_agent.tools import PaperSearchTools, ReadPaperTools, Toolset
 
     s = get_settings()
@@ -359,9 +367,16 @@ def main(argv: list[str] | None = None) -> None:
                         help="keep the tasks already in the results file, run the rest")
     parser.add_argument("--cassette", choices=["replay", "refresh", "live"], default="replay",
                         help="tool responses: replay recorded ones (default), re-record, or live")
+    parser.add_argument("--engine", choices=["loop", "graph"], default="loop",
+                        help="literature mode only: the hand-written loop (default) or the same "
+                             "agent built with LangGraph")
     args = parser.parse_args(argv)
+    if args.engine == "graph" and args.mode != "literature":
+        parser.error("--engine graph is only implemented for --mode literature")
     literature = args.mode == "literature"
     name = args.name or ("literature" if literature else "agent")
+    if args.engine == "graph" and not args.name:
+        name += "_graph"  # no pisar los resultados del bucle propio
     out = RESULTS_DIR / f"{name}.json"
 
     if literature:
@@ -376,7 +391,7 @@ def main(argv: list[str] | None = None) -> None:
         tasks = [t for t in tasks if t.id in wanted]
     tasks = tasks[: args.limit]
     done = json.loads(out.read_text())["per_task"] if args.resume and out.exists() else []
-    report = asyncio.run(run_literature(tasks, args.cassette, done) if literature
+    report = asyncio.run(run_literature(tasks, args.cassette, done, args.engine) if literature
                          else run(url, tasks, args.cassette, done))
 
     out.parent.mkdir(parents=True, exist_ok=True)

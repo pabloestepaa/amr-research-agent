@@ -7,6 +7,7 @@ import json
 from pathlib import Path
 
 import httpx
+import pytest
 
 from amr_agent.agent import AMR_MODE, LITERATURE_MODE, SYSTEM_PROMPT, Agent
 from amr_agent.rag import NO_EVIDENCE_PAPERS
@@ -181,6 +182,7 @@ async def test_when_the_shorter_queries_fail_too_the_model_is_told_which_were_tr
 
 # --- El agente en modo literatura -----------------------------------------------------------
 
+@pytest.mark.usefixtures("both_engines")  # bucle propio y LangGraph
 async def test_literature_mode_searches_reads_and_cites_the_full_text():
     http, _ = network([epmc_record("11111111")])
     tools = Toolset([PaperSearchTools(http), ReadPaperTools(http)])
@@ -201,6 +203,7 @@ async def test_literature_mode_searches_reads_and_cites_the_full_text():
     assert result.citations[0].title.startswith("A phase 1 trial")  # del texto completo
 
 
+@pytest.mark.usefixtures("both_engines")  # bucle propio y LangGraph
 async def test_literature_mode_caps_search_papers_not_read_paper():
     http, calls = network([epmc_record("11111111")])
     tools = Toolset([PaperSearchTools(http), ReadPaperTools(http)])
@@ -219,6 +222,7 @@ async def test_literature_mode_caps_search_papers_not_read_paper():
     assert blocked.startswith("ERROR: at most 2 search_papers calls per question")
 
 
+@pytest.mark.usefixtures("both_engines")  # bucle propio y LangGraph
 async def test_a_second_read_brings_only_new_passages_and_a_third_is_refused():
     # Pregunta real (2026-11-12): leyó el mismo artículo tres veces y recibió casi lo mismo
     # (decisión 40). En la eval (ft-04), la 2.ª pregunta, más corta, habría encontrado la cifra:
@@ -243,6 +247,7 @@ async def test_a_second_read_brings_only_new_passages_and_a_third_is_refused():
     assert blocked.startswith("ERROR: you already read 11111111 2 times (steps 1 and 2)")
 
 
+@pytest.mark.usefixtures("both_engines")  # bucle propio y LangGraph
 async def test_reading_an_article_the_search_marked_without_full_text_is_refused_locally():
     # Eval del 2026-11-17 (gen-01, gen-02): leyó artículos con full_text false. Ahora se rechaza
     # sin preguntar a NCBI, y el error le pide responder con los abstracts (decisión 50).
@@ -262,6 +267,7 @@ async def test_reading_an_article_the_search_marked_without_full_text_is_refused
     assert sum(str(c.url).startswith(IDCONV) for c in calls) == 1  # solo la lectura válida
 
 
+@pytest.mark.usefixtures("both_engines")  # bucle propio y LangGraph
 async def test_an_article_never_seen_in_a_search_is_still_tried():
     # Sin resultado de búsqueda no sabemos si tiene texto completo: decide read_paper.
     http, calls = network([])
@@ -271,6 +277,7 @@ async def test_an_article_never_seen_in_a_search_is_still_tried():
     assert not result.steps[0].is_error and any(str(c.url).startswith(IDCONV) for c in calls)
 
 
+@pytest.mark.usefixtures("both_engines")  # bucle propio y LangGraph
 async def test_a_new_question_starts_with_nothing_shown():
     # La memoria es de la pregunta: la siguiente (u otra petición a la vez) lee desde el principio.
     http, _ = network([epmc_record("11111111")])
@@ -291,6 +298,7 @@ async def test_when_every_passage_was_shown_the_model_is_told_so():
     assert again.is_error and "every passage of PMC9999999 was already shown" in again.content
 
 
+@pytest.mark.usefixtures("both_engines")  # bucle propio y LangGraph
 async def test_a_read_that_failed_can_be_asked_again():
     http, _ = network([epmc_record("11111111")])
     tools = Toolset([PaperSearchTools(http), ReadPaperTools(http)])
@@ -302,6 +310,7 @@ async def test_a_read_that_failed_can_be_asked_again():
     assert [s.is_error for s in result.steps] == [True, False]  # argumento inventado, luego bien
 
 
+@pytest.mark.usefixtures("both_engines")  # bucle propio y LangGraph
 async def test_the_literature_mode_abstains_with_its_own_message():
     # No tiene índice: "indexed literature" era el mensaje del modo AMR.
     result = await Agent(ScriptedLLM(text_turn("")), Toolset([]), mode=LITERATURE_MODE).run("?")
@@ -310,6 +319,7 @@ async def test_the_literature_mode_abstains_with_its_own_message():
     assert NO_EVIDENCE_PAPERS not in AMR_MODE.system_prompt
 
 
+@pytest.mark.usefixtures("both_engines")  # bucle propio y LangGraph
 async def test_final_turn_uses_the_mode_prompt():
     http, _ = network([epmc_record("1")])
     llm = ScriptedLLM(tool_turn(("search_papers", {"query": "CAR-T"})), text_turn("ok"))
@@ -327,6 +337,7 @@ def test_only_the_papers_mode_asks_for_native_writing():
     assert "native" not in AMR_MODE.system_prompt
 
 
+@pytest.mark.usefixtures("both_engines")  # bucle propio y LangGraph
 def test_amr_mode_is_the_default_and_keeps_its_prompt():
     assert AMR_MODE.system_prompt is SYSTEM_PROMPT
     assert AMR_MODE.search_tool == "search_literature"
@@ -361,6 +372,7 @@ async def test_read_paper_returns_at_most_eight_passages():
 
 # --- Qué cuenta para el límite de búsquedas (decisión 37) -----------------------------------
 
+@pytest.mark.usefixtures("both_engines")  # bucle propio y LangGraph
 async def test_rejected_and_empty_searches_do_not_use_up_the_limit():
     # En la demo: un argumento inventado y una consulta larga sin resultados dejaban al agente sin
     # búsquedas antes de ver un solo artículo.
@@ -389,6 +401,7 @@ async def test_rejected_and_empty_searches_do_not_use_up_the_limit():
     assert "did not count towards your limit" in empty["note"]
 
 
+@pytest.mark.usefixtures("both_engines")  # bucle propio y LangGraph
 async def test_two_searches_in_one_step_count_only_if_they_return_articles():
     http, _ = network([epmc_record("11111111")])
     llm = ScriptedLLM(
@@ -427,6 +440,7 @@ async def test_search_papers_gives_the_study_type_and_only_meaningful_citation_c
     assert "study_type" not in rows[1] and "cited_by" not in rows[1]  # sin claves vacías
 
 
+@pytest.mark.usefixtures("both_engines")  # bucle propio y LangGraph
 async def test_reading_an_article_keeps_its_study_type_in_the_reference():
     record = epmc_record("11111111")
     record.update(pubTypeList={"pubType": ["Clinical Trial, Phase I"]}, citedByCount=25)

@@ -2,10 +2,24 @@ import os
 
 import pytest
 
+from amr_agent.agent import Agent
 from amr_agent.db import apply_schema_async, make_pool, refresh_term_stats, upsert_articles
 from amr_agent.ingest.pubmed import Article
 from amr_agent.retrieval import Retriever
 from tests.fakes import HashingEmbedder
+
+try:  # LangGraph es dependencia de desarrollo: sin ella, las pruebas usan solo el bucle propio
+    from amr_agent.graph_agent import GraphAgent
+    ENGINES = {"loop": Agent, "graph": GraphAgent}
+except ImportError:
+    ENGINES = {"loop": Agent}
+
+
+@pytest.fixture(params=list(ENGINES))
+def both_engines(request, monkeypatch):
+    """Repite cada prueba del módulo con el bucle propio y con el grafo de LangGraph: cambia
+    el `Agent` que importa el módulo por cada una. Si las dos pasan, se comportan igual."""
+    monkeypatch.setattr(request.module, "Agent", ENGINES[request.param])
 
 CORPUS = [
     Article("1001", "Plasmid-mediated colistin resistance gene mcr-1 in Escherichia coli",

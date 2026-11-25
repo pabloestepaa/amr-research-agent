@@ -5,7 +5,8 @@
                      └─ responde ◄──────────────── (como mucho max_steps) ◄────┘
 
 No usamos un framework de agentes (LangGraph, PydanticAI...): el bucle son unas decenas de
-líneas y así se ve exactamente qué se envía al modelo en cada paso.
+líneas y así se ve exactamente qué se envía al modelo en cada paso. Para compararlo, graph_agent.py
+hace el mismo agente con LangGraph usando las mismas piezas (fase 8, bloque C).
 """
 
 import asyncio
@@ -14,7 +15,7 @@ import math
 import re
 import time
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Literal
 
 from pydantic import BaseModel
@@ -372,6 +373,32 @@ class AgentAnswer(BaseModel):
     abstention: AbstentionKind | None = None
 
 
+@dataclass
+class Progress:
+    """Lo que lleva acumulado el agente en una pregunta. Lo comparten el bucle (`Agent._run`) y el
+    grafo de LangGraph (graph_agent.py): las reglas leen y escriben aquí, en los dos igual."""
+
+    messages: list[dict[str, Any]]  # la conversación con herramientas
+    steps: list[ToolStep] = field(default_factory=list)
+    evidence: list[tuple[ToolCall, ToolResult]] = field(default_factory=list)  # vuelta final
+    called: dict[str, int] = field(default_factory=dict)  # llamada -> paso en que se hizo
+    shown_abstracts: set[str] = field(default_factory=set)  # PMIDs que la búsqueda ya mostró
+    read: dict[str, list[int]] = field(default_factory=dict)  # artículo leído -> pasos (47)
+    # Búsquedas de literatura que devolvieron algo. No cuentan las repetidas, las rechazadas
+    # (argumento inventado, fallo de red) ni las vacías: no han enseñado nada al modelo y,
+    # si contaran, se quedaría sin búsquedas antes de ver un solo artículo (decisión 37).
+    searches: int = 0
+    seen_pmids: set[str] = field(default_factory=set)
+    papers: dict[str, Paper] = field(default_factory=dict)  # PMID -> título, revista y año
+    excerpts: list[Excerpt] = field(default_factory=list)  # las frases citadas deben estar aquí
+    turns: list[ChatTurn] = field(default_factory=list)
+    llm_ms: float = 0.0
+    tools_ms: float = 0.0
+    stop: StopReason = "answer"
+    added_chars: int = 0  # resultados añadidos al historial en la última vuelta
+    largest_result: int = 0  # el resultado de herramienta más largo, en caracteres
+
+
 class Agent:
     def __init__(self, llm: ChatLLM, tools: ToolBox, *, mode: AgentMode = AMR_MODE,
                  max_steps: int | None = None, token_budget: int = 12_000,
@@ -412,114 +439,130 @@ class Agent:
         return result
 
     async def _run(self, question: str, emit: EventSink) -> AgentAnswer:
+        """El bucle: en cada vuelta, o responde ya (límites) o pregunta al LLM y ejecuta lo pedido.
+
+        graph_agent.py hace lo mismo con LangGraph, con las mismas piezas (`_start`,
+        `_must_answer`, `_explore_turn`, `_final_turn`, `_run_tools`, `_answer`).
+        """
         t0 = time.perf_counter()
+        progress = self._start(question)
         schemas = [s.to_openai() for s in self._tools.specs()]
-        messages: list[dict[str, Any]] = [
+        for step in range(1, self.max_steps + 1):
+            if stop := self._must_answer(question, progress, step):
+                progress.stop = stop
+                emit("round", {"step": step, "final": True})
+                await self._final_turn(question, progress)
+                break
+            emit("round", {"step": step, "final": False})
+            turn = await self._explore_turn(progress, schemas)
+            if not turn.tool_calls:
+                break  # respuesta final
+            await self._run_tools(turn, step, progress, emit)
+        return self._answer(question, progress, t0)
+
+    def _start(self, question: str) -> Progress:
+        return Progress(messages=[
             {"role": "system",
              "content": self.mode.system_prompt.format(
                  max_searches=self.max_literature_searches)},
             {"role": "user", "content": question},
-        ]
-        steps: list[ToolStep] = []
-        evidence: list[tuple[ToolCall, ToolResult]] = []  # para la vuelta final
-        called: dict[str, int] = {}  # llamada (herramienta + argumentos) -> paso en que se hizo
-        shown_abstracts: set[str] = set()  # PMIDs que la búsqueda ya mostró
-        read: dict[str, list[int]] = {}  # artículo leído con éxito -> pasos (decisión 47)
-        # Búsquedas de literatura que devolvieron algo. No cuentan las repetidas, las rechazadas
-        # (argumento inventado, fallo de red) ni las vacías: no han enseñado nada al modelo y,
-        # si contaran, se quedaría sin búsquedas antes de ver un solo artículo (decisión 37).
-        searches = 0
-        seen_pmids: set[str] = set()
-        papers: dict[str, Paper] = {}  # PMID -> título, revista y año, para las referencias
-        excerpts: list[Excerpt] = []  # abstracts y pasajes: las frases citadas deben estar aquí
-        turns: list[ChatTurn] = []
-        llm_ms = tools_ms = 0.0
-        stop: StopReason = "answer"
+        ])
 
-        added_chars = 0  # resultados de herramientas que se añadieron al historial en la vuelta
-        largest_result = 0  # el resultado de herramienta más largo, en caracteres
-        for step in range(1, self.max_steps + 1):
-            used = sum((t.prompt_tokens or 0) + (t.completion_tokens or 0) for t in turns)
-            # Antes solo se miraba lo gastado, y una vuelta que empezaba por debajo del límite
-            # acababa muy por encima: cada vuelta reenvía toda la conversación (gen-01 llegó a
-            # 23.598 tokens con 16.000). Se pasa a la respuesta final si explorar una vuelta más
-            # y responder después dejaría el total por encima del presupuesto (decisiones 49 y
-            # 51: contar solo la vuelta siguiente aún dejó gen-01 en 20.454).
-            final_chars = sum(len(m["content"]) for m in self._final_messages(question, evidence))
-            if step == self.max_steps or used + explore_cost(
-                    turns[-1] if turns else None, added_chars, final_chars,
-                    largest_result) > self.token_budget:
-                stop = "max_steps" if step == self.max_steps else "token_budget"
-                emit("round", {"step": step, "final": True})
-                turn = await self._llm.chat(self._final_messages(question, evidence), [],
-                                            tool_choice="none")
+    def _must_answer(self, question: str, p: Progress, step: int) -> StopReason | None:
+        """Si toca la respuesta final en esta vuelta, por qué; si no, None."""
+        if step == self.max_steps:
+            return "max_steps"
+        used = sum((t.prompt_tokens or 0) + (t.completion_tokens or 0) for t in p.turns)
+        # Antes solo se miraba lo gastado, y una vuelta que empezaba por debajo del límite
+        # acababa muy por encima: cada vuelta reenvía toda la conversación (gen-01 llegó a
+        # 23.598 tokens con 16.000). Se pasa a la respuesta final si explorar una vuelta más
+        # y responder después dejaría el total por encima del presupuesto (decisiones 49 y
+        # 51: contar solo la vuelta siguiente aún dejó gen-01 en 20.454).
+        final_chars = sum(len(m["content"]) for m in self._final_messages(question, p.evidence))
+        if used + explore_cost(p.turns[-1] if p.turns else None, p.added_chars, final_chars,
+                               p.largest_result) > self.token_budget:
+            return "token_budget"
+        return None
+
+    async def _explore_turn(self, p: Progress, schemas: list[dict[str, Any]]) -> ChatTurn:
+        turn = await self._llm.chat(p.messages, schemas)
+        p.turns.append(turn)
+        p.llm_ms += turn.latency_ms
+        return turn
+
+    async def _final_turn(self, question: str, p: Progress) -> ChatTurn:
+        # Sin herramientas: si aun así pide alguna, no seguimos (strip_tool_markup limpia restos).
+        turn = await self._llm.chat(self._final_messages(question, p.evidence), [],
+                                    tool_choice="none")
+        p.turns.append(turn)
+        p.llm_ms += turn.latency_ms
+        return turn
+
+    async def _run_tools(self, turn: ChatTurn, step: int, p: Progress,
+                         emit: EventSink) -> None:
+        """Ejecuta las herramientas que pidió el LLM, con las reglas de cada una, y apunta todo."""
+        p.messages.append(turn.as_message())
+        t_tools = time.perf_counter()
+        pending: list[Awaitable[ToolResult]] = []
+        counted: set[int] = set()  # índices de las búsquedas contadas en este paso
+        for i, call in enumerate(turn.tool_calls):
+            key = call_key(call)
+            paper = paper_key(call) if call.name == self.mode.read_tool else None
+            if key is not None and key in p.called:  # misma herramienta, mismos argumentos
+                pending.append(_repeated(call, p.called[key]))
+            elif paper is not None and len(p.read.get(paper, [])) >= self.mode.max_reads:
+                pending.append(_read_limit(paper, p.read[paper]))
+            elif paper is not None and p.papers.get(paper, NO_PAPER).full_text is False:
+                pending.append(_no_full_text(paper))
+            elif (call.name == self.mode.search_tool
+                  and p.searches >= self.max_literature_searches):
+                pending.append(_search_limit(self.max_literature_searches,
+                                             self.mode.search_tool))
             else:
-                emit("round", {"step": step, "final": False})
-                turn = await self._llm.chat(messages, schemas)
-            turns.append(turn)
-            llm_ms += turn.latency_ms
-
-            if not turn.tool_calls or stop != "answer":
-                break  # respuesta final (si aun así pide herramientas, no seguimos)
-
-            messages.append(turn.as_message())
-            t_tools = time.perf_counter()
-            pending: list[Awaitable[ToolResult]] = []
-            counted: set[int] = set()  # índices de las búsquedas contadas en este paso
-            for i, call in enumerate(turn.tool_calls):
-                key = call_key(call)
-                paper = paper_key(call) if call.name == self.mode.read_tool else None
-                if key is not None and key in called:  # misma herramienta, mismos argumentos
-                    pending.append(_repeated(call, called[key]))
-                elif paper is not None and len(read.get(paper, [])) >= self.mode.max_reads:
-                    pending.append(_read_limit(paper, read[paper]))
-                elif paper is not None and papers.get(paper, NO_PAPER).full_text is False:
-                    pending.append(_no_full_text(paper))
-                elif (call.name == self.mode.search_tool
-                      and searches >= self.max_literature_searches):
-                    pending.append(_search_limit(self.max_literature_searches,
-                                                 self.mode.search_tool))
-                else:
-                    if call.name == self.mode.search_tool:
-                        searches += 1  # provisional: se descuenta abajo si no devolvió nada
-                        counted.add(i)
-                    if key is not None:
-                        called[key] = step
-                    pending.append(self._call(call, i))
-            # Si pide varias herramientas a la vez, son independientes: en paralelo.
-            results = await asyncio.gather(*(self._traced(call, p) for call, p
-                                             in zip(turn.tool_calls, pending, strict=True)))
-            tools_ms += (time.perf_counter() - t_tools) * 1000
-            added_chars = sum(len(r.content) for r in results)
-            largest_result = max(largest_result, added_chars)
-            searches -=sum(1 for i in counted if results[i].is_error or not results[i].pmids)
-            for call, result in zip(turn.tool_calls, results, strict=True):
                 if call.name == self.mode.search_tool:
-                    pmids = result.pmids
-                    result = drop_seen_abstracts(result, shown_abstracts)
-                    shown_abstracts.update(pmids)
-                elif call.name == self.mode.read_tool and not result.is_error:
-                    # Solo las lecturas que trajeron pasajes: si falló (sin texto completo,
-                    # argumento mal escrito), volver a pedirlo bien no es releer.
-                    paper = paper_key(call)
-                    if paper is not None:
-                        read.setdefault(paper, []).append(step)
-                # La API exige un mensaje `tool` por cada llamada, también las fallidas.
-                messages.append({"role": "tool", "tool_call_id": call.id,
-                                 "content": result.content})
-                evidence.append((call, result))
-                seen_pmids |= result.pmids
-                for p in result.papers:
-                    papers[p.pmid] = p.merge(papers[p.pmid]) if p.pmid in papers else p
-                excerpts.extend(result.excerpts)
-                steps.append(ToolStep(
-                    step=step, tool=call.name, arguments=call.arguments,
-                    is_error=result.is_error, truncated=result.truncated,
-                    result_chars=len(result.content), pmids=sorted(result.pmids),
-                    latency_ms=result.latency_ms, preview=result.content[:300],
-                ))
-                emit("step", steps[-1].model_dump())
+                    p.searches += 1  # provisional: se descuenta abajo si no devolvió nada
+                    counted.add(i)
+                if key is not None:
+                    p.called[key] = step
+                pending.append(self._call(call, i))
+        # Si pide varias herramientas a la vez, son independientes: en paralelo.
+        results = await asyncio.gather(*(self._traced(call, pend) for call, pend
+                                         in zip(turn.tool_calls, pending, strict=True)))
+        p.tools_ms += (time.perf_counter() - t_tools) * 1000
+        p.added_chars = sum(len(r.content) for r in results)
+        p.largest_result = max(p.largest_result, p.added_chars)
+        p.searches -= sum(1 for i in counted if results[i].is_error or not results[i].pmids)
+        for call, result in zip(turn.tool_calls, results, strict=True):
+            if call.name == self.mode.search_tool:
+                pmids = result.pmids
+                result = drop_seen_abstracts(result, p.shown_abstracts)
+                p.shown_abstracts.update(pmids)
+            elif call.name == self.mode.read_tool and not result.is_error:
+                # Solo las lecturas que trajeron pasajes: si falló (sin texto completo,
+                # argumento mal escrito), volver a pedirlo bien no es releer.
+                paper = paper_key(call)
+                if paper is not None:
+                    p.read.setdefault(paper, []).append(step)
+            # La API exige un mensaje `tool` por cada llamada, también las fallidas.
+            p.messages.append({"role": "tool", "tool_call_id": call.id,
+                               "content": result.content})
+            p.evidence.append((call, result))
+            p.seen_pmids |= result.pmids
+            for paper_info in result.papers:
+                old = p.papers.get(paper_info.pmid)
+                p.papers[paper_info.pmid] = paper_info.merge(old) if old else paper_info
+            p.excerpts.extend(result.excerpts)
+            p.steps.append(ToolStep(
+                step=step, tool=call.name, arguments=call.arguments,
+                is_error=result.is_error, truncated=result.truncated,
+                result_chars=len(result.content), pmids=sorted(result.pmids),
+                latency_ms=result.latency_ms, preview=result.content[:300],
+            ))
+            emit("step", p.steps[-1].model_dump())
 
+    def _answer(self, question: str, p: Progress, t0: float) -> AgentAnswer:
+        """De la última respuesta del LLM a un AgentAnswer: citas, frases y abstención revisadas."""
+        turn = p.turns[-1]
         # Guardarraíl, igual que en /ask: una cita solo vale si una herramienta devolvió ese PMID.
         answer = normalize_citations(strip_tool_markup(turn.text)).strip()
         # Y una frase solo vale si está en lo que devolvieron las herramientas para ese PMID.
@@ -534,24 +577,24 @@ class Agent:
         kind: AbstentionKind | None = None
         if abstained:
             # Sin herramientas = ni lo intentó: estaba fuera de ámbito (o eso decidió el modelo).
-            kind = "not_found" if steps else "out_of_scope"
+            kind = "not_found" if p.steps else "out_of_scope"
             if not cited:  # con citas sería una respuesta parcial que la menciona: no se toca
-                answer = self._abstention(kind, question, steps)
-        quotes = _check_quotes(raw_quotes, excerpts)
+                answer = self._abstention(kind, question, p.steps)
+        quotes = _check_quotes(raw_quotes, p.excerpts)
         return AgentAnswer(
             answer=answer,
-            citations=[_citation(p, papers.get(p), quotes.get(p, [])) for p in cited
-                       if p in seen_pmids],
-            invalid_citations=[p for p in cited if p not in seen_pmids],
-            steps=steps,
-            stop_reason=stop,
+            citations=[_citation(pmid, p.papers.get(pmid), quotes.get(pmid, []))
+                       for pmid in cited if pmid in p.seen_pmids],
+            invalid_citations=[pmid for pmid in cited if pmid not in p.seen_pmids],
+            steps=p.steps,
+            stop_reason=p.stop,
             usage=AgentUsage(
-                model=turns[-1].model,
-                llm_calls=len(turns),
-                prompt_tokens=sum(t.prompt_tokens or 0 for t in turns),
-                completion_tokens=sum(t.completion_tokens or 0 for t in turns),
+                model=turn.model,
+                llm_calls=len(p.turns),
+                prompt_tokens=sum(t.prompt_tokens or 0 for t in p.turns),
+                completion_tokens=sum(t.completion_tokens or 0 for t in p.turns),
             ),
-            latency_ms={"llm": round(llm_ms, 1), "tools": round(tools_ms, 1),
+            latency_ms={"llm": round(p.llm_ms, 1), "tools": round(p.tools_ms, 1),
                         "total": round((time.perf_counter() - t0) * 1000, 1)},
             abstained=abstained,
             abstention=kind,

@@ -26,6 +26,8 @@ from amr_agent.rag import NO_EVIDENCE
 from amr_agent.tools import MCP_TOOLS, LiteratureTools, McpTools, ToolResult, Toolset, ToolSpec
 from tests.fakes import FakeRetriever, ScriptedLLM, make_hit, text_turn, tool_turn
 
+pytestmark = pytest.mark.usefixtures("both_engines")  # bucle propio y LangGraph
+
 CATALOG = Path(__file__).parent / "fixtures" / "catalog_sample.tsv"
 
 

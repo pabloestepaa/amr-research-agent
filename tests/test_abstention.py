@@ -13,6 +13,8 @@ from tests.fakes import ScriptedLLM, text_turn, tool_turn
 from tests.test_eval_agent import answer
 from tests.test_literature_mode import epmc_record, network
 
+pytestmark = pytest.mark.usefixtures("both_engines")  # bucle propio y LangGraph
+
 
 @pytest.mark.parametrize("question, spanish", [
     ("¿Cuál es la capital de Australia?", True),
